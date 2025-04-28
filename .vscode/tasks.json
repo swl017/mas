@@ -1,0 +1,17 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "source ROS2",
+            "type": "shell",
+            "command": "source ${workspaceFolder}/install/setup.bash && env",
+            "problemMatcher": [],
+            "options": {
+                "shell": {
+                    "executable": "/bin/bash",
+                    "args": ["-c"]
+                }
+            }
+        }
+    ]
+}

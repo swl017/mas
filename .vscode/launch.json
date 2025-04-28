@@ -1,0 +1,117 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "ROS2 C++ Node (Attach)",
+            "type": "cppdbg",
+            "request": "attach",
+            "processId": "${command:pickProcess}",
+            "program": "${workspaceFolder}/install/${workspaceFolderBasename}/lib/${workspaceFolderBasename}/${input:nodeName}",
+            "MIMode": "gdb",
+            "sourceFileMap": {
+                "/build": "${workspaceFolder}"
+            },
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ],
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "source ROS2"
+        },
+        {
+            "name": "ROS2 C++ Node (Launch)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/install/${input:package}/lib/${input:package}/${input:nodeName}",
+            "args": ["${input:nodeArgs}"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "source ROS2",
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "ROS: Launch",
+            "request": "launch",
+            "target": "${workspaceFolder}/install/mas_multiview/share/mas_multiview/launch/triangulation.launch.py",
+            "launch": [
+                "rviz",
+                "gz",
+                "gzclient",
+                "gzserver"
+            ],
+            "arguments": [""],
+            "type": "ros"
+        },
+        {
+            "name": "ROS2 launch file",
+            "type": "ros",
+            "request": "launch",
+            "program": "${workspaceFolder}/install/${input:package}/share/${input:package}/launch/${input:launch_file}",
+            "args": ["${input:nodeArgs}"],
+            "stopAtEntry": true,
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "source ROS2",
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ]
+        }
+    ],
+    "inputs": [
+        {
+            "id": "package",
+            "type": "promptString",
+            "description": "Enter the name of the ROS2 package",
+            "default": "mas_multiview"
+        },
+        {
+            "id": "launch_file",
+            "type": "promptString",
+            "description": "Enter the name of the ROS2 launch file",
+            "default": "triangulation.launch.py"
+        },
+        {
+            "id": "nodeName",
+            "type": "promptString",
+            "description": "Enter the name of the ROS2 node executable",
+            "default": "triangulation_node"
+        },
+        {
+            "id": "nodeArgs",
+            "type": "promptString",
+            "description": "Enter ROS2 node arguments (e.g. --ros-args -p param:=value)",
+            "default": "" //"--ros-args -p config_path:=${workspaceFolder}/config/"
+        }
+    ]
+}
