@@ -1,0 +1,3 @@
+[submodule "src/mas_multiview_py"]
+	path = src/mas_multiview_py
+	url = git@github.com:swl017/mas_multiview_py.git
