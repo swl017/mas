@@ -4,3 +4,6 @@
 [submodule "src/mas_common_frame"]
 	path = src/mas_common_frame
 	url = git@github.com:swl017/mas_common_frame.git
+[submodule "src/ultralytics_ros"]
+	path = src/ultralytics_ros
+	url = git@github.com:swl017/ultralytics_ros.git

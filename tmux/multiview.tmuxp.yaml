@@ -1,0 +1,20 @@
+session_name: multiview
+
+environment:
+  ROS2_INSTALL_PATH: /opt/ros/galactic
+  ROS2_WORKSPACE: /home/usrg/mas
+
+options:
+  default-command: /bin/bash
+
+windows:
+- window_name: ros2
+  focus: true
+  layout: tiled
+  shell_command_before:
+    - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
+    - source ${ROS2_INSTALL_PATH}/setup.bash;
+    - source ${ROS2_WORKSPACE}/setup.bash;
+  panes:
+    - ros2 launch mas_common_frame common_frame.launch.py
+    - ros2 run mas_multiview_py multiview_node
