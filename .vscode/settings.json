@@ -1,4 +1,19 @@
 {
+    "python.autoComplete.extraPaths": [
+        "${workspaceFolder}/src",
+        "${workspaceFolder}/install/mas_multiview_py/lib/python3.8/site-packages",
+        "/opt/ros/galactic/lib/python3.8/site-packages",
+    ],
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}/src",
+        "${workspaceFolder}/install/mas_multiview_py/lib/python3.8/site-packages",
+        "/opt/ros/galactic/lib/python3.8/site-packages",
+    ],
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.diagnosticMode": "workspace",
+    "python.analysis.useLibraryCodeForTypes": true,
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.indexing": true,
     "files.associations": {
         "random": "cpp",
         "cholesky": "cpp",
