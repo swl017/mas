@@ -1,0 +1,51 @@
+session_name: multiview_topics
+
+environment:
+  ROS2_INSTALL_PATH: /opt/ros/galactic
+  ROS2_WORKSPACE: /home/usrg/mas
+
+options:
+  default-command: /bin/bash
+
+windows:
+- window_name: ros2
+  focus: true
+  layout: tiled
+  shell_command_before:
+    - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
+    - source ${ROS2_INSTALL_PATH}/setup.bash;
+    - source ${ROS2_WORKSPACE}/install/setup.bash;
+  panes:
+    - ros2 topic hz /multiview_node/visualization
+    - ros2 topic delay /multiview_node/visualization
+    - ros2 topic echo /multiview_node/visualization
+    - ros2 topic hz /px4_1/common_frame/pose
+    - ros2 topic delay /px4_1/common_frame/pose
+    - ros2 topic echo /px4_1/common_frame/pose
+    - ros2 topic hz /px4_2/common_frame/pose
+    - ros2 topic delay /px4_2/common_frame/pose
+    - ros2 topic echo /px4_2/common_frame/pose
+    - ros2 topic hz /px4_3/common_frame/pose
+    - ros2 topic delay /px4_3/common_frame/pose
+    - ros2 topic echo /px4_3/common_frame/pose
+    - ros2 topic hz /px4_4/common_frame/pose
+    - ros2 topic delay /px4_4/common_frame/pose
+    - ros2 topic echo /px4_4/common_frame/pose
+    - ros2 topic hz /px4_5/common_frame/pose
+    - ros2 topic delay /px4_5/common_frame/pose
+    - ros2 topic echo /px4_5/common_frame/pose
+    - ros2 topic hz /px4_6/common_frame/pose
+    - ros2 topic delay /px4_6/common_frame/pose
+    - ros2 topic echo /px4_6/common_frame/pose
+
+- window_name: yolo
+  focus: true
+  layout: tiled
+  shell_command_before:
+    - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
+    - source ${ROS2_INSTALL_PATH}/setup.bash;
+    - source ${ROS2_WORKSPACE}/install/setup.bash;
+  panes:
+    - ros2 topic echo /px4_1/yolo_result_vision
+    - ros2 topic echo /px4_2/yolo_result_vision
+    - ros2 topic echo /px4_3/yolo_result_vision

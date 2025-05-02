@@ -17,4 +17,7 @@ windows:
     - source ${ROS2_WORKSPACE}/install/setup.bash;
   panes:
     - ros2 launch mas_common_frame common_frame.launch.py
-    - ros2 run mas_multiview_py multiview_node
+    # - ros2 launch mas_multiview triangulation.launch.py
+    - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/px4_1
+    - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/px4_2
+    - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/px4_3
