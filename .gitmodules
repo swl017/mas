@@ -7,3 +7,6 @@
 [submodule "src/ultralytics_ros"]
 	path = src/ultralytics_ros
 	url = git@github.com:swl017/ultralytics_ros.git
+[submodule "src/mas_multiview"]
+	path = src/mas_multiview
+	url = git@github.com:swl017/mas_multiview.git

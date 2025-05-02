@@ -24,17 +24,19 @@
                 }
             ],
             "cwd": "${workspaceFolder}",
-            "preLaunchTask": "source ROS2"
+            "preLaunchTask": "source ROS2",
+            "envFile": "${workspaceFolder}/.vscode/.ros_env"
         },
         {
             "name": "ROS2 C++ Node (Launch)",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/install/${input:package}/lib/${input:package}/${input:nodeName}",
-            "args": ["${input:nodeArgs}"],
+            "args": ["--ros-args -p frame_id:=common_frame -p num_camera:=3 -p camera_name_prefix:=px4_ -p detection_topic_suffix:=yolo_result_vision -p camera_info_topic_suffix:=camera/color/camera_info -p camera_odom_topic_suffix:=common_frame/odom -p gimbal_topic_suffix:=gimbal_state_rpy_rad"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "source ROS2",
+            "envFile": "${workspaceFolder}/.vscode/.ros_env",
             "externalConsole": false,
             "MIMode": "gdb",
             "setupCommands": [
@@ -60,8 +62,9 @@
                 "gzclient",
                 "gzserver"
             ],
-            "arguments": [""],
-            "type": "ros"
+            "arguments": ["frame_id:=common_frame num_camera:=3 camera_name_prefix:=px4_ detection_topic_suffix:=yolo_result_vision camera_info_topic_suffix:=camera/color/camera_info camera_odom_topic_suffix:=common_frame/odom gimbal_topic_suffix:=gimbal_state_rpy_rad"],
+            "type": "ros",
+            "preLaunchTask": "source ROS2",
         },
         {
             "name": "ROS2 launch file",
