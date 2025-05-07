@@ -8,8 +8,18 @@ options:
   default-command: /bin/bash
 
 windows:
-- window_name: ros2
-  focus: true
+- window_name: detection
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
+    - source ${ROS2_INSTALL_PATH}/setup.bash;
+    - source ${ROS2_WORKSPACE}/install/setup.bash;
+  panes:
+    - ros2 launch mas_multiview triangulation.launch.py
+
+- window_name: detection
+  focus: false
   layout: tiled
   shell_command_before:
     - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
@@ -17,7 +27,18 @@ windows:
     - source ${ROS2_WORKSPACE}/install/setup.bash;
   panes:
     - ros2 launch mas_common_frame common_frame.launch.py
-    # - ros2 launch mas_multiview triangulation.launch.py
     - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/px4_1
     - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/px4_2
     - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/px4_3
+
+- window_name: gimbal_pointing_control
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
+    - source ${ROS2_INSTALL_PATH}/setup.bash;
+    - source ${ROS2_WORKSPACE}/install/setup.bash;
+  panes:
+    - ros2 run gimbal_controller point_to_region_node --ros-args -r __ns:=/px4_1
+    - ros2 run gimbal_controller point_to_region_node --ros-args -r __ns:=/px4_2
+    - ros2 run gimbal_controller point_to_region_node --ros-args -r __ns:=/px4_3

@@ -115,4 +115,5 @@
     "files.trimTrailingWhitespace": true,
     "terminal.integrated.scrollback": 1000000,
     "colcon.provideTasks": true,
+    "ros.distro": "galactic",
 }

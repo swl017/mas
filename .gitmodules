@@ -10,3 +10,9 @@
 [submodule "src/mas_multiview"]
 	path = src/mas_multiview
 	url = git@github.com:swl017/mas_multiview.git
+[submodule "src/gimbal_controller"]
+	path = src/gimbal_controller
+	url = git@github.com:swl017/gimbal_control.git
+[submodule "src/vision_opencv"]
+	path = src/vision_opencv
+	url = https://github.com/ros-perception/vision_opencv.git
