@@ -49,3 +49,14 @@ windows:
     - ros2 topic echo /px4_1/yolo_result_vision
     - ros2 topic echo /px4_2/yolo_result_vision
     - ros2 topic echo /px4_3/yolo_result_vision
+
+- window_name: yolo
+  focus: true
+  layout: tiled
+  shell_command_before:
+    - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
+    - source ${ROS2_INSTALL_PATH}/setup.bash;
+    - source ${ROS2_WORKSPACE}/install/setup.bash;
+  panes:
+    - ros2 topic hz -w 10 /px4_1/yolo_result_vision
+    - ros2 topic hz -w 10 /px4_1/camera/color/image_raw/compressed

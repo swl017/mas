@@ -8,7 +8,7 @@ options:
   default-command: /bin/bash
 
 windows:
-- window_name: detection
+- window_name: triangulation
   focus: false
   layout: tiled
   shell_command_before:

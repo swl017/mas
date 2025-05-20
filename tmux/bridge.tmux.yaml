@@ -1,0 +1,23 @@
+session_name: ros1_bridge
+
+environment:
+  ROS1_INSTALL_PATH: ~/catkin_ws/devel
+  ROS2_INSTALL_PATH: ~/colcon_ws/install
+  ROS2_WORKSPACE: /home/usrg/mas
+  DELAY: "1"
+
+options:
+  default-command: /bin/bash
+
+windows:
+- window_name: lamp
+  focus: true
+  layout: tiled
+  shell_command_before:
+    - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
+    - source /home/usrg/mas/drone_config/robot.env
+    - export ROS_DOMAIN_ID=0
+  panes:
+    - source ${ROS1_INSTALL_PATH}/setup.bash; roscore
+    - sleep $DELAY; source ${ROS1_INSTALL_PATH}/setup.bash; rosparam load $ROS2_WORKSPACE/tmux/bridge_topics_$ROBOT_NAME.yaml; source ${ROS2_INSTALL_PATH}/setup.bash; ros2 run ros1_bridge parameter_bridge #__ns:=$ROBOT_NAME
+    - sleep $DELAY; source ${ROS1_INSTALL_PATH}/setup.bash; roslaunch mavlink_gimbal usb_cam-test-fhd.launch ns:=/$ROBOT_NAME/camera

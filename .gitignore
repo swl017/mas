@@ -2,3 +2,4 @@
 **/log
 **/install
 bag/
+drone_config/robot.env

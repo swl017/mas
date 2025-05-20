@@ -1,0 +1,19 @@
+topics:
+  -
+    topic: /px4_2/camera/color/image_raw/compressed
+    type: sensor_msgs/msg/CompressedImage # ros2 style
+    queue_size: 1
+    qos:
+      history: keep_last
+      depth: 1
+      reliability: best_effort
+      durability: volatile
+  # -
+  #   topic: /px4_1/camera/color/image_raw
+  #   type: sensor_msgs/msg/Image # ros2 style
+  #   queue_size: 1
+  #   qos:
+  #     history: keep_last
+  #     depth: 1
+  #     reliability: reliable
+  #     durability: volatile

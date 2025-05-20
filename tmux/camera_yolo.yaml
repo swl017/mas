@@ -1,0 +1,22 @@
+session_name: camera_yolo
+
+environment:
+  ROS2_INSTALL_PATH: /opt/ros/galactic
+  ROS2_WORKSPACE: /home/usrg/mas
+  DRONE_CONFIG_PATH: /home/usrg/mas/drone_config
+
+options:
+  default-command: /bin/bash
+
+windows:
+- window_name: camera
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
+    - source ${ROS2_INSTALL_PATH}/setup.bash
+    - source ${ROS2_WORKSPACE}/install/setup.bash
+    - source ${DRONE_CONFIG_PATH}/robot.env
+  panes:
+    - ros2 launch gimbal_controller usb_cam.launch.py ns:=/${ROBOT_NAME}/camera/color camera_name:=camera
+    - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/${ROBOT_NAME} yolo_model:=yolov11s-drone.pt
