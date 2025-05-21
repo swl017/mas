@@ -1,0 +1,20 @@
+network:
+  version: 2
+  renderer: networkd # or NetworkManager
+  ethernets:
+    eno1: # Your existing interface
+      dhcp4: yes # Enable DHCP for IPv4 for the primary network (192.168.0.x)
+      addresses:
+        # - 192.168.0.100/24   # Uncomment for static IP if dhcp4: no
+        -  192.168.144.2/24 # KEEP this static IP for your other network
+      # Gateway and Nameservers for the 192.168.0.x network will typically be
+      # provided by the DHCP server.
+      # If you had a static gateway4 or nameservers here for 192.168.0.x,
+      # you might want to remove or comment them out to let DHCP handle them.
+      # However, Netplan can be configured to ignore DHCP routes or DNS if needed,
+      # but for standard DHCP use, let DHCP provide them.
+      # For example, if you don't want DHCP to set the default route:
+      # dhcp4-overrides:
+      #   use-routes: false
+      # And if you don't want DHCP to set DNS:
+      #   use-dns: false

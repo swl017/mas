@@ -1,9 +1,7 @@
 session_name: drone
 
 environment:
-  ROS2_INSTALL_PATH: /opt/ros/galactic
   ROS2_WORKSPACE: /home/usrg/mas
-  DRONE_CONFIG_PATH: /home/usrg/mas/drone_config
 
 options:
   default-command: /bin/bash
@@ -14,9 +12,7 @@ windows:
   layout: tiled
   shell_command_before:
     - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
-    - source ${ROS2_INSTALL_PATH}/setup.bash
-    - source ${ROS2_WORKSPACE}/install/setup.bash
-    - source ${DRONE_CONFIG_PATH}/robot.env
+    - source ${ROS2_WORKSPACE}/drone_config/robot.env
   panes:
     - ros2 run mavros mavros_node --ros-args --param fcu_url:=${FCU_URL} --param tgt_system:=${TGT_SYSTEM} -r __ns:=/${ROBOT_NAME}/mavros
 
@@ -25,9 +21,7 @@ windows:
   layout: tiled
   shell_command_before:
     - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
-    - source ${ROS2_INSTALL_PATH}/setup.bash
-    - source ${ROS2_WORKSPACE}/install/setup.bash
-    - source ${DRONE_CONFIG_PATH}/robot.env
+    - source ${ROS2_WORKSPACE}/drone_config/robot.env
   panes:
     - ros2 run gimbal_controller point_to_region_node --ros-args -r __ns:=/${ROBOT_NAME}
     - ros2 launch gimbal_controller siyi_ros.launch.py ns:=/${ROBOT_NAME} server_ip:=${GIMBAL_IP}
@@ -37,9 +31,7 @@ windows:
   layout: tiled
   shell_command_before:
     - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
-    - source ${ROS2_INSTALL_PATH}/setup.bash
-    - source ${ROS2_WORKSPACE}/install/setup.bash
-    - source ${DRONE_CONFIG_PATH}/robot.env
+    - source ${ROS2_WORKSPACE}/drone_config/robot.env
   panes:
-    # - ros2 launch gimbal_controller usb_cam.launch.py ns:=/${ROBOT_NAME}/camera/color camera_name:=camera
+    - ros2 launch gimbal_controller usb_cam.launch.py ns:=/${ROBOT_NAME}/camera/color camera_name:=camera
     - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/${ROBOT_NAME} input_topic:=camera/color/image_raw/compressed yolo_model:=yolov11m-drone.onnx
