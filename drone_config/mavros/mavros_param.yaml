@@ -1,0 +1,14 @@
+mavros:
+  ros__parameters: {}
+
+mavros_router:
+  ros__parameters: {}
+
+mavros_node:
+  ros__parameters:
+    #fcu_url: /dev/$FCU_URL:115200 # udp://:14540@localhost:14557
+    #gcs_url: udp://:14556@$GCS_IP:14550
+
+/**/setpoint_raw:
+  ros__parameters:
+    thrust_scaling: 1.0

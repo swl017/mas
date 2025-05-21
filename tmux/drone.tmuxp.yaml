@@ -14,7 +14,7 @@ windows:
     - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
     - source ${ROS2_WORKSPACE}/drone_config/robot.env
   panes:
-    - ros2 run mavros mavros_node --ros-args --param fcu_url:=${FCU_URL} --param tgt_system:=${TGT_SYSTEM} -r __ns:=/${ROBOT_NAME}/mavros
+    - ros2 run mavros mavros_node --ros-args -p fcu_url:=${FCU_URL} -p gcs_url:=udp://:14556@${GCS_IP}:14550 -p tgt_system:=${TGT_SYSTEM} -r __ns:=/${ROBOT_NAME}/mavros
 
 - window_name: gimbal
   focus: false
