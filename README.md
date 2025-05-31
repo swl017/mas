@@ -11,7 +11,9 @@ Needed for controlling gimbal in different local IP (192.168.144.x)
       sudo systemctl start systemd-networkd
       sudo systemctl enable systemd-networkd
       ```
-  2. Confirm IP settings in [drone_config/network/01-netcfg.yaml](drone_config/network/01-netcfg.yaml)
+  2. Edit values in [drone_config/network/01-netcfg.yaml](drone_config/network/01-netcfg.yaml)
+      - Inferface name: `enP8p1s0` or `eno1`
+      - IP address: 192.168.144.100 + id (e.g 192.168.144.101 for id=1)
   3. Apply config
       ```bash
       sudo cp drone_config/network/01-netcfg.yaml /etc/netplan/
