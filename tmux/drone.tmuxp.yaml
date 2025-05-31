@@ -16,6 +16,15 @@ windows:
   panes:
     - ros2 run mavros mavros_node --ros-args -p fcu_url:=${FCU_URL} -p gcs_url:=udp://:14556@${GCS_IP}:14550 -p tgt_system:=${TGT_SYSTEM} -r __ns:=/${ROBOT_NAME}/mavros
 
+- window_name: frame
+  focus: true
+  layout: tiled
+  shell_command_before:
+    - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
+    - source ${ROS2_WORKSPACE}/drone_config/robot.env
+  panes:
+    - ros2 launch mas_common_frame common_frame_single.launch.py ns:=/${ROBOT_NAME}
+
 - window_name: gimbal
   focus: false
   layout: tiled
@@ -34,4 +43,4 @@ windows:
     - source ${ROS2_WORKSPACE}/drone_config/robot.env
   panes:
     - ros2 launch gimbal_controller usb_cam.launch.py ns:=/${ROBOT_NAME}/camera/color camera_name:=camera
-    - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/${ROBOT_NAME} input_topic:=camera/color/image_raw/compressed yolo_model:=yolov11m-drone.onnx
+    - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/${ROBOT_NAME} input_topic:=camera/color/image_raw yolo_model:=yolov11m-drone.engine
