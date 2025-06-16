@@ -2,6 +2,19 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "ROS: Launch Simple",
+            "request": "launch",
+            "target": "/home/usrg/mas/src/mas_multiview/launch/triangulation.launch.py",
+            "launch": [
+                // "rviz",
+                // "gz",
+                // "gzclient",
+                // "gzserver"
+            ],
+            "arguments": [],
+            "type": "ros"
+        },
+        {
             "name": "ROS2 C++ Node (Attach)",
             "type": "cppdbg",
             "request": "attach",
