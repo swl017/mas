@@ -16,3 +16,6 @@
 [submodule "src/vision_opencv"]
 	path = src/vision_opencv
 	url = https://github.com/ros-perception/vision_opencv.git
+[submodule "src/mas_tracker"]
+	path = src/mas_tracker
+	url = git@github.com:swl017/mas_tracker.git

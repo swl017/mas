@@ -16,7 +16,8 @@ windows:
     - source ${ROS2_INSTALL_PATH}/setup.bash;
     - source ${ROS2_WORKSPACE}/install/setup.bash;
   panes:
-    - ros2 launch mas_multiview triangulation.launch.py
+    - ros2 launch mas_multiview triangulation.launch.py num_camera:=2
+    - ros2 launch mas_tracker sort3d.launch.py
 
 - window_name: detection
   focus: false
@@ -27,9 +28,9 @@ windows:
     - source ${ROS2_WORKSPACE}/install/setup.bash;
   panes:
     - ros2 launch mas_common_frame common_frame.launch.py
-    - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/px4_1
-    - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/px4_2
-    - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/px4_3
+    - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/px4_1 yolo_model:=yolov11m-drone.pt
+    - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/px4_2 yolo_model:=yolov11m-drone.pt
+    - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/px4_3 yolo_model:=yolov11m-drone.pt
 
 - window_name: gimbal_pointing_control
   focus: false
