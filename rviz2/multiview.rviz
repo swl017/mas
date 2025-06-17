@@ -4,10 +4,10 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
-        - /Global Options1
-        - /Status1
+        - /yolo11/Topic1
+        - /target region1/Status1
       Splitter Ratio: 0.658823549747467
-    Tree Height: 308
+    Tree Height: 267
   - Class: rviz_common/Selection
     Name: Selection
   - Class: rviz_common/Tool Properties
@@ -30,7 +30,7 @@ Visualization Manager:
   Class: ""
   Displays:
     - Alpha: 0.5
-      Cell Size: 1
+      Cell Size: 10
       Class: rviz_default_plugins/Grid
       Color: 160; 160; 164
       Enabled: true
@@ -48,12 +48,12 @@ Visualization Manager:
       Reference Frame: <Fixed Frame>
       Value: true
     - Class: rviz_default_plugins/Axes
-      Enabled: true
+      Enabled: false
       Length: 1
       Name: Axes
       Radius: 0.10000000149011612
       Reference Frame: <Fixed Frame>
-      Value: true
+      Value: false
     - Angle Tolerance: 0.10000000149011612
       Class: rviz_default_plugins/Odometry
       Covariance:
@@ -72,8 +72,8 @@ Visualization Manager:
           Value: true
         Value: true
       Enabled: true
-      Keep: 100
-      Name: Odometry
+      Keep: 1
+      Name: drone1
       Position Tolerance: 0.10000000149011612
       Shape:
         Alpha: 1
@@ -111,8 +111,8 @@ Visualization Manager:
           Value: true
         Value: true
       Enabled: true
-      Keep: 100
-      Name: Odometry
+      Keep: 1
+      Name: drone2
       Position Tolerance: 0.10000000149011612
       Shape:
         Alpha: 1
@@ -151,7 +151,7 @@ Visualization Manager:
         Value: true
       Enabled: true
       Keep: 100
-      Name: Odometry
+      Name: drone3
       Position Tolerance: 0.10000000149011612
       Shape:
         Alpha: 1
@@ -190,7 +190,7 @@ Visualization Manager:
         Value: true
       Enabled: true
       Keep: 100
-      Name: Odometry
+      Name: drone4
       Position Tolerance: 0.10000000149011612
       Shape:
         Alpha: 1
@@ -229,7 +229,7 @@ Visualization Manager:
         Value: true
       Enabled: true
       Keep: 100
-      Name: Odometry
+      Name: drone5
       Position Tolerance: 0.10000000149011612
       Shape:
         Alpha: 1
@@ -266,9 +266,9 @@ Visualization Manager:
           Scale: 1
           Value: true
         Value: true
-      Enabled: true
+      Enabled: false
       Keep: 100
-      Name: Odometry
+      Name: drone6
       Position Tolerance: 0.10000000149011612
       Shape:
         Alpha: 1
@@ -287,32 +287,54 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Best Effort
         Value: /px4_6/common_frame/odom
-      Value: true
-    - Class: rviz_default_plugins/MarkerArray
+      Value: false
+    - Class: rviz_default_plugins/Image
       Enabled: true
-      Name: MarkerArray
-      Namespaces:
-        camera_target_labels_T0: true
-        camera_target_lines_T0: true
-        target_position: true
-        target_uncertainty: true
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: yolo1
+      Normalize Range: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
         History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /multiview_node/visualization
+        Reliability Policy: Best Effort
+        Value: /px4_1/yolo_image
+      Value: true
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: yolo2
+      Normalize Range: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /px4_2/yolo_image
+      Value: true
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: yolo3
+      Normalize Range: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /px4_3/yolo_image
       Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
-      Name: MarkerArray
+      Name: triangulated(result)
       Namespaces:
-        camera0/detection0: true
-        camera0/detection1: true
-        camera0/detection2: true
-        camera1/detection0: true
-        camera1/detection1: true
-        camera1/detection2: true
+        triangulation0: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -320,9 +342,48 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /triangulated_points
       Value: true
+    - Alpha: 0.30000001192092896
+      Class: rviz_default_plugins/PointStamped
+      Color: 204; 41; 204
+      Enabled: true
+      History Length: 1
+      Name: target region
+      Radius: 10
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /target_region
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: visualization
+      Namespaces:
+        camera0/detection0/line: true
+        camera0/detection0/position: true
+        camera0/detection0/ray: true
+        camera0/frustum: true
+        camera1/detection0/line: true
+        camera1/detection0/position: true
+        camera1/detection0/ray: true
+        camera1/frustum: true
+        camera2/detection0/line: true
+        camera2/detection0/position: true
+        camera2/detection0/ray: true
+        camera2/frustum: true
+        triangulation0: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /triangulated_points/visualization
+      Value: true
   Enabled: true
   Global Options:
-    Background Color: 48; 48; 48
+    Background Color: 255; 255; 255
     Fixed Frame: common_frame
     Frame Rate: 30
   Name: root
@@ -366,33 +427,33 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 54.4493408203125
+      Distance: 17.623416900634766
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: -1.4987285137176514
-        Y: -2.685610294342041
-        Z: 12.86823844909668
+        X: 0
+        Y: 0
+        Z: 0
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.5197986960411072
-      Target Frame: <Fixed Frame>
-      Value: Orbit (rviz)
-      Yaw: 4.498597145080566
+      Pitch: 0.45039835572242737
+      Target Frame: px4_1/base_link
+      Value: Orbit (rviz_default_plugins)
+      Yaw: 2.960397481918335
     Saved: ~
 Window Geometry:
   Displays:
-    collapsed: true
-  Height: 621
-  Hide Left Dock: true
-  Hide Right Dock: true
-  QMainWindow State: 000000ff00000000fd000000040000000000000268000001cbfc0200000008fb0000001200530065006c0065006300740069006f006e00000001e10000009b0000005c00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007302000001ed000001df00000185000000a3fb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb000000100044006900730070006c006100790073000000003d000001cb000000c900fffffffb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c00000261000000010000010f000001cbfc0200000003fb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000000a00560069006500770073000000003d000001cb000000a400fffffffb0000001200530065006c0065006300740069006f006e010000025a000000b200000000000000000000000200000490000000a9fc0100000001fb0000000a00560069006500770073030000004e00000080000002e10000019700000003000003f000000042fc0100000002fb0000000800540069006d00650100000000000003f00000026c00fffffffb0000000800540069006d00650100000000000004500000000000000000000003f0000001cb00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+    collapsed: false
+  Height: 1325
+  Hide Left Dock: false
+  Hide Right Dock: false
+  QMainWindow State: 000000ff00000000fd0000000400000000000002680000048bfc020000000bfb0000001200530065006c0065006300740069006f006e00000001e10000009b0000005c00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007302000001ed000001df00000185000000a3fb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb000000100044006900730070006c006100790073010000003d000001a2000000c900fffffffb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c00000261fb0000000a0079006f006c006f003101000001e50000007e0000002800fffffffb0000000a0079006f006c006f00320100000269000001850000002800fffffffb0000000a0079006f006c006f003301000003f4000000d40000002800ffffff00000001000001c60000048bfc0200000003fb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000000a00560069006500770073010000003d0000048b000000a400fffffffb0000001200530065006c0065006300740069006f006e010000025a000000b200000000000000000000000200000490000000a9fc0100000001fb0000000a00560069006500770073030000004e00000080000002e1000001970000000300000a0000000042fc0100000002fb0000000800540069006d0065010000000000000a000000026c00fffffffb0000000800540069006d00650100000000000004500000000000000000000005c60000048b00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Selection:
     collapsed: false
   Time:
@@ -400,7 +461,13 @@ Window Geometry:
   Tool Properties:
     collapsed: false
   Views:
-    collapsed: true
-  Width: 1008
+    collapsed: false
+  Width: 2560
   X: 0
   Y: 27
+  yolo1:
+    collapsed: false
+  yolo2:
+    collapsed: false
+  yolo3:
+    collapsed: false
