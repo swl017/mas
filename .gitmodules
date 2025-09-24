@@ -1,21 +1,21 @@
 [submodule "src/mas_multiview_py"]
 	path = src/mas_multiview_py
-	url = git@github.com:swl017/mas_multiview_py.git
+	url = git@github.com:usrg-drone/mas_multiview_py.git
 [submodule "src/mas_common_frame"]
 	path = src/mas_common_frame
-	url = git@github.com:swl017/mas_common_frame.git
+	url = git@github.com:usrg-drone/mas_common_frame.git
 [submodule "src/ultralytics_ros"]
 	path = src/ultralytics_ros
-	url = git@github.com:swl017/ultralytics_ros.git
+	url = git@github.com:usrg-drone/ultralytics_ros.git
 [submodule "src/mas_multiview"]
 	path = src/mas_multiview
-	url = git@github.com:swl017/mas_multiview.git
+	url = git@github.com:usrg-drone/mas_multiview.git
 [submodule "src/gimbal_controller"]
 	path = src/gimbal_controller
-	url = git@github.com:swl017/gimbal_control.git
+	url = git@github.com:usrg-drone/gimbal_control.git
 [submodule "src/vision_opencv"]
 	path = src/vision_opencv
 	url = https://github.com/ros-perception/vision_opencv.git
 [submodule "src/mas_tracker"]
 	path = src/mas_tracker
-	url = git@github.com:swl017/mas_tracker.git
+	url = git@github.com:usrg-drone/mas_tracker.git

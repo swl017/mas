@@ -1,0 +1,52 @@
+session_name: mas_core
+
+environment:
+  ROS2_INSTALL_PATH: /opt/ros/galactic
+  ROS2_WORKSPACE: /home/usrg/mas
+
+options:
+  default-command: /bin/bash
+
+windows:
+- window_name: mavros
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
+    - source ${ROS2_INSTALL_PATH}/setup.bash;
+    - source ${ROS2_WORKSPACE}/setup.bash;
+  panes:
+    - ros2 run mavros mavros_node --ros-args --param fcu_url:=udp://:14541@localhost:14551 --param tgt_system:=2 -r __ns:=/px4_1/mavros
+    - source ${ROS2_INSTALL_PATH}/setup.bash; ros2 run mavros mavros_node --ros-args --param fcu_url:=udp://:14542@localhost:14552 --param tgt_system:=3 -r __ns:=/px4_2/mavros
+    - source ${ROS2_INSTALL_PATH}/setup.bash; ros2 run mavros mavros_node --ros-args --param fcu_url:=udp://:14543@localhost:14553 --param tgt_system:=4 -r __ns:=/px4_3/mavros
+    - source ${ROS2_INSTALL_PATH}/setup.bash; ros2 run mavros mavros_node --ros-args --param fcu_url:=udp://:14544@localhost:14554 --param tgt_system:=5 -r __ns:=/px4_4/mavros
+    - source ${ROS2_INSTALL_PATH}/setup.bash; ros2 run mavros mavros_node --ros-args --param fcu_url:=udp://:14545@localhost:14555 --param tgt_system:=6 -r __ns:=/px4_5/mavros
+    - source ${ROS2_INSTALL_PATH}/setup.bash; ros2 run mavros mavros_node --ros-args --param fcu_url:=udp://:14546@localhost:14556 --param tgt_system:=7 -r __ns:=/px4_6/mavros
+
+- window_name: ros2
+  focus: true
+  layout: tiled
+  shell_command_before:
+    - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
+    - source ${ROS2_INSTALL_PATH}/setup.bash;
+    - source ${ROS2_WORKSPACE}/setup.bash;
+  panes:
+    - sleep 3; ros2 launch gimbal_stabilizer multi_agent_gimbal.launch.py
+
+    - sleep 0; ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/px4_1
+    - sleep 1; ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/px4_2
+    - sleep 2; ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/px4_3
+    - sleep 3; ros2 run rqt_image_view rqt_image_view
+
+
+- window_name: topics
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
+  panes:
+    - source ${ROS2_INSTALL_PATH}/setup.bash; ros2 topic echo /px4_1/mavros/state
+    - source ${ROS2_INSTALL_PATH}/setup.bash; ros2 topic echo /px4_1/mavros/rc/in
+    - source ${ROS2_INSTALL_PATH}/setup.bash; ros2 topic echo /px4_1/mavros/rc/out
+    - source ${ROS2_INSTALL_PATH}/setup.bash; ros2 topic echo /px4_1/mavros/imu/data
+    - source ${ROS2_INSTALL_PATH}/setup.bash; ros2 topic echo /px4_1/mavros/imu/mag

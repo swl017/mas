@@ -1,1 +1,1 @@
-colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo $1
+colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Debug $1

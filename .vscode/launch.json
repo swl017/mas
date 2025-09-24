@@ -4,7 +4,7 @@
         {
             "name": "ROS: Launch Simple",
             "request": "launch",
-            "target": "/home/usrg/mas/src/mas_multiview/launch/triangulation.launch.py",
+            "target": "/home/usrg/mas/src/mas_tracker/launch/sort3d.launch.py",
             "launch": [
                 // "rviz",
                 // "gz",

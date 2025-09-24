@@ -1,0 +1,23 @@
+session_name: zoom
+
+environment:
+  ROS2_WORKSPACE: /home/usrg/mas
+
+options:
+  default-command: /bin/bash
+
+windows:
+
+- window_name: frame
+  focus: true
+  layout: tiled
+  shell_command_before:
+    - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
+    - source /opt/ros/galactic/setup.bash
+  panes:
+    - |
+      ros2 topic pub /px4_1/camera/zoom std_msgs/msg/Float64 "data: 4.0"
+    - |
+      ros2 topic pub /px4_2/camera/zoom std_msgs/msg/Float64 "data: 4.0"
+    - |
+      ros2 topic pub /px4_3/camera/zoom std_msgs/msg/Float64 "data: 4.0"
