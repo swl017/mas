@@ -1,0 +1,576 @@
+header:
+  stamp:
+    sec: 0
+    nanosec: 0
+  frame_id: ''
+detections:
+- header:
+    stamp:
+      sec: 0
+      nanosec: 0
+    frame_id: ''
+  results:
+  - hypothesis:
+      class_id: drone
+      score: 0.76789391040802
+    pose:
+      pose:
+        position:
+          x: 0.0
+          y: 0.0
+          z: 0.0
+        orientation:
+          x: 0.0
+          y: 0.0
+          z: 0.0
+          w: 1.0
+      covariance:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+  bbox:
+    center:
+      x: 1212.0765380859375
+      y: 593.8236694335938
+      theta: 0.0
+    size_x: 40.786865234375
+    size_y: 22.80419921875
+  id: ''
+---
+header:
+  stamp:
+    sec: 0
+    nanosec: 0
+  frame_id: ''
+detections:
+- header:
+    stamp:
+      sec: 0
+      nanosec: 0
+    frame_id: ''
+  results:
+  - hypothesis:
+      class_id: drone
+      score: 0.7699200510978699
+    pose:
+      pose:
+        position:
+          x: 0.0
+          y: 0.0
+          z: 0.0
+        orientation:
+          x: 0.0
+          y: 0.0
+          z: 0.0
+          w: 1.0
+      covariance:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+  bbox:
+    center:
+      x: 1212.2098388671875
+      y: 593.9296875
+      theta: 0.0
+    size_x: 40.813720703125
+    size_y: 22.976318359375
+  id: ''
+---
+header:
+  stamp:
+    sec: 0
+    nanosec: 0
+  frame_id: ''
+detections:
+- header:
+    stamp:
+      sec: 0
+      nanosec: 0
+    frame_id: ''
+  results:
+  - hypothesis:
+      class_id: drone
+      score: 0.745033323764801
+    pose:
+      pose:
+        position:
+          x: 0.0
+          y: 0.0
+          z: 0.0
+        orientation:
+          x: 0.0
+          y: 0.0
+          z: 0.0
+          w: 1.0
+      covariance:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+  bbox:
+    center:
+      x: 1211.780029296875
+      y: 594.3248291015625
+      theta: 0.0
+    size_x: 41.41259765625
+    size_y: 22.6629638671875
+  id: ''
+---
+header:
+  stamp:
+    sec: 0
+    nanosec: 0
+  frame_id: ''
+detections:
+- header:
+    stamp:
+      sec: 0
+      nanosec: 0
+    frame_id: ''
+  results:
+  - hypothesis:
+      class_id: drone
+      score: 0.734932005405426
+    pose:
+      pose:
+        position:
+          x: 0.0
+          y: 0.0
+          z: 0.0
+        orientation:
+          x: 0.0
+          y: 0.0
+          z: 0.0
+          w: 1.0
+      covariance:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+  bbox:
+    center:
+      x: 1211.45263671875
+      y: 594.0487060546875
+      theta: 0.0
+    size_x: 45.4581298828125
+    size_y: 23.5767822265625
+  id: ''
+---
+header:
+  stamp:
+    sec: 0
+    nanosec: 0
+  frame_id: ''
+detections:
+- header:
+    stamp:
+      sec: 0
+      nanosec: 0
+    frame_id: ''
+  results:
+  - hypothesis:
+      class_id: drone
+      score: 0.7193480730056763
+    pose:
+      pose:
+        position:
+          x: 0.0
+          y: 0.0
+          z: 0.0
+        orientation:
+          x: 0.0
+          y: 0.0
+          z: 0.0
+          w: 1.0
+      covariance:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+  bbox:
+    center:
+      x: 1212.081298828125
+      y: 594.4596557617188
+      theta: 0.0
+    size_x: 45.548583984375
+    size_y: 22.8050537109375
+  id: ''
+---
+header:
+  stamp:
+    sec: 0
+    nanosec: 0
+  frame_id: ''
+detections:
+- header:
+    stamp:
+      sec: 0
+      nanosec: 0
+    frame_id: ''
+  results:
+  - hypothesis:
+      class_id: drone
+      score: 0.735419511795044
+    pose:
+      pose:
+        position:
+          x: 0.0
+          y: 0.0
+          z: 0.0
+        orientation:
+          x: 0.0
+          y: 0.0
+          z: 0.0
+          w: 1.0
+      covariance:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+  bbox:
+    center:
+      x: 1211.7021484375
+      y: 594.49658203125
+      theta: 0.0
+    size_x: 42.204345703125
+    size_y: 21.95892333984375
+  id: ''
+---
+header:
+  stamp:
+    sec: 0
+    nanosec: 0
+  frame_id: ''
+detections:
+- header:
+    stamp:
+      sec: 0
+      nanosec: 0
+    frame_id: ''
+  results:
+  - hypothesis:
+      class_id: drone
+      score: 0.7229312062263489
+    pose:
+      pose:
+        position:
+          x: 0.0
+          y: 0.0
+          z: 0.0
+        orientation:
+          x: 0.0
+          y: 0.0
+          z: 0.0
+          w: 1.0
+      covariance:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+  bbox:
+    center:
+      x: 1211.970703125
+      y: 593.8779296875
+      theta: 0.0
+    size_x: 44.2884521484375
+    size_y: 24.32220458984375
+  id: ''
+---
+header:
+  stamp:
+    sec: 0
+    nanosec: 0
+  frame_id: ''
+detections:
+- header:
+    stamp:
+      sec: 0
+      nanosec: 0
+    frame_id: ''
+  results:
+  - hypothesis:
+      class_id: drone
+      score: 0.7555123567581177
+    pose:
+      pose:
+        position:
+          x: 0.0
+          y: 0.0
+          z: 0.0
+        orientation:
+          x: 0.0
+          y: 0.0
+          z: 0.0
+          w: 1.0
+      covariance:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+  bbox:
+    center:
+      x: 1211.4197998046875
+      y: 594.1879272460938
+      theta: 0.0
+    size_x: 40.426025390625
+    size_y: 22.0308837890625
+  id: ''
+---

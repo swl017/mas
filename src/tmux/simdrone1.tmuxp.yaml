@@ -1,0 +1,59 @@
+session_name: drone1
+
+environment:
+  ROS2_WORKSPACE: /home/usrg/mas
+  ROBOT_NAME: px4_1
+
+options:
+  default-command: /bin/bash
+
+windows:
+- window_name: mavros
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 run mavros mavros_node --ros-args -p fcu_url:=udp://:14541@localhost:14551 -p tgt_system:=2 -r __ns:=/${ROBOT_NAME}/mavros
+
+- window_name: frame
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mas_common_frame common_frame_single.launch.py ns:=/${ROBOT_NAME}
+
+- window_name: camera
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/${ROBOT_NAME} input_topic:=camera/color/image_raw yolo_model:=yolov11m-drone.pt
+
+# --- Multi-vehicle nodes (run once for all drones) ---
+
+- window_name: offboard
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mas_offboard offboard.launch.py
+
+- window_name: policy
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mas_policy policy_deploy.launch.py
+
+- window_name: tracker
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mas_tracker sort3d.launch.py

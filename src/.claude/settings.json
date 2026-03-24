@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//home/usrg/mas/**)",
+      "Read(//usr/**)",
+      "Read(//home/usrg/**)",
+      "WebFetch(domain:isaac-sim.github.io)",
+      "WebFetch(domain:docs.isaacsim.org)"
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+========================================
+SESSION LOG — mas
+========================================
+Append to this file at the end of each session.
+Format: date, what was done, what's next.
+
+----------------------------------------
+2026-03-24 — AI workflow harness setup
+----------------------------------------
+Done:
+- Created ARCHITECTURE.md with full system pipeline (detection → triangulation → tracking → gimbal)
+- Created CLAUDE.md with session workflow protocol
+- Created CONTEXT.md for all 6 packages (gimbal_controller, mas_common_frame, mas_multiview, mas_multiview_py, mas_tracker, ultralytics_ros)
+- Created doc/active/ session tracking (feature_list.json, progress.txt)
+- Created template_ros2/ with reusable AI workflow add-on templates
+
+Next:
+- Fill in mas_multiview CONTEXT.md topic details once C++ node interface is finalized
+- Add spec docs (doc/*_spec.md) for modules that need them

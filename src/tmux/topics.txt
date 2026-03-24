@@ -1,0 +1,258 @@
+    x: 0.0                                                                                                 │    w: 0.9214799522390481                                                                                 │    w: 0.882657397336357
+    y: 0.0                                                                                                 │---                                                                                                       │---
+    z: 0.15                                                                                                │header:                                                                                                   │header:
+  color:                                                                                                   │  stamp:                                                                                                  │  stamp:
+    r: 1.0                                                                                                 │    sec: 1746005599                                                                                       │    sec: 1746005600
+    g: 0.0                                                                                                 │    nanosec: 169743532                                                                                    │    nanosec: 470302172
+    b: 0.0                                                                                                 │  frame_id: common_frame                                                                                  │  frame_id: common_frame
+    a: 1.0                                                                                                 │pose:                                                                                                     │pose:
+  lifetime:                                                                                                │  position:                                                                                               │  position:
+    sec: 0                                                                                                 │    x: -25.145453931860615                                                                                │    x: -19.980774476276867
+    nanosec: 200000000                                                                                     │    y: 11.412190104062537                                                                                 │    y: -8.792215171204194
+  frame_locked: false                                                                                      │    z: 9.184091188428456                                                                                  │    z: 9.184632820870943
+  points: []                                                                                               │  orientation:                                                                                            │  orientation:
+  colors: []                                                                                               │    x: -0.0011583134941981538                                                                             │    x: -0.0005631451541779556
+  text: C2                                                                                                 │    y: 0.0014941350858013686                                                                              │    y: 0.0010698812592507478
+  mesh_resource: ''                                                                                        │    z: 0.3886327728291747                                                                                 │    z: 0.47001537969414897
+  mesh_use_embedded_materials: false                                                                       │    w: 0.9213907931780639                                                                                 │    w: 0.882657397336357
+---                                                                                                        │---                                                                                                       │---
+^Cusrg@usrg-sw-u20-Desktop:~/mas/tmux$                                                                     │^Cusrg@usrg-sw-u20-Desktop:~/mas/tmux$                                                                    │^Cusrg@usrg-sw-u20-Desktop:~/mas/tmux$
+───────────────────────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────
+    w: 0.8492564582966068                                                                                  │    w: 0.16692686914044447                                                                                │    w: 0.37774410931997804
+---                                                                                                        │---                                                                                                       │---
+header:                                                                                                    │header:                                                                                                   │header:
+  stamp:                                                                                                   │  stamp:                                                                                                  │  stamp:
+    sec: 1746005596                                                                                        │    sec: 1746005595                                                                                       │    sec: 1746005594
+    nanosec: 370718007                                                                                     │    nanosec: 271127006                                                                                    │    nanosec: 371442378
+  frame_id: common_frame                                                                                   │  frame_id: common_frame                                                                                  │  frame_id: common_frame
+pose:                                                                                                      │pose:                                                                                                     │pose:
+  position:                                                                                                │  position:                                                                                               │  position:
+    x: -5.938591351689472                                                                                  │    x: 21.537068620011222                                                                                 │    x: 14.876811745182696
+    y: -16.918399399765036                                                                                 │    y: 22.54679733523868                                                                                  │    y: 35.87946026894255
+    z: 9.198516616420555                                                                                   │    z: 9.201607370458285                                                                                  │    z: 9.200864387841744
+  orientation:                                                                                             │  orientation:                                                                                            │  orientation:
+    x: 8.973401290185336e-05                                                                               │    x: 0.0006619468638113258                                                                              │    x: 0.0005633049193990027
+    y: 0.0017671093703640283                                                                               │    y: -0.0006060835440168887                                                                             │    y: 0.0002141418770553693
+    z: 0.5279775916777                                                                                     │    z: -0.9859688711354209                                                                                │    z: -0.925909836163803
+    w: 0.8492564582966068                                                                                  │    w: 0.16692686914044447                                                                                │    w: 0.37774410931997804
+---                                                                                                        │---                                                                                                       │---
+^Cusrg@usrg-sw-u20-Desktop:~/mas/tmux$                                                                     │^Cusrg@usrg-sw-u20-Desktop:~/mas/tmux$                                                                    │^Cusrg@usrg-sw-u20-Desktop:~/mas/tmux$
+───────────────────────────────────────────────────────────────────────────────────────────────────────────┴──────────────────────────────────────────────────────────────────────────────────────────────────────────┴────────────────────────────────────────────────────────────────────────────────────────────────────────────
+    w: 0.7339706822261068
+---
+header:
+  stamp:
+    sec: 1746005592
+    nanosec: 773779497
+  frame_id: common_frame
+pose:
+  position:
+    x: -0.26953881950518
+    y: 40.664115728912485
+    z: 9.659891589686593
+  orientation:
+    x: -0.0008721863714143026
+    y: 2.6835827944017663e-05
+    z: -0.6791805917451668
+    w: 0.7339706822261068
+---
+
+
+================================
+- header:
+    stamp:
+      sec: 1746005614
+      nanosec: 37332697
+    frame_id: common_frame
+  ns: camera_target_labels_T0
+  id: 3
+  type: 9
+  action: 0
+  pose:
+    position:
+      x: -8.913423999566497
+      y: 30.146543804092637
+      z: 9.246789688794507
+    orientation:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+      w: 1.0
+  scale:
+    x: 0.0
+    y: 0.0
+    z: 0.15
+  color:
+    r: 1.0
+    g: 0.0
+    b: 0.0
+    a: 1.0                                                                                                                                                                                                                                                                                                               [114/1821]
+  lifetime:
+    sec: 0
+    nanosec: 200000000
+  frame_locked: false
+  points: []
+  colors: []
+  text: C0
+  mesh_resource: ''
+  mesh_use_embedded_materials: false
+- header:
+    stamp:
+      sec: 1746005614
+      nanosec: 37411366
+    frame_id: common_frame
+  ns: camera_target_lines_T0
+  id: 4
+  type: 4
+  action: 0
+  pose:
+    position:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+    orientation:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+      w: 1.0
+  scale:
+    x: 0.02
+    y: 0.0
+    z: 0.0
+  color:
+    r: 1.0
+    g: 0.0
+    b: 0.0
+    a: 1.0
+  lifetime:
+    sec: 0
+    nanosec: 200000000
+  frame_locked: false
+  points:
+  - x: -19.942635006460417
+    y: -8.698314018716104
+    z: 9.087329899190753
+  - x: 136.4696796298739
+    y: 198.0133891951231
+    z: 9.794442231463396
+  colors: []
+  text: ''
+  mesh_resource: ''
+  mesh_use_embedded_materials: false
+- header:
+    stamp:
+      sec: 1746005614
+      nanosec: 37411366
+    frame_id: common_frame                                                                                                                                                                                                                                                                                                [57/1821]
+  ns: camera_target_labels_T0
+  id: 5
+  type: 9
+  action: 0
+  pose:
+    position:
+      x: -4.301403542826986
+      y: 11.972856302667818
+      z: 9.258041132418017
+    orientation:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+      w: 1.0
+  scale:
+    x: 0.0
+    y: 0.0
+    z: 0.15
+  color:
+    r: 1.0
+    g: 0.0
+    b: 0.0
+    a: 1.0
+  lifetime:
+    sec: 0
+    nanosec: 200000000
+  frame_locked: false
+  points: []
+  colors: []
+  text: C1
+  mesh_resource: ''
+  mesh_use_embedded_materials: false
+- header:
+    stamp:
+      sec: 1746005614
+      nanosec: 37478192
+    frame_id: common_frame
+  ns: camera_target_lines_T0
+  id: 6
+  type: 4
+  action: 0
+  pose:
+    position:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+    orientation:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+      w: 1.0
+  scale:
+    x: 0.02
+    y: 0.0
+    z: 0.0
+  color:
+    r: 1.0
+    g: 0.0
+    b: 0.0
+    a: 1.0
+  lifetime:
+    sec: 0
+    nanosec: 200000000
+  frame_locked: false
+  points:
+  - x: -5.8770047707299
+    y: -16.806388119994324
+    z: 9.090612151663024
+  - x: 136.4696796298739
+    y: 198.0133891951231
+    z: 9.794442231463396
+  colors: []
+  text: ''
+  mesh_resource: ''
+  mesh_use_embedded_materials: false
+- header:
+    stamp:
+      sec: 1746005614
+      nanosec: 37478192
+    frame_id: common_frame
+  ns: camera_target_labels_T0
+  id: 7
+  type: 9
+  action: 0
+  pose:
+    position:
+      x: 8.357663669330481
+      y: 4.67558961151742
+      z: 9.26099515964306
+    orientation:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+      w: 1.0
+  scale:
+    x: 0.0
+    y: 0.0
+    z: 0.15
+  color:
+    r: 1.0
+    g: 0.0
+    b: 0.0
+    a: 1.0
+  lifetime:
+    sec: 0
+    nanosec: 200000000
+  frame_locked: false
+  points: []
+  colors: []
+  text: C2
+  mesh_resource: ''
+  mesh_use_embedded_materials: false

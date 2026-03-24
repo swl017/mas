@@ -1,0 +1,41 @@
+{
+  "project": "mas",
+  "last_updated": "2026-03-24",
+  "features": [
+    {
+      "id": "multiview-triangulation",
+      "name": "Multi-view triangulation from 2D detections",
+      "status": "done",
+      "spec": "",
+      "notes": "Implemented in mas_multiview_py and mas_multiview (C++)"
+    },
+    {
+      "id": "3d-tracking",
+      "name": "3D multi-object tracking (SORT3D)",
+      "status": "done",
+      "spec": "",
+      "notes": "Hungarian + Kalman in mas_tracker"
+    },
+    {
+      "id": "gimbal-control",
+      "name": "Gimbal pointing to tracked targets",
+      "status": "done",
+      "spec": "",
+      "notes": "SIYI SDK interface + point_to_region in gimbal_controller"
+    },
+    {
+      "id": "common-frame",
+      "name": "Multi-vehicle common reference frame",
+      "status": "done",
+      "spec": "",
+      "notes": "GPS/ENU to common frame in mas_common_frame"
+    },
+    {
+      "id": "yolo-detection",
+      "name": "YOLO 2D detection with ByteTrack",
+      "status": "done",
+      "spec": "",
+      "notes": "ultralytics_ros tracker_node"
+    }
+  ]
+}
