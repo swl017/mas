@@ -17,3 +17,20 @@ Done:
 Next:
 - Fill in mas_multiview CONTEXT.md topic details once C++ node interface is finalized
 - Add spec docs (doc/*_spec.md) for modules that need them
+
+----------------------------------------
+2026-03-26 — SIYI encoder attitude feature
+----------------------------------------
+Done:
+- Implemented 0x26 (magnetic encoder angles) and 0x22 (aircraft attitude injection) in SIYI SDK
+  - siyi_message.py: added SEND_AIRCRAFT_ATTITUDE, REQUEST_GIMBAL_ENCODER commands, GimbalEncoderAngleMsg, encoding methods
+  - siyi_sdk.py: added request/parse/getter methods, bufferCallback dispatch, fixed parseRequestStreamMsg bug
+  - Extended dataStreamMsg to support dtype=3 (encoder angle stream)
+- Updated siyi_ros_node.py: encoder publisher, odom subscriber with ENU→NED conversion, 3 new parameters
+- Updated launch file with new args/remappings, package.xml with tf_transformations/nav_msgs deps
+- Updated CONTEXT.md, ARCHITECTURE.md with new topics/subscribers/parameters
+
+Next:
+- Test with hardware: verify encoder stream and attitude injection on real SIYI gimbal
+- Wire gimbal_encoder_rpy_deg to downstream consumers (mas_policy) if needed
+- Evaluate whether encoder angles should replace IMU angles for mas_multiview input

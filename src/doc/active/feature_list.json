@@ -1,6 +1,6 @@
 {
   "project": "mas",
-  "last_updated": "2026-03-24",
+  "last_updated": "2026-03-26",
   "features": [
     {
       "id": "multiview-triangulation",
@@ -36,6 +36,13 @@
       "status": "done",
       "spec": "",
       "notes": "ultralytics_ros tracker_node"
+    },
+    {
+      "id": "siyi-encoder-attitude",
+      "name": "SIYI encoder angles & aircraft attitude injection",
+      "status": "done",
+      "spec": "gimbal_controller/doc/siyi_encoder_attitude_spec.md",
+      "notes": "0x26 encoder stream + 0x22 attitude injection in SDK & ROS node (2026-03-26)"
     }
   ]
 }
