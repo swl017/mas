@@ -23,19 +23,21 @@ agent_n1: "Agent N+1\nMAS instance N+1" {
     fill: "#d4edda"
     stroke: "#6abf69"
     stroke-width: 2
+    multiple: true
   }
 
   mavros_n1: MAVROS {
     style.fill: "#fff"
   }
-  common_frame_n1: mas_common_frame {
+  mas_common_frame_n1: mas_common_frame {
     style.fill: "#fff"
   }
   ultralytics_ros_n1: ultralytics_ros {
     style.fill: "#fff"
   }
 
-  mavros_n1 -> common_frame_n1
+  mavros_n1 -> mas_common_frame_n1
+  ultralytics_ros_n1 -> mas_common_frame_n1
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -59,7 +61,11 @@ agent_n: "Agent N\nMAS instance N" {
     style.fill: "#fff"
   }
   mas_policy: mas_policy\n(WIP) {
-    style.fill: "#fff"
+    style: {
+      fill: "#fff"
+      stroke: "#4a90d9"
+      stroke-dash: 5
+    }
   }
   mas_common_frame: mas_common_frame {
     style.fill: "#fff"
@@ -74,30 +80,71 @@ agent_n: "Agent N\nMAS instance N" {
     style.fill: "#fff"
   }
 
-  # Gate node (black dot — multiplexes gimbal/zoom commands)
-  gate: "" {
-    shape: circle
-    width: 24
-    height: 24
+  # mas_mission — state machine: IDLE → TRACKING → MISSION
+  # Replaces the anonymous gate; owns mode transitions and command routing.
+  # - TRACKING: forwards point_to_region gimbal/zoom, blocks policy commands
+  # - MISSION:  forwards policy cmd_vel/gimbal/zoom, blocks point_to_region
+  mas_mission: "mas_mission\n(WIP)" {
     style: {
-      fill: "#000"
-      stroke: "#000"
+      fill: "#fff"
+      stroke: "#4a90d9"
+      stroke-dash: 5
     }
   }
 
   # ── Internal edges ──
 
   ultralytics_ros -> mas_multiview: "bbox_xywh\ntimestamp"
+  ultralytics_ros -> mas_policy: "bbox_xywh\ntimestamp"
   mas_multiview -> mas_tracker: "target pos est (all)\ntarget pos cov (all)"
-  mas_tracker -> mas_policy: "target pos est (selected)\ntarget pos cov (selected)\nacc"
+  mas_tracker -> mas_policy: "target pos est (selected)\ntarget pos cov (selected)"
   mas_common_frame -> mas_policy: "<mission frame>\npose, cov(pos, ori)\nvel(lin/ang)"
-  mas_common_frame -> mas_tracker: "select"
-  mavros -> mas_common_frame: "<local frame>\npose\nvel(lin/ang)"
+  mavros -> mas_common_frame: "<local frame>\npose, cov(pos, ori)\nvel(lin/ang)"
+  mavros -> mas_policy: "lin acc"
 
-  # Policy → gate → downstream
-  mas_policy -> gate: "<mission frame>\ncmd vel(lin/yaw)\ncmd gimbal los rate\ncmd zoom rate"
-  gate -> mas_offboard: "(on mission start)\ncmd vel"
-  point_to_region -> gate: "(before mission)\ncmd gimbal LOS angle\ncmd zoom"
+  # Policy → mas_mission → downstream
+  mas_policy -> mas_mission: "cmd vel(lin/yaw)\ncmd gimbal los rate\ncmd zoom rate"
+  point_to_region -> mas_mission: "cmd gimbal LOS angle\ncmd zoom"
+  mas_mission -> mas_offboard: "(MISSION)\ncmd vel"
+
+  mas_offboard -> mavros: "cmd vel"
+
+  # ── Sim/Real switches (WIP) ──
+  # Each switch receives both sim and real interface counterparts.
+  # Only one source is active at a time (determined by deployment config).
+
+  camera_switch: "camera\nswitch" {
+    shape: diamond
+    style: {
+      fill: "#e8e8e8"
+      stroke: "#888"
+      font-size: 12
+    }
+  }
+  fc_switch: "flight ctrl\nswitch" {
+    shape: diamond
+    style: {
+      fill: "#e8e8e8"
+      stroke: "#888"
+      font-size: 12
+    }
+  }
+  gimbal_switch: "gimbal\nswitch" {
+    shape: diamond
+    style: {
+      fill: "#e8e8e8"
+      stroke: "#888"
+      font-size: 12
+    }
+  }
+
+  # Switch → internal consumers
+  camera_switch -> ultralytics_ros: "camera feed"
+  camera_switch -> mas_multiview: "base intrinsics\nzoom level"
+  fc_switch -> mavros: "MAVLink"
+  gimbal_switch -> mas_multiview: "gimbal joint angles/LOS\nzoom level"
+  gimbal_switch -> point_to_region: "gimbal state"
+  mas_mission -> gimbal_switch: "cmd gimbal\ncmd zoom"
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -114,6 +161,7 @@ sim: "Sim Env" {
   isaac_sim: Isaac Sim {
     style.fill: "#fff"
   }
+
   pegasus_simulator: PegasusSimulator {
     style.fill: "#fff"
   }
@@ -134,17 +182,16 @@ sim: "Sim Env" {
     mavros_tgt: MAVROS {
       style.fill: "#fff"
     }
-    common_frame_tgt: mas_common_frame {
+    mas_common_frame_tgt: mas_common_frame {
       style.fill: "#fff"
     }
 
-    mavros_tgt -> common_frame_tgt
+    mavros_tgt -> mas_common_frame_tgt
   }
 
   isaac_sim -> pegasus_simulator: states
   pegasus_simulator -> isaac_sim: commands
-  pegasus_simulator -> px4_sitl: states\ncommands
-  px4_sitl -> pegasus_simulator: states\ncommands
+  pegasus_simulator <-> px4_sitl: states\ncommands
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -161,16 +208,19 @@ real: "Real-world" {
   usb_cam: usb_cam {
     style.fill: "#fff"
   }
-  siyi_gimbal_node: "gimbal_controller\n(siyi_gimbal_node)" {
+  siyi_gimbal_node: siyi_gimbal_node {
+    style.fill: "#fff"
+  }
+  px4_real: PX4 (real) {
     style.fill: "#fff"
   }
 }
 
 # ═══════════════════════════════════════════════════════════
-# Mission Signal (yellow oval)
+# Operator (triggers state transitions via service call)
 # ═══════════════════════════════════════════════════════════
 
-mission: "Mission\nSignal" {
+operator: "Operator" {
   shape: oval
   style: {
     fill: "#fff3cd"
@@ -185,58 +235,63 @@ mission: "Mission\nSignal" {
 
 # ── Agent N+1 → Agent N (cross-agent) ──
 
-agent_n1.ultralytics_ros_n1 -> agent_n.mas_multiview: "bbox_xywh\ntimestamp" {
+agent_n1.mas_common_frame_n1 -> agent_n.mas_policy: "<mission frame>\npos, vel(lin)\nray_w, combined ang vel\nzoom level" {
   style.stroke: "#2d6a2d"
 }
-agent_n1.common_frame_n1 -> agent_n.mas_policy: "<mission frame>\npos, vel(lin)\nray_w, combined ang vel\nzoom level" {
+agent_n1.mas_common_frame_n1 -> agent_n.mas_multiview: "<mission frame>\nray_w\npose, cov(pos, ori)" {
   style.stroke: "#2d6a2d"
 }
-agent_n1.ultralytics_ros_n1 -> agent_n.mas_policy: "bbox empty flag\nbbox timestamp" {
+agent_n1.ultralytics_ros_n1 -> agent_n.mas_policy: "bbox empty" {
   style.stroke: "#2d6a2d"
 }
 
-# ── Sim Env ↔ Agent N ──
+# ── Sim Env → Switches ──
 
-agent_n.mavros -> sim.px4_sitl: "MAVLink state\nMAVLink command" {
+sim.pegasus_simulator -> agent_n.camera_switch: "camera feed\nbase intrinsics\nzoom level" {
+  style.stroke: "#d97a4a"
+}
+sim.px4_sitl <-> agent_n.fc_switch: "MAVLink" {
+  style.stroke: "#d97a4a"
+}
+sim.gimbal_stabilizer <- agent_n.gimbal_switch: "cmd gimbal\ncmd zoom" {
+  style.stroke: "#d97a4a"
+}
+sim.pegasus_simulator -> agent_n.gimbal_switch: "gimbal joint angles/LOS\nzoom level" {
+  style.stroke: "#d97a4a"
+}
+sim.target.mas_common_frame_tgt -> agent_n.point_to_region: "target position"
+
+# ── Real-world → Switches ──
+
+real.usb_cam -> agent_n.camera_switch: "camera feed\nbase intrinsics" {
+  style.stroke: "#d94a8a"
+}
+real.px4_real <-> agent_n.fc_switch: "MAVLink" {
+  style.stroke: "#d94a8a"
+}
+real.siyi_gimbal_node <- agent_n.gimbal_switch: "cmd gimbal\ncmd zoom" {
+  style.stroke: "#d94a8a"
+}
+real.siyi_gimbal_node -> agent_n.gimbal_switch: "gimbal joint angles/LOS\nzoom level" {
+  style.stroke: "#d94a8a"
+}
+
+# ── Operator → mas_mission ──
+
+operator -> agent_n.mas_mission: "mission select" {
+  style: {
+    stroke: "#d9a74a"
+    stroke-width: 2
+  }
+}
+operator -> agent_n.mas_tracker: "target select" {
+  style: {
+    stroke: "#d9a74a"
+    stroke-width: 2
+  }
+}
+# ── mas_mission publishes mission_state for offboard to consume ──
+
+agent_n.mas_mission -> agent_n.mas_offboard: "mission_state" {
   style.stroke-dash: 3
-}
-sim.pegasus_simulator -> agent_n.ultralytics_ros: "camera feed\nbase intrinsics\nzoom level" {
-  style.stroke: "#d97a4a"
-}
-sim.pegasus_simulator -> agent_n.mas_multiview: "intrinsics\ngimbal LOS\nzoom level" {
-  style.stroke: "#d97a4a"
-}
-sim.target.common_frame_tgt -> agent_n.point_to_region: "target position"
-
-# ── Gate → Sim Env ──
-
-agent_n.gate -> sim.gimbal_stabilizer: "cmd gimbal los rate\ncmd zoom rate" {
-  style.stroke: "#d94a4a"
-}
-
-# ── Real-world ↔ Agent N ──
-
-real.usb_cam -> agent_n.ultralytics_ros: "camera feed\nbase intrinsics" {
-  style.stroke: "#d94a8a"
-}
-real.siyi_gimbal_node -> agent_n.point_to_region: "gimbal_state\n(yaw, pitch)" {
-  style.stroke: "#d94a8a"
-}
-real.siyi_gimbal_node <- agent_n.gate: "cmd_gimbal_los_rate\ncmd_zoom_rate" {
-  style.stroke: "#d94a8a"
-}
-
-# ── Mission Signal → Gate / Offboard ──
-
-mission -> agent_n.gate: "start" {
-  style: {
-    stroke: "#d9a74a"
-    stroke-width: 2
-  }
-}
-mission -> agent_n.mas_offboard: "start" {
-  style: {
-    stroke: "#d9a74a"
-    stroke-width: 2
-  }
 }
