@@ -18,7 +18,7 @@ title: {
 # Agent N+1 (peer instance, green)
 # ═══════════════════════════════════════════════════════════
 
-agent_n1: "Agent N+1\nMAS instance N+1" {
+agent_n1: "Agent N+1 (MAS instance)" {
   style: {
     fill: "#d4edda"
     stroke: "#6abf69"
@@ -44,7 +44,7 @@ agent_n1: "Agent N+1\nMAS instance N+1" {
 # Agent N (main instance, blue)
 # ═══════════════════════════════════════════════════════════
 
-agent_n: "Agent N\nMAS instance N" {
+agent_n: "Agent N (MAS instance N)" {
   style: {
     fill: "#dbeeff"
     stroke: "#4a90d9"
@@ -145,6 +145,7 @@ agent_n: "Agent N\nMAS instance N" {
   gimbal_switch -> mas_multiview: "gimbal joint angles/LOS\nzoom level"
   gimbal_switch -> point_to_region: "gimbal state"
   mas_mission -> gimbal_switch: "cmd gimbal\ncmd zoom"
+  mas_common_frame -> gimbal_switch: "aircraft attitude"
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -176,7 +177,6 @@ sim: "Sim Env" {
     style: {
       fill: "#fff"
       stroke: "#d97a4a"
-      stroke-dash: 5
     }
 
     mavros_tgt: MAVROS {
@@ -253,7 +253,7 @@ sim.pegasus_simulator -> agent_n.camera_switch: "camera feed\nbase intrinsics\nz
 sim.px4_sitl <-> agent_n.fc_switch: "MAVLink" {
   style.stroke: "#d97a4a"
 }
-sim.gimbal_stabilizer <- agent_n.gimbal_switch: "cmd gimbal\ncmd zoom" {
+sim.gimbal_stabilizer <- agent_n.gimbal_switch: "cmd gimbal\ncmd zoom\naircraft attitude" {
   style.stroke: "#d97a4a"
 }
 sim.pegasus_simulator -> agent_n.gimbal_switch: "gimbal joint angles/LOS\nzoom level" {
@@ -269,7 +269,7 @@ real.usb_cam -> agent_n.camera_switch: "camera feed\nbase intrinsics" {
 real.px4_real <-> agent_n.fc_switch: "MAVLink" {
   style.stroke: "#d94a8a"
 }
-real.siyi_gimbal_node <- agent_n.gimbal_switch: "cmd gimbal\ncmd zoom" {
+real.siyi_gimbal_node <- agent_n.gimbal_switch: "cmd gimbal\ncmd zoom\naircraft attitude" {
   style.stroke: "#d94a8a"
 }
 real.siyi_gimbal_node -> agent_n.gimbal_switch: "gimbal joint angles/LOS\nzoom level" {
@@ -292,6 +292,4 @@ operator -> agent_n.mas_tracker: "target select" {
 }
 # ── mas_mission publishes mission_state for offboard to consume ──
 
-agent_n.mas_mission -> agent_n.mas_offboard: "mission_state" {
-  style.stroke-dash: 3
-}
+agent_n.mas_mission -> agent_n.mas_offboard: "mission_state"
