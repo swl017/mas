@@ -56,39 +56,37 @@ Multiple gimbal commands exist.
 
 #### Investigation findings (2026-03-26)
 
-**SIYI SDK capabilities (`siyi_sdk.py`):**
-- `getAttitude()` returns **(yaw, pitch, roll) in degrees** — IMU-stabilized, **world-frame** orientation. 0.1° precision.
-- `getAttitudeSpeed()` returns angular rates in deg/s.
-- **Raw motor/encoder joint angles are not available.** The protocol (`ACQUIRE_GIMBAL_ATT`, cmd `0x0d`) is the only angle source. None of the 16 protocol commands expose encoder positions.
-- Two command modes: **absolute angle** (`requestSetAngles`) and **rate** (`requestGimbalSpeed`, range [-100, +100]).
+**SIYI SDK protocol (from `SIYI_Gimbal_Camera_External_SDK_Protocol_Update_Log V0.1.1.pdf`):**
+
+Three angle sources available:
+
+| Command | Name | Returns | Frame | Sensor |
+|---|---|---|---|---|
+| `0x0D` | Request Gimbal Attitude Data | yaw, pitch, roll + rates (int16, /10 for deg) | NED world-frame, IMU-stabilized | IMU (gyro+accel), yaw from magnetic encoder |
+| `0x26` | Request Gimbal Magnetic Encoder Angle Data | yaw, pitch, roll (int16, /10 for deg) | **Raw joint angles** | Magnetic rotary encoders on motor shafts |
+| `0x22` | Send Aircraft Attitude Data to Gimbal | (input, not output) | NED, radians | Receives drone EKF attitude to improve stabilization |
+
+- `0x0D` (currently used): World-frame stabilized angles. Yaw derived from magnetic encoder, pitch/roll from IMU. Subject to centrifugal drift on pitch/roll during aggressive maneuvers.
+- **`0x26` (not yet implemented in SDK): Raw magnetic encoder joint angles.** These are true mechanical motor positions, immune to IMU drift and centrifugal force. This is the definitive solution for body-frame joint angles.
+- **`0x22` (not yet implemented in SDK): Accepts drone EKF attitude** (roll, pitch, yaw + rates, NED, radians, 20-50 Hz recommended). Feeding this to the gimbal improves its internal stabilization by replacing its IMU-only estimate with the drone's fused EKF. This mitigates the centrifugal force problem for `0x0D` and for absolute angle commands.
+- `0x25` can configure continuous streaming of encoder data (`data_type=3`) at up to 100 Hz.
+- Two command modes: **absolute angle** (`0x0E`, `requestSetAngles`) and **rate** (`0x07`, `requestGimbalSpeed`, range [-100, +100]).
+- Motion modes: LOCK (world-stabilized), FOLLOW (yaw follows body), FPV (body-fixed, no stabilization).
 
 **Sim vs Real mismatch:**
-- Sim (`gimbal_stabilizer`) likely outputs **body-frame** angles.
-- Real (SIYI) outputs **world-frame stabilized** angles.
-- `mas_multiview` default modes (`zyx`/`zxy`) treat input as body-relative. The `"zy"` mode handles world-stabilized angles but this is a config flag, not an explicit contract.
+- Sim (`gimbal_stabilizer`) outputs **body-frame** angles.
+- Real (SIYI `0x0D`) outputs **world-frame stabilized** angles.
+- Real (SIYI `0x26`) outputs **raw joint angles** (body-frame) — matches sim directly.
 - `mas_policy` expects **body-frame** joint angles in radians (applies `yaw_joint_offset = -pi/2`, computes world ray via body quaternion).
-
-**Centrifugal force limitation:**
-- SIYI stabilization is purely IMU-based (gyro + accelerometer). It compensates for static tilt and angular disturbances.
-- It **cannot** distinguish gravity from centrifugal/linear acceleration (no external aiding from drone EKF). During banked turns or aggressive maneuvers, the gimbal's world-frame estimate drifts.
-- For gentle surveillance orbits the error is small (a few degrees). For aggressive policy maneuvers it may be significant.
-
-**Can raw joint angles be derived from the reported world-frame angles?**
-- Only approximately. The conversion `R_joint = inverse(R_body_ekf) * R_gimbal_reported` is inexact because the gimbal's internal IMU estimate (`R_body_imu`) diverges from the drone's EKF (`R_body_ekf`) during acceleration.
-- The gimbal firmware internally computes `R_joint_actual = inverse(R_body_imu) * R_gimbal_target`. When `R_body_imu` is wrong (centrifugal bias), the gimbal actuates incorrect joint angles to compensate — so both the reported world-frame angle and the actual joint angle are wrong.
-- The derived joint angle error is bounded by the difference between the gimbal's internal IMU and the drone EKF: `inverse(R_body_ekf) * R_body_imu`. Small during gentle flight, grows with acceleration.
-- Exact joint angles would require either (a) encoder/motor position access (not in SIYI protocol) or (b) knowledge of the gimbal's internal IMU state (not exposed).
-
-**LOS angle tracking:**
-- The SIYI gimbal **can** track absolute LOS angles despite drone tilt (internal stabilization). `point_to_region` can safely use absolute angle commands for pre-mission tracking.
-- During aggressive maneuvers (policy active), **rate commands are safer** since they don't depend on the gimbal's internal attitude estimate being correct.
+- `mas_multiview` default modes (`zyx`/`zxy`) treat input as body-relative. The `"zy"` mode handles world-stabilized angles.
 
 #### Decisions
 
-1. **Standardize internal interface to body-frame joint angles.** The `gimbal_switch` converts SIYI world-frame angles to body-frame: `R_joint ≈ inverse(R_body_ekf) * R_gimbal_reported`. This is approximate — accuracy degrades during aggressive maneuvers due to the gimbal's internal IMU drift.
-2. **Keep dual command modes:** absolute angle for `point_to_region` (pre-mission, gentle flight), rate for `mas_policy` (mission, aggressive maneuvers).
-3. **`gimbal_switch` is load-bearing** — it's not just routing, it performs frame conversion for real hardware.
-4. **Accept the approximation for now.** The joint angle derivation error is small for the expected flight regime. If aggressive maneuvers cause issues, future options include: custom gimbal firmware with encoder readout, or training the policy to be robust to gimbal angle noise.
+1. **Use `0x26` (magnetic encoder angles) for gimbal state on real hardware.** These are exact body-frame joint angles from motor shaft encoders — no IMU drift, no centrifugal force error, no frame conversion needed. Matches simulation output directly.
+2. **Feed drone EKF to gimbal via `0x22`.** This improves the gimbal's own stabilization for absolute angle commands used by `point_to_region`.
+3. **Keep dual command modes:** absolute angle for `point_to_region` (pre-mission), rate for `mas_policy` (mission).
+4. **`gimbal_switch` simplifies:** with `0x26`, no frame conversion needed for state — just route raw encoder angles. The switch still handles sim/real routing and `0x22` injection.
+5. **Implementation needed:** Add `0x26` and `0x22` support to the SIYI SDK (`siyi_sdk.py`, `siyi_message.py`). Configure `0x25` to stream encoder data at 50-100 Hz.
 
 ## Rendering architecture diagram
 `d2 mas_architecture_semantic.d2 mas_architecture_semantic.svg --layout=elk`
