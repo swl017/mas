@@ -1,0 +1,242 @@
+# MAS (Multi-Agent C-UAS System, Per-Vehicle Decentralized Architecture)
+# Semantic-level Architecture Diagram
+# Render: d2 mas_architecture_semantic.d2 mas_architecture_semantic.svg --layout=elk
+
+direction: right
+
+title: {
+  label: "MAS (Multi-Agent C-UAS System, Per-Vehicle Decentralized Architecture)"
+  near: top-center
+  shape: text
+  style: {
+    font-size: 24
+    bold: true
+  }
+}
+
+# ═══════════════════════════════════════════════════════════
+# Agent N+1 (peer instance, green)
+# ═══════════════════════════════════════════════════════════
+
+agent_n1: "Agent N+1\nMAS instance N+1" {
+  style: {
+    fill: "#d4edda"
+    stroke: "#6abf69"
+    stroke-width: 2
+  }
+
+  mavros_n1: MAVROS {
+    style.fill: "#fff"
+  }
+  common_frame_n1: mas_common_frame {
+    style.fill: "#fff"
+  }
+  ultralytics_ros_n1: ultralytics_ros {
+    style.fill: "#fff"
+  }
+
+  mavros_n1 -> common_frame_n1
+}
+
+# ═══════════════════════════════════════════════════════════
+# Agent N (main instance, blue)
+# ═══════════════════════════════════════════════════════════
+
+agent_n: "Agent N\nMAS instance N" {
+  style: {
+    fill: "#dbeeff"
+    stroke: "#4a90d9"
+    stroke-width: 2
+  }
+
+  ultralytics_ros: ultralytics_ros {
+    style.fill: "#fff"
+  }
+  mas_multiview: mas_multiview {
+    style.fill: "#fff"
+  }
+  mas_tracker: mas_tracker {
+    style.fill: "#fff"
+  }
+  mas_policy: mas_policy\n(WIP) {
+    style.fill: "#fff"
+  }
+  mas_common_frame: mas_common_frame {
+    style.fill: "#fff"
+  }
+  mas_offboard: mas_offboard {
+    style.fill: "#fff"
+  }
+  mavros: MAVROS {
+    style.fill: "#fff"
+  }
+  point_to_region: "gimbal_controller\n(point_to_region)" {
+    style.fill: "#fff"
+  }
+
+  # Gate node (black dot — multiplexes gimbal/zoom commands)
+  gate: "" {
+    shape: circle
+    width: 24
+    height: 24
+    style: {
+      fill: "#000"
+      stroke: "#000"
+    }
+  }
+
+  # ── Internal edges ──
+
+  ultralytics_ros -> mas_multiview: "bbox_xywh\ntimestamp"
+  mas_multiview -> mas_tracker: "target pos est (all)\ntarget pos cov (all)"
+  mas_tracker -> mas_policy: "target pos est (selected)\ntarget pos cov (selected)\nacc"
+  mas_common_frame -> mas_policy: "<mission frame>\npose, cov(pos, ori)\nvel(lin/ang)"
+  mas_common_frame -> mas_tracker: "select"
+  mavros -> mas_common_frame: "<local frame>\npose\nvel(lin/ang)"
+
+  # Policy → gate → downstream
+  mas_policy -> gate: "<mission frame>\ncmd vel(lin/yaw)\ncmd gimbal los rate\ncmd zoom rate"
+  gate -> mas_offboard: "(on mission start)\ncmd vel"
+  point_to_region -> gate: "(before mission)\ncmd gimbal LOS angle\ncmd zoom"
+}
+
+# ═══════════════════════════════════════════════════════════
+# Sim Env (orange)
+# ═══════════════════════════════════════════════════════════
+
+sim: "Sim Env" {
+  style: {
+    fill: "#ffe0d0"
+    stroke: "#d97a4a"
+    stroke-width: 2
+  }
+
+  isaac_sim: Isaac Sim {
+    style.fill: "#fff"
+  }
+  pegasus_simulator: PegasusSimulator {
+    style.fill: "#fff"
+  }
+  px4_sitl: PX4 SITL {
+    style.fill: "#fff"
+  }
+  gimbal_stabilizer: gimbal_stabilizer {
+    style.fill: "#fff"
+  }
+
+  target: Target {
+    style: {
+      fill: "#fff"
+      stroke: "#d97a4a"
+      stroke-dash: 5
+    }
+
+    mavros_tgt: MAVROS {
+      style.fill: "#fff"
+    }
+    common_frame_tgt: mas_common_frame {
+      style.fill: "#fff"
+    }
+
+    mavros_tgt -> common_frame_tgt
+  }
+
+  isaac_sim -> pegasus_simulator: states
+  pegasus_simulator -> isaac_sim: commands
+  pegasus_simulator -> px4_sitl: states\ncommands
+  px4_sitl -> pegasus_simulator: states\ncommands
+}
+
+# ═══════════════════════════════════════════════════════════
+# Real-world (pink)
+# ═══════════════════════════════════════════════════════════
+
+real: "Real-world" {
+  style: {
+    fill: "#f8d7e8"
+    stroke: "#d94a8a"
+    stroke-width: 2
+  }
+
+  usb_cam: usb_cam {
+    style.fill: "#fff"
+  }
+  siyi_gimbal_node: "gimbal_controller\n(siyi_gimbal_node)" {
+    style.fill: "#fff"
+  }
+}
+
+# ═══════════════════════════════════════════════════════════
+# Mission Signal (yellow oval)
+# ═══════════════════════════════════════════════════════════
+
+mission: "Mission\nSignal" {
+  shape: oval
+  style: {
+    fill: "#fff3cd"
+    stroke: "#d9a74a"
+    stroke-width: 2
+  }
+}
+
+# ═══════════════════════════════════════════════════════════
+# Cross-boundary edges
+# ═══════════════════════════════════════════════════════════
+
+# ── Agent N+1 → Agent N (cross-agent) ──
+
+agent_n1.ultralytics_ros_n1 -> agent_n.mas_multiview: "bbox_xywh\ntimestamp" {
+  style.stroke: "#2d6a2d"
+}
+agent_n1.common_frame_n1 -> agent_n.mas_policy: "<mission frame>\npos, vel(lin)\nray_w, combined ang vel\nzoom level" {
+  style.stroke: "#2d6a2d"
+}
+agent_n1.ultralytics_ros_n1 -> agent_n.mas_policy: "bbox empty flag\nbbox timestamp" {
+  style.stroke: "#2d6a2d"
+}
+
+# ── Sim Env ↔ Agent N ──
+
+agent_n.mavros -> sim.px4_sitl: "MAVLink state\nMAVLink command" {
+  style.stroke-dash: 3
+}
+sim.pegasus_simulator -> agent_n.ultralytics_ros: "camera feed\nbase intrinsics\nzoom level" {
+  style.stroke: "#d97a4a"
+}
+sim.pegasus_simulator -> agent_n.mas_multiview: "intrinsics\ngimbal LOS\nzoom level" {
+  style.stroke: "#d97a4a"
+}
+sim.target.common_frame_tgt -> agent_n.point_to_region: "target position"
+
+# ── Gate → Sim Env ──
+
+agent_n.gate -> sim.gimbal_stabilizer: "cmd gimbal los rate\ncmd zoom rate" {
+  style.stroke: "#d94a4a"
+}
+
+# ── Real-world ↔ Agent N ──
+
+real.usb_cam -> agent_n.ultralytics_ros: "camera feed\nbase intrinsics" {
+  style.stroke: "#d94a8a"
+}
+real.siyi_gimbal_node -> agent_n.point_to_region: "gimbal_state\n(yaw, pitch)" {
+  style.stroke: "#d94a8a"
+}
+real.siyi_gimbal_node <- agent_n.gate: "cmd_gimbal_los_rate\ncmd_zoom_rate" {
+  style.stroke: "#d94a8a"
+}
+
+# ── Mission Signal → Gate / Offboard ──
+
+mission -> agent_n.gate: "start" {
+  style: {
+    stroke: "#d9a74a"
+    stroke-width: 2
+  }
+}
+mission -> agent_n.mas_offboard: "start" {
+  style: {
+    stroke: "#d9a74a"
+    stroke-width: 2
+  }
+}
