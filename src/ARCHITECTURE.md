@@ -86,8 +86,8 @@ All topics below are per-vehicle, resolved within `/{veh}/` namespace unless not
 | `yolo_result_vision` | vision_msgs/Detection2DArray | ultralytics_ros | mas_multiview, mas_policy | BEST_EFFORT |
 | `common_frame/odom` | nav_msgs/Odometry | mas_common_frame | mas_multiview, mas_policy, siyi_gimbal_node | BEST_EFFORT |
 | `common_frame/pose` | geometry_msgs/PoseStamped | mas_common_frame | point_to_region_node | BEST_EFFORT |
-| `gimbal_state_rpy_deg` | geometry_msgs/Vector3 | siyi_gimbal_node | mas_multiview, point_to_region_node | BEST_EFFORT |
-| `gimbal_encoder_rpy_deg` | geometry_msgs/Vector3 | siyi_gimbal_node | — | default |
+| `gimbal_state_rpy_deg` | geometry_msgs/Vector3 | siyi_gimbal_node (encoder 0x26) | mas_multiview, point_to_region_node | BEST_EFFORT |
+| `gimbal_imu_rpy_deg` | geometry_msgs/Vector3 | siyi_gimbal_node (IMU 0x0D) | — (secondary, available if needed) | default |
 | `camera/zoom` | std_msgs/Float64 | — | mas_multiview | default |
 | `camera_pose` | geometry_msgs/PoseStamped | — | mas_multiview | default |
 | `triangulated_points` | visualization_msgs/MarkerArray | mas_multiview | mas_tracker | default |

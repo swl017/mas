@@ -109,9 +109,16 @@ Ordered by **dependency** (downstream items depend on upstream) and **risk** (im
 **Gap:** Semantic arch decided on `0x26` encoder angles for body-frame joint angles. SDK support is implemented but not wired to downstream consumers.
 
 **Tasks:**
-- [ ] Wire `gimbal_encoder_rpy_deg` as the primary gimbal state for `mas_multiview` and `point_to_region` on real hardware
+- [x] Wire encoder angles (0x26) as the primary `gimbal_state_rpy_deg` via launch remapping swap. IMU angles (0x0D) moved to `gimbal_imu_rpy_deg`. Applied direction multipliers to encoder output.
 - [ ] Verify `mas_policy` gimbal input path: currently expects `gimbal_state_rpy_rad` from `los_rate_controller` — confirm this is correct for both sim and real
 - [ ] Define the single canonical gimbal state topic name and message convention (degrees vs radians, body-frame vs world-frame) in the ICD
+
+**Hardware verification required (feat/gimbal-encoder-wiring branch):**
+- [ ] **Encoder sign convention:** Confirm encoder angles with `yaw_direction=1.0, pitch_direction=-1.0` produce correct output for `point_to_region` and `mas_multiview`. If encoder convention already matches downstream expectations natively, set both multipliers to `1.0`.
+- [ ] **Encoder stream continuity:** Verify 0x26 encoder stream at 50 Hz is stable and doesn't drop out during aggressive maneuvers (the whole point of switching from IMU).
+- [ ] **`los_rate_controller` compatibility:** Verify it still works correctly when `gimbal_state_rpy_deg` carries encoder-based body-frame angles instead of IMU-based world-frame angles. This is a frame convention change — may need adjustment in `los_rate_controller`.
+- [ ] **`point_to_region` closed-loop:** Command gimbal to point at a known target, verify the pointing converges (not oscillating or diverging due to sign error).
+- [ ] **`mas_multiview` triangulation:** Run multi-view triangulation with encoder angles, compare reprojection error against baseline with IMU angles.
 
 ### Priority 2: mas_mission (blocks mission phase management)
 
