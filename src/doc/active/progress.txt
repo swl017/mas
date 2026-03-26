@@ -34,3 +34,77 @@ Next:
 - Test with hardware: verify encoder stream and attitude injection on real SIYI gimbal
 - Wire gimbal_encoder_rpy_deg to downstream consumers (mas_policy) if needed
 - Evaluate whether encoder angles should replace IMU angles for mas_multiview input
+
+----------------------------------------
+2026-03-26 — Gap analysis, encoder wiring, mas_mission
+----------------------------------------
+Done:
+- Drafted gap analysis (doc/active/gap_analysis.md): semantic arch vs implementation, 5 prioritized refactoring items
+- Reviewed gap analysis — incorporated decisions: switches are launch-config boundaries, mas_mission owns all mode gating, compact cross-agent topics
+- Updated semantic d2 diagram: switches restyled as dashed launch-config boundaries, fixed gimbal label
+- Priority 1 (gimbal wiring): swapped launch remappings so 0x26 encoder angles publish to gimbal_state_rpy_deg (primary), IMU to gimbal_imu_rpy_deg (secondary). Applied direction multipliers to encoder output.
+- Priority 2 (mas_mission): wrote spec (doc/mas_mission_spec.md), implemented mas_mission package — state-gated command multiplexer (IDLE/TRACKING/MISSION), topic-based multicast via /mission_state_cmd
+- Modified mas_offboard: HOVER→POLICY now gated on mission_state == MISSION
+- Updated ARCHITECTURE.md, CLAUDE.md, gimbal_controller/CONTEXT.md, mas_offboard/CONTEXT.md, created mas_mission/CONTEXT.md
+
+Next:
+- Hardware verification for encoder wiring (5 items in gap_analysis.md Priority 1)
+- Priority 3: sim/real gimbal parity — align gimbal_stabilizer output convention with 0x26 encoder
+- Priority 4: interface conformance — structured triangulated_points msg, compact cross-agent topics (ray_w, bbox_empty, zoom_level, combined_ang_vel)
+- Integrate mas_mission into system launch files
+- Operator UI for mission control (minimal: ros2 topic pub is sufficient for now)
+
+----------------------------------------
+2026-03-26 — Sim e2e test, launch integration, gimbal parity
+----------------------------------------
+Done:
+- mas_mission launch integration: mission_deploy.launch.py (OpaqueFunction multi-vehicle), policy_deploy use_mission_gate flag
+- Full sim e2e test passed: 3 agents (px4_1/2 ego, px4_3 target), IDLE→TRACKING→MISSION→IDLE, offboard holds HOVER until mission approved
+- Fixed offboard QoS mismatch: mavros/local_position/pose and odom changed RELIABLE→BEST_EFFORT to match MAVROS publisher
+- Fixed simdrone tmux env: sourcing galactic (where MAVROS lives) instead of humble
+- Wired point_to_region → tracking/gimbal_cmd_rpy_deg remapping in drone, simulation, multiview tmux files
+- Removed mas_multiview_py submodule (redundant)
+- Priority 3 (partial): los_rate_controller now publishes actual joint feedback from isaac_joint_states as gimbal_state_rpy_deg instead of internal targets — matches real encoder behavior (committed in IsaacPX4/ros2_ws)
+
+Next:
+- Hardware verification for encoder wiring (5 items in gap_analysis.md Priority 1)
+- Priority 3 remaining: align topic names/units between sim and real, document canonical gimbal state convention
+- Fix QoS mismatch on gimbal_state_rpy_rad (los_rate_controller BEST_EFFORT vs mas_policy RELIABLE)
+- Priority 4 remaining: multiview peer target_rays_w subscription, policy target-ray selection
+
+----------------------------------------
+2026-03-26 — Priority 4: Interface conformance
+----------------------------------------
+Done:
+- Created mas_msgs package: TriangulatedPoint, TriangulatedPointArray, TargetRay, TargetRayArray
+- mas_multiview: replaced MarkerArray publisher on `triangulated_points` with TriangulatedPointArray (structured position + 3x3 covariance). Added TargetRayArray publisher per camera (`target_rays_w`)
+- mas_tracker: replaced MarkerArray subscription with TriangulatedPointArray. Fixed PoseStamped → PoseWithCovarianceStamped bug (covariance now flows from triangulation through tracker to policy)
+- ultralytics_ros: added `yolo_result_active` Bool publisher for compact cross-agent detection status
+- mas_policy observation_assembler: peer Detection2DArray → Bool subscription, peer gimbal_state_rpy_rad → combined_ang_vel_w (Vector3Stamped), added zoom_level (Float32) subscription for ego + peers
+- los_rate_controller (sim): added combined_ang_vel_w, zoom_level publishers. Subscribes to camera/zoom for sim zoom state
+- siyi_ros_node (real): added combined_ang_vel_w (encoder finite-diff rates), zoom_level (from SDK getZoomLevel) publishers
+- Created scripts/operator.py: rclpy operator CLI with text menu for mission state transitions, auto-pick, and per-agent status display
+- Build note: mas_multiview requires cmake 3.29+ (pip: ~/.local/bin/cmake) due to CUDAToolkit/Ceres dependency
+
+Next:
+- Policy target-ray selection from TargetRayArray (select one ray per agent for obs vector based on tracked target)
+- Update CONTEXT.md files for changed interfaces (mas_multiview, mas_tracker, gimbal_controller)
+- Update semantic d2 diagram: ray_w → target_rays_w
+- Sim e2e test with new message types
+
+----------------------------------------
+2026-03-26 — Multiview peer precomputed rays
+----------------------------------------
+Done:
+- Added `use_precomputed_rays` parameter to triangulation_node (bool array, per camera)
+- Cameras with flag=true subscribe to `target_rays_w` (TargetRayArray) instead of 4 raw topics (detections, camera_info, odom, gimbal)
+- Added `Camera::addPrecomputedRay()` and `MultiViewTriangulation::addPrecomputedRay()` to multiview library (camera.h, multiview_triangulation.h/cpp)
+- Readiness check handles both modes: raw cameras need all 4 topics, precomputed cameras need only target_rays_w
+- Updated ARCHITECTURE.md topic table with new message types and topics
+- Updated progress.txt, feature_list.json
+
+Next:
+- Policy target-ray selection from TargetRayArray
+- Update CONTEXT.md for mas_multiview, mas_tracker, gimbal_controller
+- Update semantic d2 diagram: ray_w → target_rays_w
+- Sim e2e test with new message types

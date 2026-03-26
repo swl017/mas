@@ -83,19 +83,23 @@ All topics below are per-vehicle, resolved within `/{veh}/` namespace unless not
 |-------|----------|----------|------------|-----|
 | `image_raw` | sensor_msgs/Image | camera driver | ultralytics_ros | default |
 | `camera/color/camera_info` | sensor_msgs/CameraInfo | camera driver | mas_multiview, point_to_region_node | default |
-| `yolo_result_vision` | vision_msgs/Detection2DArray | ultralytics_ros | mas_multiview, mas_policy | BEST_EFFORT |
+| `yolo_result_vision` | vision_msgs/Detection2DArray | ultralytics_ros | mas_multiview, mas_policy (ego) | BEST_EFFORT |
+| `yolo_result_active` | std_msgs/Bool | ultralytics_ros | mas_policy (peers) | BEST_EFFORT |
 | `common_frame/odom` | nav_msgs/Odometry | mas_common_frame | mas_multiview, mas_policy, siyi_gimbal_node | BEST_EFFORT |
 | `common_frame/pose` | geometry_msgs/PoseStamped | mas_common_frame | point_to_region_node | BEST_EFFORT |
 | `gimbal_state_rpy_deg` | geometry_msgs/Vector3 | siyi_gimbal_node (encoder 0x26) | mas_multiview, point_to_region_node | BEST_EFFORT |
 | `gimbal_imu_rpy_deg` | geometry_msgs/Vector3 | siyi_gimbal_node (IMU 0x0D) | — (secondary, available if needed) | default |
 | `camera/zoom` | std_msgs/Float64 | — | mas_multiview | default |
 | `camera_pose` | geometry_msgs/PoseStamped | — | mas_multiview | default |
-| `triangulated_points` | visualization_msgs/MarkerArray | mas_multiview | mas_tracker | default |
+| `triangulated_points` | mas_msgs/TriangulatedPointArray | mas_multiview | mas_tracker | default |
+| `{cam}/target_rays_w` | mas_msgs/TargetRayArray | mas_multiview | mas_multiview (peers), mas_policy | default |
 | `tracked_objects/class_{i}` | vision_msgs/Detection3DArray | mas_tracker | — | default |
-| `chosen_target_pose` | geometry_msgs/PoseStamped | mas_tracker | mas_policy | default |
+| `chosen_target_pose` | geometry_msgs/PoseWithCovarianceStamped | mas_tracker | mas_policy | default |
 | `target_region` | geometry_msgs/PointStamped | mas_tracker | point_to_region_node | default |
 | `gimbal_command_rpy_deg` | geometry_msgs/Vector3 | point_to_region_node | mas_mission (tracking input) | default |
-| `gimbal_state_rpy_rad` | geometry_msgs/Vector3 | los_rate_controller | mas_policy | default |
+| `gimbal_state_rpy_rad` | geometry_msgs/Vector3 | los_rate_controller | mas_policy (ego) | default |
+| `combined_ang_vel_w` | geometry_msgs/Vector3Stamped | los_rate_controller / siyi_gimbal_node | mas_policy (peers) | BEST_EFFORT |
+| `zoom_level` | std_msgs/Float32 | los_rate_controller / siyi_gimbal_node | mas_policy (ego + peers) | BEST_EFFORT |
 | `/mission_state_cmd` | std_msgs/Int8 | Operator | mas_mission (all agents) | RELIABLE, transient local |
 | `mission_state` | std_msgs/Int8 | mas_mission | offboard_control | RELIABLE, transient local |
 | `cmd_vel` | geometry_msgs/TwistStamped | mas_mission | offboard_control | BEST_EFFORT |
@@ -133,6 +137,7 @@ All topics below are per-vehicle, resolved within `/{veh}/` namespace unless not
 | `num_camera` | int | `3` | triangulation_node | Number of cameras |
 | `camera_name_prefix` | string | `"/px4_"` | triangulation_node | Prefix for per-camera topics |
 | `max_reprojection_error` | double | `100.0` | triangulation_node | Max reprojection error (px) |
+| `use_precomputed_rays` | bool[] | `[]` | triangulation_node | Per-camera: subscribe to target_rays_w instead of raw topics |
 | `association_distance_threshold` | double | `1.0` | sort3d_tracking_node | Track association threshold |
 | `max_track_age` | int | `30` | sort3d_tracking_node | Frames before track deletion |
 | `server_ip` | string | `"192.168.144.25"` | siyi_gimbal_node | SIYI gimbal IP |
@@ -171,6 +176,7 @@ All topics below are per-vehicle, resolved within `/{veh}/` namespace unless not
 
 | Package | Build Type | Nodes | Role |
 |---------|-----------|-------|------|
+| `mas_msgs` | ament_cmake | — (messages only) | Shared message types (TriangulatedPointArray, TargetRayArray) |
 | `ultralytics_ros` | ament_cmake (hybrid) | tracker_node, tracker_with_cloud_node | 2D/3D YOLO detection |
 | `mas_common_frame` | ament_python | common_frame_node, common_frame_node_single | GPS→common frame transforms |
 | `mas_multiview` | ament_cmake | triangulation_node | Multi-view triangulation (C++, Ceres) |
@@ -182,6 +188,17 @@ All topics below are per-vehicle, resolved within `/{veh}/` namespace unless not
 
 ## Simulation Environements
 - Launch script: `/home/usrg/IsaacPX4/tmux/isaac_sim.tmuxp.yaml`
+
+## Launch System
+- Per-agent distributed system(launch N times)
+```
+tmuxp load `tmux/simdrone1.tmuxp.yaml`
+```
+- Operator UI
+- Simulation-only
+```
+tmuxp load `/home/usrg/IsaacPX4/tmux/isaac_sim.tmuxp.yaml`
+```
 
 ## File Conventions
 

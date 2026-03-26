@@ -7,7 +7,7 @@
       "name": "Multi-view triangulation from 2D detections",
       "status": "done",
       "spec": "",
-      "notes": "Implemented in mas_multiview_py and mas_multiview (C++)"
+      "notes": "Implemented in mas_multiview (C++). mas_multiview_py removed (2026-03-26)"
     },
     {
       "id": "3d-tracking",
@@ -43,6 +43,27 @@
       "status": "done",
       "spec": "gimbal_controller/doc/siyi_encoder_attitude_spec.md",
       "notes": "0x26 encoder stream + 0x22 attitude injection in SDK & ROS node (2026-03-26)"
+    },
+    {
+      "id": "gimbal-encoder-wiring",
+      "name": "Encoder angles as primary gimbal state",
+      "status": "in_progress",
+      "spec": "",
+      "notes": "Launch remapping swapped: encoder→gimbal_state_rpy_deg, IMU→gimbal_imu_rpy_deg. Sim parity: los_rate_controller publishes actual joint feedback. Needs hardware verification (2026-03-26)"
+    },
+    {
+      "id": "mas-mission",
+      "name": "Mission state machine and command routing",
+      "status": "done",
+      "spec": "doc/mas_mission_spec.md",
+      "notes": "Node implemented, launch integrated, sim e2e verified: IDLE→TRACKING→MISSION→IDLE with 3 agents. Offboard gated on mission_state. point_to_region remapped for tracking state (2026-03-26)"
+    },
+    {
+      "id": "interface-conformance",
+      "name": "Interface conformance: structured messages, compact cross-agent topics",
+      "status": "in_progress",
+      "spec": "doc/active/priority4_plan.md",
+      "notes": "mas_msgs package (TriangulatedPointArray, TargetRayArray). MarkerArray→structured msg, PoseStamped→PoseWithCovarianceStamped bug fix, compact Bool for bbox_empty, target_rays_w per-camera, combined_ang_vel_w, zoom_level. Multiview peer precomputed rays via use_precomputed_rays param. Remaining: policy target-ray selection. Operator script added. (2026-03-26)"
     }
   ]
 }

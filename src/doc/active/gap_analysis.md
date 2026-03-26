@@ -125,38 +125,52 @@ Ordered by **dependency** (downstream items depend on upstream) and **risk** (im
 **Gap:** No command routing between pre-mission (point_to_region) and mission (policy) phases for gimbal/zoom. Currently only cmd_vel is gated by offboard's state machine.
 
 **Tasks:**
-- [ ] Design `mas_mission` node: state machine, service interface, topic routing
-- [ ] Write spec: `doc/mas_mission_spec.md`
-- [ ] Implement: subscribe to policy + point_to_region commands, publish gated commands downstream
-- [ ] Add `mission_state` topic for offboard to consume
-- [ ] Update offboard to use `mission_state` instead of internal HOVER→POLICY transition (or keep both — decide)
+- [x] Design `mas_mission` node: state machine, topic-based multicast command (`/mission_state_cmd`), command routing
+- [x] Write spec: `doc/mas_mission_spec.md`
+- [x] Implement: `mas_mission/mission_node.py` — subscribes to `policy/*` and `tracking/*` prefixed topics, forwards active source based on state
+- [x] Add `mission_state` topic (RELIABLE + transient local, 1 Hz heartbeat) for offboard and operator confirmation
+- [x] Update offboard: HOVER→POLICY gated on `mission_state == MISSION` (Option A — kept internal flight state machine)
+
+**Remaining:**
+- [x] Integrate mas_mission into system launch files: `mission_deploy.launch.py` (OpaqueFunction, multi-vehicle), `policy_deploy.launch.py` (`use_mission_gate` flag for `policy/*` remapping), `simdrone1/2.tmuxp.yaml` updated
+- [x] Test end-to-end in sim (2026-03-26): 3 agents (px4_1, px4_2 ego, px4_3 target). Full cycle verified: IDLE→TRACKING→MISSION→IDLE. Offboard holds HOVER until mission approved, then enters POLICY.
+- [ ] Wire `point_to_region` output to `tracking/gimbal_cmd_rpy_deg` via launch remapping
+
+**Bugs found and fixed during e2e:**
+- [x] offboard_control QoS mismatch: MAVROS publishes `local_position/pose` and `odom` as BEST_EFFORT, but offboard subscribed RELIABLE — silently dropped all messages. Fixed to BEST_EFFORT.
+- [x] simdrone tmux env: was sourcing humble (no MAVROS) instead of galactic. Fixed `ROS2_INSTALL_PATH` to `/opt/ros/galactic`.
+
+**Operator note:** galactic `ros2 topic pub` requires explicit QoS: `--qos-durability transient_local --qos-reliability reliable`
 
 ### Priority 3: Sim/Real Gimbal Parity (launch-config alignment)
 
 **Decision:** Switches are launch-config boundaries, not runtime nodes. The task is to ensure sim and real gimbal outputs use the same convention so downstream nodes don't need to know which environment they're in.
 
 **Tasks:**
-- [ ] Ensure sim `gimbal_stabilizer` outputs body-frame joint angles matching `0x26` encoder convention
+- [x] Ensure sim `gimbal_stabilizer` outputs body-frame joint angles matching `0x26` encoder convention — `los_rate_controller` now publishes actual joint positions from `isaac_joint_states` (with `YAW_JOINT_OFFSET` removed) instead of internal targets. `gimbal_stabilizer.py` offset confirmed correct. (2026-03-26)
 - [ ] Align topic names and units (degrees vs radians) between sim and real paths via launch remapping
 - [ ] Document the canonical gimbal state convention in ARCHITECTURE.md
 - [ ] (Deferred) Feed aircraft attitude to sim `gimbal_stabilizer` for higher-fidelity sim
 
+**Note:** QoS mismatch found on `gimbal_state_rpy_rad` — `los_rate_controller` publishes BEST_EFFORT but `mas_policy` subscribes RELIABLE. Same pattern as the MAVROS pose/odom bug. Needs fix in mas_policy or los_rate_controller.
+
 ### Priority 4: Interface Conformance
 
 **Tasks:**
-- [ ] `triangulated_points`: replace MarkerArray with structured message — array of (position + covariance) pairs, sent to both mas_tracker and mas_policy
-- [ ] Cross-agent `bbox_empty`: replace full Detection2DArray with compact topic (e.g., `std_msgs/Bool`)
-- [ ] Cross-agent `ray_w`: add as dedicated per-agent published topic (computed at source)
-- [ ] Cross-agent `zoom_level`: add peer zoom subscription to mas_policy
-- [ ] Cross-agent `combined_ang_vel`: add dedicated topic (body + gimbal angular velocity)
-- [ ] Operator → mas_tracker target selection: implement minimal flow (gimbal pointing → localization confirmation → policy approval)
+- [x] `triangulated_points`: replace MarkerArray with `mas_msgs/TriangulatedPointArray` — array of (position + 3x3 covariance) pairs. New `mas_msgs` package created. mas_multiview publishes structured msg, mas_tracker subscribes. (2026-03-26)
+- [x] Fix PoseStamped → PoseWithCovarianceStamped bug: mas_tracker now publishes `PoseWithCovarianceStamped` with covariance from triangulation. mas_policy subscription now works. (2026-03-26)
+- [x] Cross-agent `bbox_empty`: ultralytics_ros publishes `yolo_result_active` (Bool) alongside Detection2DArray. mas_policy peers subscribe to Bool instead of full Detection2DArray. (2026-03-26)
+- [x] Cross-agent `target_rays_w`: mas_multiview publishes `mas_msgs/TargetRayArray` per camera — array of bearing rays (camera origin → bbox center in world frame) with detection_id. Replaces `ray_w` in semantic arch. Peer subscription in multiview and policy target-ray selection deferred to next session. (2026-03-26)
+- [x] Cross-agent `zoom_level`: gimbal nodes (los_rate_controller, siyi_ros_node) publish `zoom_level` (Float32). mas_policy subscribes for ego + peers. Sim path reads from `camera/zoom` topic. (2026-03-26)
+- [x] Cross-agent `combined_ang_vel`: gimbal nodes publish `combined_ang_vel_w` (Vector3Stamped). Body ang_vel + gimbal joint rates (finite differences) rotated to world frame. mas_policy peers subscribe to pre-computed topic. (2026-03-26)
+- [x] Operator script: `scripts/operator.py` — rclpy node with text menu for mission state transitions, auto-pick toggling, and per-agent status display. (2026-03-26)
 
 ### ~~Priority 5: Sim/Real Switches for Camera and FC~~ (RESOLVED)
 
 **Decision:** Launch-config remapping is sufficient. `camera_switch` and `fc_switch` are not runtime nodes. Semantic arch should annotate them as "launch-config boundary" markers.
 
 **Tasks:**
-- [ ] Update semantic arch diagram to mark camera/fc/gimbal switches as launch-config boundaries instead of active nodes
+- [x] Update semantic arch diagram to mark camera/fc/gimbal switches as launch-config boundaries instead of active nodes
 
 ---
 
@@ -182,7 +196,12 @@ Notes:     <any special conventions>
 ## 5. Next Steps
 
 1. ~~Review this gap analysis~~ — **Done** (2026-03-26). Review decisions incorporated above.
-2. Start Priority 1 (gimbal state wiring) — smallest scope, highest immediate value
-3. Write `doc/mas_mission_spec.md` for Priority 2 — include `MissionState.msg` enum, `SetMissionState.srv`, minimal operator flow
-4. Update semantic arch diagram: annotate switches as launch-config boundaries
-5. Remove `mas_multiview_py` package
+2. ~~Priority 1 (gimbal state wiring)~~ — **Done** (2026-03-26). Encoder angles wired as primary. Hardware verification pending (see checklist above).
+3. ~~Write `doc/mas_mission_spec.md` for Priority 2~~ — **Done** (2026-03-26). Spec written, node implemented, offboard gated. Used topic-based multicast instead of service.
+4. ~~Update semantic arch diagram~~ — **Done** (2026-03-26). Switches restyled as launch-config boundaries.
+5. Hardware verification for Priority 1 encoder wiring (5 items above)
+6. ~~Integrate mas_mission into launch files and test e2e~~ — **Done** (2026-03-26). Full sim e2e verified with 3 agents. Also fixed offboard QoS bug and tmux env sourcing.
+7. ~~Wire `point_to_region` → `tracking/gimbal_cmd_rpy_deg` remapping~~ — **Done** (2026-03-26). Updated drone, simulation, and multiview tmux files.
+8. ~~Remove `mas_multiview_py` package~~ — **Done** (2026-03-26). Submodule removed.
+9. Priority 3: sim/real gimbal parity
+10. Priority 4: interface conformance (structured messages, compact cross-agent topics)
