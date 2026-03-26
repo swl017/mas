@@ -23,8 +23,10 @@ import numpy as np
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 
 from geometry_msgs.msg import PoseWithCovarianceStamped, Vector3, Vector3Stamped
+from mas_msgs.msg import TargetRayArray
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Imu
 from std_msgs.msg import Bool, Float32
@@ -139,6 +141,21 @@ class ObservationAssembler:
         # Triangulation state
         self._tri_state = TriangulationState()
 
+        # Cached target rays and peer target positions (for ray selection)
+        self._target_rays: dict[str, TargetRayArray | None] = {
+            name: None for name in self._all_names
+        }
+        self._peer_target_positions: dict[str, np.ndarray | None] = {
+            name: None for name in peer_names
+        }
+
+        # QoS: BEST_EFFORT for sensor-rate topics (gimbal, ang_vel, zoom)
+        self._sensor_qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+
         # Create subscriptions
         self._subscriptions = []
 
@@ -171,7 +188,8 @@ class ObservationAssembler:
             topic = 'mavros/local_position/odom'
         sub = node.create_subscription(
             Odometry, topic,
-            lambda msg, v=ego: self._odom_callback(msg, v), 10,
+            lambda msg, v=ego: self._odom_callback(msg, v),
+            self._sensor_qos,
         )
         self._subscriptions.append(sub)
 
@@ -182,24 +200,34 @@ class ObservationAssembler:
         )
         self._subscriptions.append(sub)
 
-        # Gimbal state
+        # Gimbal state (BEST_EFFORT to match los_rate_controller/siyi publisher)
         sub = node.create_subscription(
             Vector3, 'gimbal_state_rpy_rad',
-            lambda msg, v=ego: self._gimbal_state_callback(msg, v), 10,
+            lambda msg, v=ego: self._gimbal_state_callback(msg, v),
+            self._sensor_qos,
         )
         self._subscriptions.append(sub)
 
-        # YOLO detections
+        # YOLO detections (BEST_EFFORT to match ultralytics_ros sensor QoS)
         sub = node.create_subscription(
             Detection2DArray, 'yolo_result_vision',
-            lambda msg, v=ego: self._detection_callback(msg, v), 10,
+            lambda msg, v=ego: self._detection_callback(msg, v),
+            self._sensor_qos,
         )
         self._subscriptions.append(sub)
 
-        # Zoom level
+        # Zoom level (BEST_EFFORT to match publisher)
         sub = node.create_subscription(
             Float32, 'zoom_level',
-            lambda msg, v=ego: self._zoom_level_callback(msg, v), 10,
+            lambda msg, v=ego: self._zoom_level_callback(msg, v),
+            self._sensor_qos,
+        )
+        self._subscriptions.append(sub)
+
+        # Target rays (from own multiview, for bearing-ray observation)
+        sub = node.create_subscription(
+            TargetRayArray, 'target_rays_w',
+            lambda msg, v=ego: self._target_rays_callback(msg, v), 10,
         )
         self._subscriptions.append(sub)
 
@@ -214,28 +242,46 @@ class ObservationAssembler:
             topic = f'/{peer}/mavros/local_position/odom'
         sub = node.create_subscription(
             Odometry, topic,
-            lambda msg, v=peer: self._odom_callback(msg, v), 10,
+            lambda msg, v=peer: self._odom_callback(msg, v),
+            self._sensor_qos,
         )
         self._subscriptions.append(sub)
 
-        # Combined angular velocity (pre-computed, cross-agent)
+        # Combined angular velocity (pre-computed, cross-agent, BEST_EFFORT)
         sub = node.create_subscription(
             Vector3Stamped, f'/{peer}/combined_ang_vel_w',
-            lambda msg, v=peer: self._peer_combined_ang_vel_callback(msg, v), 10,
+            lambda msg, v=peer: self._peer_combined_ang_vel_callback(msg, v),
+            self._sensor_qos,
         )
         self._subscriptions.append(sub)
 
-        # Detection active (compact Bool for bbox_empty, cross-agent)
+        # Detection active (compact Bool for bbox_empty, cross-agent, BEST_EFFORT)
         sub = node.create_subscription(
             Bool, f'/{peer}/yolo_result_active',
-            lambda msg, v=peer: self._peer_detection_active_callback(msg, v), 10,
+            lambda msg, v=peer: self._peer_detection_active_callback(msg, v),
+            self._sensor_qos,
         )
         self._subscriptions.append(sub)
 
-        # Zoom level (cross-agent)
+        # Zoom level (cross-agent, BEST_EFFORT)
         sub = node.create_subscription(
             Float32, f'/{peer}/zoom_level',
-            lambda msg, v=peer: self._zoom_level_callback(msg, v), 10,
+            lambda msg, v=peer: self._zoom_level_callback(msg, v),
+            self._sensor_qos,
+        )
+        self._subscriptions.append(sub)
+
+        # Target rays (cross-agent, for bearing-ray observation)
+        sub = node.create_subscription(
+            TargetRayArray, f'/{peer}/target_rays_w',
+            lambda msg, v=peer: self._target_rays_callback(msg, v), 10,
+        )
+        self._subscriptions.append(sub)
+
+        # Peer's selected target position (for ray selection matching)
+        sub = node.create_subscription(
+            PoseWithCovarianceStamped, f'/{peer}/chosen_target_pose',
+            lambda msg, v=peer: self._peer_chosen_target_callback(msg, v), 10,
         )
         self._subscriptions.append(sub)
 
@@ -324,6 +370,15 @@ class ObservationAssembler:
         state.bbox_empty = 0.0 if msg.data else 1.0
         state.detection_timestamp = self._get_time()
 
+    def _target_rays_callback(self, msg: TargetRayArray, veh: str):
+        """Cache target rays for ego or peer."""
+        self._target_rays[veh] = msg
+
+    def _peer_chosen_target_callback(self, msg: PoseWithCovarianceStamped, veh: str):
+        """Cache peer's selected target position for ray matching."""
+        pos = msg.pose.pose.position
+        self._peer_target_positions[veh] = np.array([pos.x, pos.y, pos.z])
+
     def _triangulation_callback(self, msg: PoseWithCovarianceStamped):
         """Cache triangulation result with covariance."""
         pos = msg.pose.pose.position
@@ -341,6 +396,43 @@ class ObservationAssembler:
             self._tri_state.is_valid = False
 
         self._tri_state.timestamp = self._get_time()
+
+    def _select_target_ray(self, veh: str, target_pos: np.ndarray | None) -> np.ndarray | None:
+        """Select the bearing ray closest to the target direction.
+
+        Uses angular-proximity matching: computes the expected direction from
+        camera origin to target 3D position, then picks the ray with the
+        smallest angular deviation.
+
+        Returns:
+            3D unit direction vector, or None if no suitable ray found.
+        """
+        rays_msg = self._target_rays.get(veh)
+        if rays_msg is None or len(rays_msg.rays) == 0:
+            return None
+        if target_pos is None:
+            return None
+
+        origin = np.array([rays_msg.origin.x, rays_msg.origin.y, rays_msg.origin.z])
+        diff = target_pos - origin
+        dist = np.linalg.norm(diff)
+        if dist < 1e-3:
+            return None
+        expected_dir = diff / dist
+
+        best_dot = -1.0
+        best_ray = None
+        for ray in rays_msg.rays:
+            d = np.array([ray.direction.x, ray.direction.y, ray.direction.z])
+            dot = float(np.dot(d, expected_dir))
+            if dot > best_dot:
+                best_dot = dot
+                best_ray = d
+
+        # Reject if best match is > ~60° off
+        if best_dot < 0.5 or best_ray is None:
+            return None
+        return best_ray
 
     def _get_time(self) -> float:
         """Get current ROS time as float seconds."""
@@ -364,11 +456,17 @@ class ObservationAssembler:
         gimbal_yaw_obs = ego.gimbal_yaw_body - self._yaw_joint_offset
         gimbal_pitch_obs = ego.gimbal_pitch_body
 
-        ray_w = gimbal_ray_direction_world(
-            np.array(gimbal_yaw_obs),
-            np.array(gimbal_pitch_obs),
-            ego.orientation_w,
-        )
+        # Try target bearing ray, fall back to gimbal LOS
+        ego_target_pos = self._tri_state.position if self._tri_state.is_valid else None
+        target_ray = self._select_target_ray(self._ego_name, ego_target_pos)
+        if target_ray is not None:
+            ray_w = target_ray
+        else:
+            ray_w = gimbal_ray_direction_world(
+                np.array(gimbal_yaw_obs),
+                np.array(gimbal_pitch_obs),
+                ego.orientation_w,
+            )
         combined_ang_vel_w = compute_combined_angular_velocity_world(
             ego.angular_velocity_b,
             ego.gimbal_pitch_rate,
@@ -398,13 +496,18 @@ class ObservationAssembler:
         for peer in self._peer_names:
             other = self._states[peer]
 
-            # Peer ray: fall back to gimbal LOS if target_rays_w not available
-            other_gimbal_yaw = other.gimbal_yaw_body - self._yaw_joint_offset
-            other_ray_w = gimbal_ray_direction_world(
-                np.array(other_gimbal_yaw),
-                np.array(other.gimbal_pitch_body),
-                other.orientation_w,
-            )
+            # Try peer's target bearing ray, fall back to gimbal LOS
+            peer_target_pos = self._peer_target_positions.get(peer)
+            target_ray = self._select_target_ray(peer, peer_target_pos)
+            if target_ray is not None:
+                other_ray_w = target_ray
+            else:
+                other_gimbal_yaw = other.gimbal_yaw_body - self._yaw_joint_offset
+                other_ray_w = gimbal_ray_direction_world(
+                    np.array(other_gimbal_yaw),
+                    np.array(other.gimbal_pitch_body),
+                    other.orientation_w,
+                )
             # Peer combined_ang_vel: use pre-computed value from dedicated topic
             other_combined_ang_vel_w = other.combined_ang_vel_w
             data_age = now - other.motion_timestamp if other.motion_timestamp > 0 else 0.0

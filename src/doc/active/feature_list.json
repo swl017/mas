@@ -1,6 +1,6 @@
 {
   "project": "mas",
-  "last_updated": "2026-03-26",
+  "last_updated": "2026-03-27",
   "features": [
     {
       "id": "multiview-triangulation",
@@ -63,7 +63,7 @@
       "name": "Interface conformance: structured messages, compact cross-agent topics",
       "status": "in_progress",
       "spec": "doc/active/priority4_plan.md",
-      "notes": "mas_msgs package (TriangulatedPointArray, TargetRayArray). MarkerArray→structured msg, PoseStamped→PoseWithCovarianceStamped bug fix, compact Bool for bbox_empty, target_rays_w per-camera, combined_ang_vel_w, zoom_level. Multiview peer precomputed rays via use_precomputed_rays param. Remaining: policy target-ray selection. Operator script added. (2026-03-26)"
+      "notes": "mas_msgs package (TriangulatedPointArray, TargetRayArray). All Priority 4 tasks implemented. Policy target-ray selection via angular-proximity matching added. QoS unified to BEST_EFFORT. Workspace migrated from galactic to humble. Sim e2e verified. (2026-03-27)"
     }
   ]
 }

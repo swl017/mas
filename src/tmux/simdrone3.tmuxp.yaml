@@ -1,6 +1,7 @@
 session_name: drone3
 
 environment:
+  ROS2_INSTALL_PATH: /home/usrg/ros2_humble/install
   ROS2_WORKSPACE: /home/usrg/mas
   ROBOT_NAME: px4_3
 
@@ -12,7 +13,7 @@ windows:
   focus: false
   layout: tiled
   shell_command_before:
-    - source ${ROS2_WORKSPACE}/install/setup.bash
+    - source /opt/ros/galactic/setup.bash
   panes:
     - ros2 run mavros mavros_node --ros-args -p fcu_url:=udp://:14543@localhost:14553 -p tgt_system:=4 -r __ns:=/${ROBOT_NAME}/mavros
 
@@ -20,7 +21,7 @@ windows:
   focus: false
   layout: tiled
   shell_command_before:
-    - source ${ROS2_WORKSPACE}/install/setup.bash
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
     - ros2 launch mas_common_frame common_frame_single.launch.py ns:=/${ROBOT_NAME}
 
@@ -28,6 +29,6 @@ windows:
   focus: false
   layout: tiled
   shell_command_before:
-    - source ${ROS2_WORKSPACE}/install/setup.bash
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
     - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/${ROBOT_NAME} input_topic:=camera/color/image_raw yolo_model:=yolov11m-drone.pt

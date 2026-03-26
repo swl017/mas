@@ -1,7 +1,7 @@
 session_name: drone2
 
 environment:
-  ROS2_INSTALL_PATH: /opt/ros/galactic
+  ROS2_INSTALL_PATH: /home/usrg/ros2_humble/install
   ROS2_WORKSPACE: /home/usrg/mas
   ROBOT_NAME: px4_2
 
@@ -13,7 +13,7 @@ windows:
   focus: false
   layout: tiled
   shell_command_before:
-    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+    - source /opt/ros/galactic/setup.bash
   panes:
     - ros2 run mavros mavros_node --ros-args -p fcu_url:=udp://:14542@localhost:14552 -p tgt_system:=3 -r __ns:=/${ROBOT_NAME}/mavros
 

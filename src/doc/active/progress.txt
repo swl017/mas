@@ -108,3 +108,23 @@ Next:
 - Update CONTEXT.md for mas_multiview, mas_tracker, gimbal_controller
 - Update semantic d2 diagram: ray_w → target_rays_w
 - Sim e2e test with new message types
+
+----------------------------------------
+2026-03-27 — Humble migration, target-ray selection, QoS fixes
+----------------------------------------
+Done:
+- Migrated MAS workspace from galactic to humble: built vision_msgs, geographic_msgs, mavros_msgs from source in ros2_humble workspace
+- Made ultralytics_ros CMakeLists PCL-optional (C++ tracker_with_cloud_node skipped when PCL not available, Python tracker_node.py still works)
+- Fixed Detection2D.bbox.center.position.x API for humble vision_msgs Pose2D (triangulation_node.cpp)
+- Fixed tracker_node.py class_id bug: was using ByteTrack ID as class name index (crash when ID > num_classes). Now correctly uses boxes.cls for class name, boxes.id for tracker ID
+- Set Detection2D.id = ByteTrack tracker ID so TargetRay.detection_id carries meaningful values
+- Added policy target-ray selection: observation_assembler subscribes to target_rays_w (ego+peers) and peer chosen_target_pose, selects ray by angular proximity to target position, falls back to gimbal LOS
+- Fixed QoS mismatches across all observation_assembler subscriptions: odom, gimbal_state, combined_ang_vel_w, zoom_level, yolo detections all now use BEST_EFFORT QoS to match publishers
+- Updated tmuxp files: all 3 simdrone configs now source humble (ROS2_INSTALL_PATH=~/ros2_humble/install), MAVROS pane still sources galactic (separate process). drone2 parity with drone1 per-vehicle nodes.
+- Sim e2e verified: all nodes running under humble, policy receiving odom (obs_dim=46, non-zero actions), combined_ang_vel_w + zoom_level + yolo_result_active all flowing
+
+Next:
+- Update CONTEXT.md for mas_multiview, mas_tracker, gimbal_controller
+- Update semantic d2 diagram: ray_w → target_rays_w
+- Build MAVROS from source for humble (currently using galactic system package in separate process)
+- Commit all changes from this session
