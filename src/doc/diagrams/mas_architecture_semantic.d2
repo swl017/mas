@@ -109,43 +109,47 @@ agent_n: "Agent N (MAS instance N)" {
 
   mas_offboard -> mavros: "cmd vel"
 
-  # ── Sim/Real switches (WIP) ──
-  # Each switch receives both sim and real interface counterparts.
-  # Only one source is active at a time (determined by deployment config).
+  # ── Sim/Real boundaries (launch-config) ──
+  # These are NOT runtime nodes. They represent the sim/real boundary
+  # where launch-config determines which source is active.
+  # Drawn as dashed rectangles to distinguish from active ROS2 nodes.
 
-  camera_switch: "camera\nswitch" {
-    shape: diamond
+  camera_boundary: "camera\n(launch-config)" {
+    shape: rectangle
     style: {
-      fill: "#e8e8e8"
+      fill: "#f0f0f0"
       stroke: "#888"
+      stroke-dash: 5
       font-size: 12
     }
   }
-  fc_switch: "flight ctrl\nswitch" {
-    shape: diamond
+  fc_boundary: "flight ctrl\n(launch-config)" {
+    shape: rectangle
     style: {
-      fill: "#e8e8e8"
+      fill: "#f0f0f0"
       stroke: "#888"
+      stroke-dash: 5
       font-size: 12
     }
   }
-  gimbal_switch: "gimbal\nswitch" {
-    shape: diamond
+  gimbal_boundary: "gimbal\n(launch-config)" {
+    shape: rectangle
     style: {
-      fill: "#e8e8e8"
+      fill: "#f0f0f0"
       stroke: "#888"
+      stroke-dash: 5
       font-size: 12
     }
   }
 
-  # Switch → internal consumers
-  camera_switch -> ultralytics_ros: "camera feed"
-  camera_switch -> mas_multiview: "base intrinsics\nzoom level"
-  fc_switch -> mavros: "MAVLink"
-  gimbal_switch -> mas_multiview: "gimbal joint angles/LOS\nzoom level"
-  gimbal_switch -> point_to_region: "gimbal state"
-  mas_mission -> gimbal_switch: "cmd gimbal\ncmd zoom"
-  mas_common_frame -> gimbal_switch: "aircraft attitude"
+  # Boundary → internal consumers
+  camera_boundary -> ultralytics_ros: "camera feed"
+  camera_boundary -> mas_multiview: "base intrinsics\nzoom level"
+  fc_boundary -> mavros: "MAVLink"
+  gimbal_boundary -> mas_multiview: "gimbal joint angles\nzoom level"
+  gimbal_boundary -> point_to_region: "gimbal joint angles"
+  mas_mission -> gimbal_boundary: "cmd gimbal\ncmd zoom"
+  mas_common_frame -> gimbal_boundary: "aircraft attitude"
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -245,34 +249,34 @@ agent_n1.ultralytics_ros_n1 -> agent_n.mas_policy: "bbox empty" {
   style.stroke: "#2d6a2d"
 }
 
-# ── Sim Env → Switches ──
+# ── Sim Env → Boundaries ──
 
-sim.pegasus_simulator -> agent_n.camera_switch: "camera feed\nbase intrinsics\nzoom level" {
+sim.pegasus_simulator -> agent_n.camera_boundary: "camera feed\nbase intrinsics\nzoom level" {
   style.stroke: "#d97a4a"
 }
-sim.px4_sitl <-> agent_n.fc_switch: "MAVLink" {
+sim.px4_sitl <-> agent_n.fc_boundary: "MAVLink" {
   style.stroke: "#d97a4a"
 }
-sim.gimbal_stabilizer <- agent_n.gimbal_switch: "cmd gimbal\ncmd zoom\naircraft attitude" {
+sim.gimbal_stabilizer <- agent_n.gimbal_boundary: "cmd gimbal\ncmd zoom\naircraft attitude" {
   style.stroke: "#d97a4a"
 }
-sim.pegasus_simulator -> agent_n.gimbal_switch: "gimbal joint angles/LOS\nzoom level" {
+sim.pegasus_simulator -> agent_n.gimbal_boundary: "gimbal joint angles\nzoom level" {
   style.stroke: "#d97a4a"
 }
 sim.target.mas_common_frame_tgt -> agent_n.point_to_region: "target position"
 
-# ── Real-world → Switches ──
+# ── Real-world → Boundaries ──
 
-real.usb_cam -> agent_n.camera_switch: "camera feed\nbase intrinsics" {
+real.usb_cam -> agent_n.camera_boundary: "camera feed\nbase intrinsics" {
   style.stroke: "#d94a8a"
 }
-real.px4_real <-> agent_n.fc_switch: "MAVLink" {
+real.px4_real <-> agent_n.fc_boundary: "MAVLink" {
   style.stroke: "#d94a8a"
 }
-real.siyi_gimbal_node <- agent_n.gimbal_switch: "cmd gimbal\ncmd zoom\naircraft attitude" {
+real.siyi_gimbal_node <- agent_n.gimbal_boundary: "cmd gimbal\ncmd zoom\naircraft attitude" {
   style.stroke: "#d94a8a"
 }
-real.siyi_gimbal_node -> agent_n.gimbal_switch: "gimbal joint angles/LOS\nzoom level" {
+real.siyi_gimbal_node -> agent_n.gimbal_boundary: "gimbal joint angles\nzoom level" {
   style.stroke: "#d94a8a"
 }
 

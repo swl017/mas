@@ -27,6 +27,7 @@ flowchart LR
         YOLO -- "yolo_result_vision" --> POL
         CF -- "common_frame/odom" --> MV
         CF -- "common_frame/odom" --> POL
+        CF -- "common_frame/odom" --> GC_SIYI
         CF -- "common_frame/pose" --> GC_PTR
         GC_SIYI -- "gimbal_state_rpy_deg" --> MV
         GC_SIYI -- "gimbal_state_rpy_deg" --> GC_PTR
@@ -83,9 +84,10 @@ All topics below are per-vehicle, resolved within `/{veh}/` namespace unless not
 | `image_raw` | sensor_msgs/Image | camera driver | ultralytics_ros | default |
 | `camera/color/camera_info` | sensor_msgs/CameraInfo | camera driver | mas_multiview, point_to_region_node | default |
 | `yolo_result_vision` | vision_msgs/Detection2DArray | ultralytics_ros | mas_multiview, mas_policy | BEST_EFFORT |
-| `common_frame/odom` | nav_msgs/Odometry | mas_common_frame | mas_multiview, mas_policy | BEST_EFFORT |
+| `common_frame/odom` | nav_msgs/Odometry | mas_common_frame | mas_multiview, mas_policy, siyi_gimbal_node | BEST_EFFORT |
 | `common_frame/pose` | geometry_msgs/PoseStamped | mas_common_frame | point_to_region_node | BEST_EFFORT |
 | `gimbal_state_rpy_deg` | geometry_msgs/Vector3 | siyi_gimbal_node | mas_multiview, point_to_region_node | BEST_EFFORT |
+| `gimbal_encoder_rpy_deg` | geometry_msgs/Vector3 | siyi_gimbal_node | — | default |
 | `camera/zoom` | std_msgs/Float64 | — | mas_multiview | default |
 | `camera_pose` | geometry_msgs/PoseStamped | — | mas_multiview | default |
 | `triangulated_points` | visualization_msgs/MarkerArray | mas_multiview | mas_tracker | default |
@@ -129,6 +131,9 @@ All topics below are per-vehicle, resolved within `/{veh}/` namespace unless not
 | `max_track_age` | int | `30` | sort3d_tracking_node | Frames before track deletion |
 | `server_ip` | string | `"192.168.144.25"` | siyi_gimbal_node | SIYI gimbal IP |
 | `publish_rate_hz` | double | `25.0` | siyi_gimbal_node | Gimbal state publish rate |
+| `enable_encoder_stream` | bool | `true` | siyi_gimbal_node | Enable magnetic encoder angle streaming (0x26) |
+| `enable_aircraft_attitude` | bool | `true` | siyi_gimbal_node | Enable aircraft EKF attitude injection (0x22) |
+| `encoder_stream_freq` | int | `50` | siyi_gimbal_node | Encoder angle stream frequency (Hz) |
 | `vehicle_name` | string | `""` | offboard_control | Vehicle namespace prefix |
 | `update_rate` | float | `100.0` | offboard_control | Timer callback frequency (Hz) |
 | `target_system` | int | `1` | offboard_control | PX4 MAVLink system ID |
@@ -147,7 +152,7 @@ All topics below are per-vehicle, resolved within `/{veh}/` namespace unless not
 **Standalone** (no inter-package topic dependencies):
 - `mas_common_frame/common_frame_node` — only needs MAVROS topics
 - `ultralytics_ros/tracker_node` — only needs camera images
-- `gimbal_controller/siyi_gimbal_node` — only needs gimbal command topic
+- `gimbal_controller/siyi_gimbal_node` — needs gimbal command topic + common_frame/odom (for aircraft attitude injection)
 - `mas_offboard/offboard_control` — only needs MAVROS topics + `cmd_vel`
 
 **Has dependencies** (connected via topics):
