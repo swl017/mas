@@ -40,6 +40,6 @@ windows:
     - source ${ROS2_INSTALL_PATH}/setup.bash;
     - source ${ROS2_WORKSPACE}/install/setup.bash;
   panes:
-    - ros2 run gimbal_controller point_to_region_node --ros-args -r __ns:=/px4_1
-    - ros2 run gimbal_controller point_to_region_node --ros-args -r __ns:=/px4_2
-    - ros2 run gimbal_controller point_to_region_node --ros-args -r __ns:=/px4_3
+    - ros2 run gimbal_controller point_to_region_node --ros-args -r __ns:=/px4_1 -r gimbal_command_rpy_deg:=tracking/gimbal_cmd_rpy_deg
+    - ros2 run gimbal_controller point_to_region_node --ros-args -r __ns:=/px4_2 -r gimbal_command_rpy_deg:=tracking/gimbal_cmd_rpy_deg
+    - ros2 run gimbal_controller point_to_region_node --ros-args -r __ns:=/px4_3 -r gimbal_command_rpy_deg:=tracking/gimbal_cmd_rpy_deg

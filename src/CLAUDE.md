@@ -37,8 +37,6 @@ mas/src/
 │   └── CONTEXT.md
 ├── mas_multiview/           # Multi-view triangulation (C++)
 │   └── CONTEXT.md
-├── mas_multiview_py/        # Multi-view triangulation (Python)
-│   └── CONTEXT.md
 ├── mas_tracker/             # 3D multi-object tracking (SORT)
 │   └── CONTEXT.md
 ├── ultralytics_ros/         # YOLO detection

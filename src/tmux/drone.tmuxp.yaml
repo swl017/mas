@@ -32,7 +32,7 @@ windows:
     - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
     - source ${ROS2_WORKSPACE}/drone_config/robot.env
   panes:
-    - ros2 run gimbal_controller point_to_region_node --ros-args -r __ns:=/${ROBOT_NAME}
+    - ros2 run gimbal_controller point_to_region_node --ros-args -r __ns:=/${ROBOT_NAME} -r gimbal_command_rpy_deg:=tracking/gimbal_cmd_rpy_deg
     - ros2 launch gimbal_controller siyi_ros.launch.py ns:=/${ROBOT_NAME} server_ip:=${GIMBAL_IP}
 
 - window_name: camera
