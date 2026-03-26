@@ -180,6 +180,9 @@ All topics below are per-vehicle, resolved within `/{veh}/` namespace unless not
 | `mas_mission` | ament_python | mission_node | Mission state machine + command routing |
 | `mas_offboard` | ament_python | offboard_control | Per-vehicle PX4 offboard controller |
 
+## Simulation Environements
+- Launch script: `/home/usrg/IsaacPX4/tmux/isaac_sim.tmuxp.yaml`
+
 ## File Conventions
 
 - `CONTEXT.md` per package — node routing contracts (topics, services, parameters)

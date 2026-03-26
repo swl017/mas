@@ -34,6 +34,14 @@ windows:
 
 # --- Multi-vehicle nodes (run once for all drones) ---
 
+- window_name: mission
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mas_mission mission_deploy.launch.py
+
 - window_name: offboard
   focus: false
   layout: tiled
@@ -48,7 +56,7 @@ windows:
   shell_command_before:
     - source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
-    - ros2 launch mas_policy policy_deploy.launch.py
+    - ros2 launch mas_policy policy_deploy.launch.py use_mission_gate:=true
 
 - window_name: tracker
   focus: false
