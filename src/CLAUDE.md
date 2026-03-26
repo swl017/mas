@@ -33,6 +33,8 @@ mas/src/
 │   └── CONTEXT.md
 ├── mas_common_frame/        # GPS → common frame transforms
 │   └── CONTEXT.md
+├── mas_mission/             # Mission state machine + command routing
+│   └── CONTEXT.md
 ├── mas_multiview/           # Multi-view triangulation (C++)
 │   └── CONTEXT.md
 ├── mas_multiview_py/        # Multi-view triangulation (Python)

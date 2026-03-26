@@ -20,8 +20,14 @@ from rclpy.qos import (
 
 from geometry_msgs.msg import PoseStamped, TwistStamped
 from nav_msgs.msg import Odometry
+from std_msgs.msg import Int8
 from mavros_msgs.msg import State
 from mavros_msgs.srv import CommandBool, SetMode
+
+# Mission state constants (must match mas_mission)
+_MISSION_IDLE = 0
+_MISSION_TRACKING = 1
+_MISSION_MISSION = 2
 
 
 class FlightState(Enum):
@@ -123,6 +129,7 @@ class OffboardControl(Node):
         self.current_pose: PoseStamped | None = None
         self.current_odom: Odometry | None = None
         self.cmd_vel: TwistStamped | None = None
+        self.mission_state: int = _MISSION_IDLE
 
         # -- QoS --
         qos_reliable = QoSProfile(
@@ -150,6 +157,15 @@ class OffboardControl(Node):
         )
         self.create_subscription(
             TwistStamped, 'cmd_vel', self._cmd_vel_cb, qos_best_effort
+        )
+        qos_reliable_latched = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+        self.create_subscription(
+            Int8, 'mission_state', self._mission_state_cb, qos_reliable_latched
         )
 
         # -- Publishers --
@@ -189,6 +205,9 @@ class OffboardControl(Node):
 
     def _cmd_vel_cb(self, msg: TwistStamped) -> None:
         self.cmd_vel = msg
+
+    def _mission_state_cb(self, msg: Int8) -> None:
+        self.mission_state = msg.data
 
     # ── Helpers ─────────────────────────────────────────────────────────
 
@@ -352,12 +371,21 @@ class OffboardControl(Node):
 
         dist = self._distance_to_waypoint()
         yaw_err = abs(self._yaw_error_deg())
-        if dist < 2.0 and yaw_err < 10.0:
+        waypoint_reached = dist < 2.0 and yaw_err < 10.0
+        mission_approved = self.mission_state == _MISSION_MISSION
+
+        if waypoint_reached and mission_approved:
             self.get_logger().info(
                 f'{self.vehicle_name}: Waypoint reached (dist={dist:.2f}m, '
-                f'yaw_err={yaw_err:.1f}°), entering POLICY mode'
+                f'yaw_err={yaw_err:.1f}°) and mission approved, entering POLICY mode'
             )
             self.flight_state = FlightState.POLICY
+        elif waypoint_reached and not mission_approved:
+            self.get_logger().info(
+                f'{self.vehicle_name}: Waypoint reached, waiting for mission approval '
+                f'(mission_state={self.mission_state})',
+                throttle_duration_sec=5.0,
+            )
 
     def _state_policy(self) -> None:
         if self.cmd_vel is not None:

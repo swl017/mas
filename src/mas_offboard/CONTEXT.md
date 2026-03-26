@@ -9,7 +9,7 @@ Per-vehicle offboard controller for PX4 via MAVROS. Runs a state machine (INIT �
 ```
 INIT ──(mavros topics received)──→ RAMP_UP ──(11 ticks)──→ ARM
   ──(armed + OFFBOARD)──→ TAKEOFF ──(alt ≥ waypoint.z)──→ HOVER
-  ──(dist < 2m, yaw < 10°)──→ POLICY
+  ──(dist < 2m, yaw < 10°, mission_state == MISSION)──→ POLICY
 ```
 
 ### Subscriptions
@@ -19,7 +19,8 @@ INIT ──(mavros topics received)──→ RAMP_UP ──(11 ticks)──→ A
 | `mavros/state` | `mavros_msgs/State` | RELIABLE | Armed state, flight mode |
 | `mavros/local_position/pose` | `geometry_msgs/PoseStamped` | RELIABLE | Position + attitude (ENU-FLU) |
 | `mavros/local_position/odom` | `nav_msgs/Odometry` | RELIABLE | Full odometry (ENU-FLU) |
-| `cmd_vel` | `geometry_msgs/TwistStamped` | BEST_EFFORT | Policy velocity command (ENU) |
+| `cmd_vel` | `geometry_msgs/TwistStamped` | BEST_EFFORT | Gated velocity command from mas_mission (ENU) |
+| `mission_state` | `std_msgs/Int8` | RELIABLE, transient local | Mission state from mas_mission (gates HOVER→POLICY) |
 
 ### Publishers
 
@@ -51,5 +52,5 @@ INIT ──(mavros topics received)──→ RAMP_UP ──(11 ticks)──→ A
 
 ### Dependencies
 
-**Upstream:** MAVROS node (same namespace)
-**Downstream:** `mas_policy` publishes `cmd_vel`; `mas_common_frame` and `gimbal_stabilizer` subscribe to MAVROS directly
+**Upstream:** MAVROS node (same namespace), `mas_mission` (provides `cmd_vel` and `mission_state`)
+**Downstream:** `mas_common_frame` and `gimbal_stabilizer` subscribe to MAVROS directly

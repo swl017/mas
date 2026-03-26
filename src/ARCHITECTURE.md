@@ -94,11 +94,17 @@ All topics below are per-vehicle, resolved within `/{veh}/` namespace unless not
 | `tracked_objects/class_{i}` | vision_msgs/Detection3DArray | mas_tracker | — | default |
 | `chosen_target_pose` | geometry_msgs/PoseStamped | mas_tracker | mas_policy | default |
 | `target_region` | geometry_msgs/PointStamped | mas_tracker | point_to_region_node | default |
-| `gimbal_command_rpy_deg` | geometry_msgs/Vector3 | point_to_region_node | siyi_gimbal_node | default |
+| `gimbal_command_rpy_deg` | geometry_msgs/Vector3 | point_to_region_node | mas_mission (tracking input) | default |
 | `gimbal_state_rpy_rad` | geometry_msgs/Vector3 | los_rate_controller | mas_policy | default |
-| `cmd_vel` | geometry_msgs/TwistStamped | mas_policy | offboard_control | BEST_EFFORT |
-| `gimbal_cmd_los_rate` | geometry_msgs/Vector3 | mas_policy | los_rate_controller | default |
-| `zoom_cmd` | std_msgs/Float32 | mas_policy | — | default |
+| `/mission_state_cmd` | std_msgs/Int8 | Operator | mas_mission (all agents) | RELIABLE, transient local |
+| `mission_state` | std_msgs/Int8 | mas_mission | offboard_control | RELIABLE, transient local |
+| `cmd_vel` | geometry_msgs/TwistStamped | mas_mission | offboard_control | BEST_EFFORT |
+| `gimbal_cmd_rpy_deg` | geometry_msgs/Vector3 | mas_mission | siyi_gimbal_node | default |
+| `gimbal_cmd_los_rate` | geometry_msgs/Vector3 | mas_mission | los_rate_controller | default |
+| `zoom_cmd` | std_msgs/Float32 | mas_mission | siyi_gimbal_node | default |
+| `policy/cmd_vel` | geometry_msgs/TwistStamped | mas_policy | mas_mission | BEST_EFFORT |
+| `policy/gimbal_cmd_los_rate` | geometry_msgs/Vector3 | mas_policy | mas_mission | default |
+| `policy/zoom_cmd` | std_msgs/Float32 | mas_policy | mas_mission | default |
 | `mavros/state` | mavros_msgs/State | MAVROS | offboard_control | RELIABLE |
 | `mavros/local_position/pose` | geometry_msgs/PoseStamped | MAVROS | offboard_control | RELIABLE |
 | `mavros/local_position/odom` | nav_msgs/Odometry | MAVROS | offboard_control | RELIABLE |
@@ -171,6 +177,7 @@ All topics below are per-vehicle, resolved within `/{veh}/` namespace unless not
 | `mas_tracker` | ament_cmake | sort3d_tracking_node | 3D multi-object tracking (SORT) |
 | `gimbal_controller` | ament_python | siyi_gimbal_node, point_to_region_node | Gimbal hardware + pointing |
 | `mas_policy` | ament_python | policy_node | MARL policy inference + CBF safety |
+| `mas_mission` | ament_python | mission_node | Mission state machine + command routing |
 | `mas_offboard` | ament_python | offboard_control | Per-vehicle PX4 offboard controller |
 
 ## File Conventions
