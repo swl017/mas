@@ -150,10 +150,10 @@ class OffboardControl(Node):
             State, 'mavros/state', self._state_cb, qos_reliable
         )
         self.create_subscription(
-            PoseStamped, 'mavros/local_position/pose', self._pose_cb, qos_reliable
+            PoseStamped, 'mavros/local_position/pose', self._pose_cb, qos_best_effort
         )
         self.create_subscription(
-            Odometry, 'mavros/local_position/odom', self._odom_cb, qos_reliable
+            Odometry, 'mavros/local_position/odom', self._odom_cb, qos_best_effort
         )
         self.create_subscription(
             TwistStamped, 'cmd_vel', self._cmd_vel_cb, qos_best_effort

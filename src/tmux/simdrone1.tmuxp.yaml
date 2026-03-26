@@ -1,6 +1,7 @@
 session_name: drone1
 
 environment:
+  ROS2_INSTALL_PATH: /opt/ros/galactic
   ROS2_WORKSPACE: /home/usrg/mas
   ROBOT_NAME: px4_1
 
@@ -12,7 +13,7 @@ windows:
   focus: false
   layout: tiled
   shell_command_before:
-    - source ${ROS2_WORKSPACE}/install/setup.bash
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
     - ros2 run mavros mavros_node --ros-args -p fcu_url:=udp://:14541@localhost:14551 -p tgt_system:=2 -r __ns:=/${ROBOT_NAME}/mavros
 
@@ -20,7 +21,7 @@ windows:
   focus: false
   layout: tiled
   shell_command_before:
-    - source ${ROS2_WORKSPACE}/install/setup.bash
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
     - ros2 launch mas_common_frame common_frame_single.launch.py ns:=/${ROBOT_NAME}
 
@@ -28,7 +29,7 @@ windows:
   focus: false
   layout: tiled
   shell_command_before:
-    - source ${ROS2_WORKSPACE}/install/setup.bash
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
     - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/${ROBOT_NAME} input_topic:=camera/color/image_raw yolo_model:=yolov11m-drone.pt
 
@@ -38,7 +39,7 @@ windows:
   focus: false
   layout: tiled
   shell_command_before:
-    - source ${ROS2_WORKSPACE}/install/setup.bash
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
     - ros2 launch mas_mission mission_deploy.launch.py
 
@@ -46,7 +47,7 @@ windows:
   focus: false
   layout: tiled
   shell_command_before:
-    - source ${ROS2_WORKSPACE}/install/setup.bash
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
     - ros2 launch mas_offboard offboard.launch.py
 
@@ -54,7 +55,7 @@ windows:
   focus: false
   layout: tiled
   shell_command_before:
-    - source ${ROS2_WORKSPACE}/install/setup.bash
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
     - ros2 launch mas_policy policy_deploy.launch.py use_mission_gate:=true
 
@@ -62,6 +63,6 @@ windows:
   focus: false
   layout: tiled
   shell_command_before:
-    - source ${ROS2_WORKSPACE}/install/setup.bash
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
     - ros2 launch mas_tracker sort3d.launch.py
