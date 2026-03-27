@@ -180,7 +180,7 @@ def load_checkpoint(
         if "state_preprocessor" in ckpt:
             sp = ckpt["state_preprocessor"]
             scaler_mean = sp.get("running_mean", sp.get("mean"))
-            scaler_var = sp.get("running_var", sp.get("var"))
+            scaler_var = sp.get("running_var", sp.get("running_variance", sp.get("var")))
     else:
         # Try SKRL per-agent format: iterate over keys to find first agent
         for key, value in ckpt.items():
@@ -190,7 +190,7 @@ def load_checkpoint(
                     if "state_preprocessor" in value:
                         sp = value["state_preprocessor"]
                         scaler_mean = sp.get("running_mean", sp.get("mean"))
-                        scaler_var = sp.get("running_var", sp.get("var"))
+                        scaler_var = sp.get("running_var", sp.get("running_variance", sp.get("var")))
                     break
                 # Nested checkpoint_modules format
                 if "checkpoint_modules" in value:
@@ -200,7 +200,7 @@ def load_checkpoint(
                     if "state_preprocessor" in modules:
                         sp = modules["state_preprocessor"]
                         scaler_mean = sp.get("running_mean", sp.get("mean"))
-                        scaler_var = sp.get("running_var", sp.get("var"))
+                        scaler_var = sp.get("running_var", sp.get("running_variance", sp.get("var")))
                     break
 
     if policy_state_dict is None:

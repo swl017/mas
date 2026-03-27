@@ -16,12 +16,12 @@ windows:
     - source ${ROS2_INSTALL_PATH}/setup.bash;
     - source ${ROS2_WORKSPACE}/setup.bash;
   panes:
-    - ros2 run mavros mavros_node --ros-args --param fcu_url:=udp://:14541@localhost:14551 --param tgt_system:=2 -r __ns:=/px4_1/mavros
-    - source ${ROS2_INSTALL_PATH}/setup.bash; ros2 run mavros mavros_node --ros-args --param fcu_url:=udp://:14542@localhost:14552 --param tgt_system:=3 -r __ns:=/px4_2/mavros
-    - source ${ROS2_INSTALL_PATH}/setup.bash; ros2 run mavros mavros_node --ros-args --param fcu_url:=udp://:14543@localhost:14553 --param tgt_system:=4 -r __ns:=/px4_3/mavros
-    - source ${ROS2_INSTALL_PATH}/setup.bash; ros2 run mavros mavros_node --ros-args --param fcu_url:=udp://:14544@localhost:14554 --param tgt_system:=5 -r __ns:=/px4_4/mavros
-    - source ${ROS2_INSTALL_PATH}/setup.bash; ros2 run mavros mavros_node --ros-args --param fcu_url:=udp://:14545@localhost:14555 --param tgt_system:=6 -r __ns:=/px4_5/mavros
-    - source ${ROS2_INSTALL_PATH}/setup.bash; ros2 run mavros mavros_node --ros-args --param fcu_url:=udp://:14546@localhost:14556 --param tgt_system:=7 -r __ns:=/px4_6/mavros
+    - ros2 run mavros mavros_node --ros-args --param fcu_url:=udp://:14541@localhost:14551 --param tgt_system:=2 -p local_position.tf.frame_id:=px4_1/map -p local_position.tf.child_frame_id:=px4_1/base_link -p global_position.frame_id:=px4_1/map -p global_position.child_frame_id:=px4_1/base_link -r __ns:=/px4_1/mavros
+    - source ${ROS2_INSTALL_PATH}/setup.bash; ros2 run mavros mavros_node --ros-args --param fcu_url:=udp://:14542@localhost:14552 --param tgt_system:=3 -p local_position.tf.frame_id:=px4_2/map -p local_position.tf.child_frame_id:=px4_2/base_link -p global_position.frame_id:=px4_2/map -p global_position.child_frame_id:=px4_2/base_link -r __ns:=/px4_2/mavros
+    - source ${ROS2_INSTALL_PATH}/setup.bash; ros2 run mavros mavros_node --ros-args --param fcu_url:=udp://:14543@localhost:14553 --param tgt_system:=4 -p local_position.tf.frame_id:=px4_3/map -p local_position.tf.child_frame_id:=px4_3/base_link -p global_position.frame_id:=px4_3/map -p global_position.child_frame_id:=px4_3/base_link -r __ns:=/px4_3/mavros
+    - source ${ROS2_INSTALL_PATH}/setup.bash; ros2 run mavros mavros_node --ros-args --param fcu_url:=udp://:14544@localhost:14554 --param tgt_system:=5 -p local_position.tf.frame_id:=px4_4/map -p local_position.tf.child_frame_id:=px4_4/base_link -p global_position.frame_id:=px4_4/map -p global_position.child_frame_id:=px4_4/base_link -r __ns:=/px4_4/mavros
+    - source ${ROS2_INSTALL_PATH}/setup.bash; ros2 run mavros mavros_node --ros-args --param fcu_url:=udp://:14545@localhost:14555 --param tgt_system:=6 -p local_position.tf.frame_id:=px4_5/map -p local_position.tf.child_frame_id:=px4_5/base_link -p global_position.frame_id:=px4_5/map -p global_position.child_frame_id:=px4_5/base_link -r __ns:=/px4_5/mavros
+    - source ${ROS2_INSTALL_PATH}/setup.bash; ros2 run mavros mavros_node --ros-args --param fcu_url:=udp://:14546@localhost:14556 --param tgt_system:=7 -p local_position.tf.frame_id:=px4_6/map -p local_position.tf.child_frame_id:=px4_6/base_link -p global_position.frame_id:=px4_6/map -p global_position.child_frame_id:=px4_6/base_link -r __ns:=/px4_6/mavros
 
 - window_name: ros2
   focus: true

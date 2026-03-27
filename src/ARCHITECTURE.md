@@ -186,18 +186,89 @@ All topics below are per-vehicle, resolved within `/{veh}/` namespace unless not
 | `mas_mission` | ament_python | mission_node | Mission state machine + command routing |
 | `mas_offboard` | ament_python | offboard_control | Per-vehicle PX4 offboard controller |
 
-## Simulation Environements
-- Launch script: `/home/usrg/IsaacPX4/tmux/isaac_sim.tmuxp.yaml`
-
 ## Launch System
-- Per-agent distributed system(launch N times)
+
+The system uses **tmuxp** session files for deployment. Each tmuxp file defines a tmux session with multiple windows, one per node group.
+
+### ROS2 Environment
+
+| Workspace | Path | ROS2 Distro | Contents |
+|-----------|------|-------------|----------|
+| Humble (base) | `~/ros2_humble/install` | Humble | Core ROS2, vision_msgs, mavros_msgs, geographic_msgs |
+| IsaacPX4 | `~/IsaacPX4/ros2_ws/install` | Humble | gimbal_stabilizer (los_rate_controller) |
+| MAS | `~/mas/install` | Humble | All MAS packages (mas_msgs, mas_multiview, mas_policy, etc.) |
+| Galactic (system) | `/opt/ros/galactic` | Galactic | MAVROS node only (separate process) |
+
+Most nodes source humble + MAS workspace. MAVROS runs from the galactic system package in its own process (galactic/humble interop works across processes via DDS).
+
+### Simulation (3 agents: px4_1, px4_2 ego + px4_3 target)
+
+Launch order matters — simulator must start before drone sessions.
+
+**Step 1: Simulator + gimbal controllers**
+```bash
+tmuxp load ~/IsaacPX4/tmux/isaac_sim.tmuxp.yaml
+# Headless: append --headless to the isaac.py command in the yaml
 ```
-tmuxp load `tmux/simdrone1.tmuxp.yaml`
+Starts: Isaac Sim + PegasusSimulator (auto-launches 3x PX4 SITL), gimbal_stabilizer (3x los_rate_controller), QGroundControl.
+
+Wait for `Ready for takeoff!` in the simulator pane before proceeding.
+
+**Step 2: Per-agent drone sessions**
+```bash
+tmuxp load tmux/simdrone1.tmuxp.yaml   # px4_1 + multi-vehicle nodes
+tmuxp load tmux/simdrone2.tmuxp.yaml   # px4_2 per-vehicle only
+tmuxp load tmux/simdrone3.tmuxp.yaml   # px4_3 (target) per-vehicle only
 ```
-- Operator UI
-- Simulation-only
+
+**Step 3 (optional): Multiview triangulation + tracking**
+```bash
+tmuxp load tmux/multiview.tmuxp.yaml   # triangulation_node + sort3d + common_frame + YOLO + point_to_region
 ```
-tmuxp load `/home/usrg/IsaacPX4/tmux/isaac_sim.tmuxp.yaml`
+
+**Step 4: Operator commands** (via ros2 topic pub or `scripts/operator.py`)
+```bash
+python3 scripts/operator.py
+# Or manually:
+ros2 topic pub /mission_state_cmd std_msgs/Int8 "data: 1" --qos-durability transient_local --qos-reliability reliable
+```
+
+### Session Layout
+
+| Session | File | Windows | Scope |
+|---------|------|---------|-------|
+| `isaac_sim` | `~/IsaacPX4/tmux/isaac_sim.tmuxp.yaml` | simulator, ros2 (gimbal_stabilizer), util (QGC) | Sim environment |
+| `drone1` | `tmux/simdrone1.tmuxp.yaml` | mavros, frame, camera, mission, offboard, policy, tracker | px4_1 per-vehicle + multi-vehicle deploy nodes |
+| `drone2` | `tmux/simdrone2.tmuxp.yaml` | mavros, frame, camera | px4_2 per-vehicle only |
+| `drone3` | `tmux/simdrone3.tmuxp.yaml` | mavros, frame, camera | px4_3 per-vehicle only |
+| `multiview` | `tmux/multiview.tmuxp.yaml` | triangulation, detection, gimbal_pointing_control | Triangulation + tracking (standalone) |
+
+### Node Categories
+
+**Per-vehicle** (one instance per agent, runs in `/{veh}/` namespace):
+- `mavros_node` — MAVLink bridge (galactic)
+- `common_frame_node_single` — GPS to common frame
+- `tracker_node.py` — YOLO detection
+- `point_to_region_node` — gimbal pointing
+
+**Multi-vehicle deploy** (one launch spawns instances for ALL vehicles, configured via `vehicles.yaml`):
+- `mission_deploy.launch.py` — mas_mission (one node per vehicle)
+- `offboard.launch.py` — mas_offboard (one node per vehicle)
+- `policy_deploy.launch.py` — mas_policy (one node per vehicle)
+- `sort3d.launch.py` — mas_tracker (one node)
+- `triangulation.launch.py` — mas_multiview (one node, subscribes to all cameras)
+
+### PX4 SITL Port Mapping
+
+| Vehicle | Namespace | PX4 Instance | MAVROS fcu_url | tgt_system |
+|---------|-----------|-------------|----------------|------------|
+| Drone 1 | `px4_1` | 1 | `udp://:14541@localhost:14551` | 2 |
+| Drone 2 | `px4_2` | 2 | `udp://:14542@localhost:14552` | 3 |
+| Drone 3 | `px4_3` | 3 | `udp://:14543@localhost:14553` | 4 |
+
+### Teardown
+```bash
+tmux kill-session -t drone1; tmux kill-session -t drone2; tmux kill-session -t drone3; tmux kill-session -t isaac_sim
 ```
 
 ## File Conventions

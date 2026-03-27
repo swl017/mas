@@ -1,0 +1,3 @@
+vehicles:
+  - namespace: "px4_1"
+  - namespace: "px4_2"

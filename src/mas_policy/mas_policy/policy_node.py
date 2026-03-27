@@ -1,11 +1,12 @@
-"""Main policy deployment ROS2 node.
+"""Per-vehicle policy deployment ROS2 node.
 
-Orchestrates the full inference loop at 25 Hz:
-1. Assemble observations from cached ROS2 topic data
-2. Normalize observations with RunningStandardScaler from training
+One instance per vehicle, launched inside the vehicle's namespace.
+Orchestrates the inference loop at 25 Hz:
+1. Assemble observations from ego + peer cached topic data
+2. Normalize with RunningStandardScaler from training
 3. Forward pass through policy network (with GRU hidden state)
 4. Apply CBF safety filter to velocity commands
-5. Publish actions to offboard_py and los_rate_controller
+5. Publish actions via relative topics (resolved by namespace)
 """
 
 from __future__ import annotations
@@ -28,16 +29,16 @@ logger = logging.getLogger(__name__)
 
 
 class PolicyDeployNode(Node):
-    """ROS2 node that runs trained MARL policy inference at 25 Hz."""
+    """Per-vehicle ROS2 node that runs trained MARL policy inference at 25 Hz."""
 
     def __init__(self):
-        super().__init__('mas_policy_node')
+        super().__init__('policy_node')
 
         # --- Declare parameters ---
+        self.declare_parameter('vehicle_name', '')
+        self.declare_parameter('peer_names', [''])
         self.declare_parameter('checkpoint_path', '')
         self.declare_parameter('num_agents', 2)
-        self.declare_parameter('vehicle_names', ['px4_1', 'px4_2'])
-        self.declare_parameter('obs_dim', 62)
         self.declare_parameter('action_dim', 7)
         self.declare_parameter('architecture', 'mappo_rnn')
         self.declare_parameter('hidden_size', 64)
@@ -65,12 +66,13 @@ class PolicyDeployNode(Node):
         self.declare_parameter('cbf_num_iters', 2)
 
         # --- Read parameters ---
+        self._vehicle_name = self.get_parameter('vehicle_name').get_parameter_value().string_value
+        self._peer_names = [
+            p for p in self.get_parameter('peer_names').get_parameter_value().string_array_value
+            if p  # filter empty strings
+        ]
         checkpoint_path = self.get_parameter('checkpoint_path').get_parameter_value().string_value
-        self._num_agents = self.get_parameter('num_agents').get_parameter_value().integer_value
-        self._vehicle_names = (
-            self.get_parameter('vehicle_names').get_parameter_value().string_array_value
-        )
-        self._obs_dim = self.get_parameter('obs_dim').get_parameter_value().integer_value
+        num_agents = self.get_parameter('num_agents').get_parameter_value().integer_value
         self._action_dim = self.get_parameter('action_dim').get_parameter_value().integer_value
         architecture = self.get_parameter('architecture').get_parameter_value().string_value
         hidden_size = self.get_parameter('hidden_size').get_parameter_value().integer_value
@@ -91,18 +93,31 @@ class PolicyDeployNode(Node):
 
         self._device = torch.device(device_str)
         self._architecture = architecture
+        self._max_lin_vel = max_lin_vel
+        self._num_agents = 1 + len(self._peer_names)
 
-        # Validate vehicle_names length
-        if len(self._vehicle_names) != self._num_agents:
-            self.get_logger().warn(
-                f"vehicle_names length ({len(self._vehicle_names)}) != num_agents ({self._num_agents}). "
-                f"Using first {self._num_agents} names."
+        # Compute obs_dim from num_agents: 30 ego + 16*(N-1) inter-agent [+ 6 tri]
+        self._obs_dim = 30 + 16 * (num_agents - 1) + (6 if enable_tri else 0)
+
+        # Validate peer count matches num_agents
+        if self._num_agents != num_agents:
+            self.get_logger().error(
+                f"num_agents={num_agents} but got {len(self._peer_names)} peers "
+                f"({self._num_agents} total). obs_dim={self._obs_dim} may be wrong."
             )
-            self._vehicle_names = self._vehicle_names[:self._num_agents]
+
+        # Use namespace as vehicle_name fallback
+        if not self._vehicle_name:
+            ns = self.get_namespace().strip('/')
+            self._vehicle_name = ns if ns else 'px4_1'
+
+        self.get_logger().info(
+            f"Vehicle: {self._vehicle_name}, peers: {self._peer_names}"
+        )
 
         # --- Load policy ---
         if not checkpoint_path:
-            self.get_logger().error("No checkpoint_path provided. Node will run in dry_run mode.")
+            self.get_logger().error("No checkpoint_path provided. Running in dry_run mode.")
             self._dry_run = True
             self._policy = None
             self._scaler = None
@@ -117,18 +132,21 @@ class PolicyDeployNode(Node):
                 gru_num_layers=gru_num_layers,
                 device=self._device,
             )
-            self.get_logger().info(f"Policy loaded: {architecture}, obs={self._obs_dim}, act={self._action_dim}")
+            self.get_logger().info(
+                f"Policy loaded: {architecture}, obs={self._obs_dim} "
+                f"(agents={num_agents}, tri={enable_tri}), act={self._action_dim}"
+            )
 
-        # --- Initialize GRU hidden states ---
-        self._hidden_states: dict[str, torch.Tensor] = {}
+        # --- Initialize GRU hidden state (single agent) ---
+        self._hidden_state = None
         if architecture == 'mappo_rnn' and isinstance(self._policy, PolicyNetRNN):
-            for veh in self._vehicle_names:
-                self._hidden_states[veh] = self._policy.init_hidden(self._device)
+            self._hidden_state = self._policy.init_hidden(self._device)
 
         # --- Observation assembler ---
         self._assembler = ObservationAssembler(
             node=self,
-            vehicle_names=self._vehicle_names,
+            ego_name=self._vehicle_name,
+            peer_names=self._peer_names,
             image_width=image_w,
             image_height=image_h,
             yaw_joint_offset=yaw_offset,
@@ -136,10 +154,9 @@ class PolicyDeployNode(Node):
             use_common_frame=use_common_frame,
         )
 
-        # --- Action publisher ---
+        # --- Action publisher (relative topics) ---
         self._action_pub = ActionPublisher(
             node=self,
-            vehicle_names=self._vehicle_names,
             max_lin_vel=max_lin_vel,
             max_yaw_rate=max_yaw_rate,
         )
@@ -166,117 +183,96 @@ class PolicyDeployNode(Node):
 
         self._tick_count = 0
         self.get_logger().info(
-            f"Policy deploy node started: {self._num_agents} agents, "
+            f"Policy node started: {self._num_agents} agents, "
             f"{control_freq} Hz, dry_run={self._dry_run}, cbf={enable_cbf}"
         )
 
     def _reset_hidden_callback(self, request, response):
-        """Service callback to reset all GRU hidden states."""
-        for veh in self._vehicle_names:
-            if veh in self._hidden_states and isinstance(self._policy, PolicyNetRNN):
-                self._hidden_states[veh] = self._policy.init_hidden(self._device)
+        """Service callback to reset GRU hidden state."""
+        if isinstance(self._policy, PolicyNetRNN):
+            self._hidden_state = self._policy.init_hidden(self._device)
         response.success = True
-        response.message = "Hidden states reset"
-        self.get_logger().info("GRU hidden states reset via service call")
+        response.message = "Hidden state reset"
+        self.get_logger().info("GRU hidden state reset via service call")
         return response
 
     def _control_loop(self):
         """Main control loop running at policy frequency (25 Hz)."""
         now = self.get_clock().now().nanoseconds / 1e9
 
-        # 1. Assemble observations
-        obs_dict = self._assembler.assemble()
-
-        # Check if any agent has data
-        any_data = any(
-            self._assembler.get_vehicle_state(veh).odom_received
-            for veh in self._vehicle_names
-        )
-        if not any_data:
+        # Check if ego has data
+        ego_state = self._assembler.ego_state
+        if not ego_state.odom_received:
             if self._tick_count % 100 == 0:
-                self.get_logger().warn("No odometry data received yet — waiting...")
+                self.get_logger().warn("No ego odometry received yet — waiting...")
             self._tick_count += 1
             return
 
-        # 2. Run inference for each agent
-        actions = {}
-        with torch.no_grad():
-            for veh in self._vehicle_names:
-                obs_np = obs_dict[veh]
+        # 1. Assemble observation
+        obs_np = self._assembler.assemble()
 
-                # Check for stale data → reset hidden state
-                state = self._assembler.get_vehicle_state(veh)
-                if now - state.motion_timestamp > self._stale_timeout and state.motion_timestamp > 0:
-                    if veh in self._hidden_states and isinstance(self._policy, PolicyNetRNN):
-                        self._hidden_states[veh] = self._policy.init_hidden(self._device)
-                    actions[veh] = np.zeros(self._action_dim)
-                    continue
+        # 2. Check for stale ego data → reset hidden state, publish zero
+        if ego_state.motion_timestamp > 0 and now - ego_state.motion_timestamp > self._stale_timeout:
+            if isinstance(self._policy, PolicyNetRNN):
+                self._hidden_state = self._policy.init_hidden(self._device)
+            if not self._dry_run:
+                self._action_pub.publish_zero()
+            self._tick_count += 1
+            return
 
-                if self._policy is None:
-                    actions[veh] = np.zeros(self._action_dim)
-                    continue
-
-                # Convert to tensor and normalize
-                obs_tensor = torch.tensor(obs_np, dtype=torch.float32, device=self._device).unsqueeze(0)
+        # 3. Run inference
+        if self._policy is None:
+            action_np = np.zeros(self._action_dim)
+        else:
+            with torch.no_grad():
+                obs_tensor = torch.tensor(
+                    obs_np, dtype=torch.float32, device=self._device
+                ).unsqueeze(0)
                 obs_norm = self._scaler.normalize(obs_tensor)
 
-                # Forward pass
                 if self._architecture == 'mappo_rnn' and isinstance(self._policy, PolicyNetRNN):
-                    hidden = self._hidden_states[veh]
-                    action_tensor, new_hidden = self._policy(obs_norm, hidden)
-                    self._hidden_states[veh] = new_hidden
+                    action_tensor, self._hidden_state = self._policy(obs_norm, self._hidden_state)
                 else:
                     action_tensor = self._policy(obs_norm)
 
-                # Clip to [-1, 1]
                 action_np = action_tensor.squeeze(0).cpu().numpy()
                 action_np = np.clip(action_np, -1.0, 1.0)
-                actions[veh] = action_np
 
-        # 3. Apply CBF safety filter to velocity portion
+        # 4. Apply CBF safety filter to velocity portion
         if self._cbf_filter is not None:
+            all_names = self._assembler.all_names
             positions = np.array([
-                self._assembler.get_vehicle_state(veh).position_w
-                for veh in self._vehicle_names
+                self._assembler.get_vehicle_state(n).position_w for n in all_names
             ])
             velocities = np.array([
-                self._assembler.get_vehicle_state(veh).velocity_w
-                for veh in self._vehicle_names
+                self._assembler.get_vehicle_state(n).velocity_w for n in all_names
             ])
 
-            # Extract nominal velocity commands (scaled to physical units)
-            v_nom = np.array([
-                actions[veh][:3] * self._action_pub._max_lin_vel
-                for veh in self._vehicle_names
-            ])
+            # Build nominal velocities: ego uses policy output, peers use current velocity
+            v_nom = velocities.copy()
+            v_nom[0] = action_np[:3] * self._max_lin_vel  # ego is index 0
 
             v_safe, cbf_info = self._cbf_filter.filter(v_nom, positions, velocities)
 
-            # Write back filtered velocities (re-normalize to [-1, 1])
-            for i, veh in enumerate(self._vehicle_names):
-                actions[veh][:3] = v_safe[i] / self._action_pub._max_lin_vel
-                # Re-clip after CBF modification
-                actions[veh][:3] = np.clip(actions[veh][:3], -1.0, 1.0)
+            # Write back filtered ego velocity (re-normalize to [-1, 1])
+            action_np[:3] = np.clip(v_safe[0] / self._max_lin_vel, -1.0, 1.0)
 
             if cbf_info["deploy_cbf/agents_filtered"] > 0:
                 self.get_logger().debug(
                     f"CBF active: {cbf_info['deploy_cbf/agents_filtered']} agents filtered"
                 )
 
-        # 4. Publish actions
+        # 5. Publish
         if self._dry_run:
-            if self._tick_count % 25 == 0:  # Log once per second
-                for veh in self._vehicle_names:
-                    obs = obs_dict[veh]
-                    act = actions[veh]
-                    self.get_logger().info(
-                        f"[DRY RUN] {veh}: obs_dim={len(obs)}, "
-                        f"pos=[{obs[0]:.1f},{obs[1]:.1f},{obs[2]:.1f}], "
-                        f"act=[{act[0]:.2f},{act[1]:.2f},{act[2]:.2f},{act[3]:.2f},"
-                        f"{act[4]:.2f},{act[5]:.2f},{act[6]:.2f}]"
-                    )
+            if self._tick_count % 25 == 0:
+                self.get_logger().info(
+                    f"[DRY RUN] obs_dim={len(obs_np)}, "
+                    f"pos=[{obs_np[0]:.1f},{obs_np[1]:.1f},{obs_np[2]:.1f}], "
+                    f"act=[{action_np[0]:.2f},{action_np[1]:.2f},{action_np[2]:.2f},"
+                    f"{action_np[3]:.2f},{action_np[4]:.2f},{action_np[5]:.2f},{action_np[6]:.2f}]"
+                )
         else:
-            self._action_pub.publish(actions)
+            self._action_pub.publish(action_np)
 
         self._tick_count += 1
 

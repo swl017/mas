@@ -35,9 +35,16 @@ agent_n1: "Agent N+1 (MAS instance)" {
   ultralytics_ros_n1: ultralytics_ros {
     style.fill: "#fff"
   }
+  mas_multiview_n1: mas_multiview {
+    style.fill: "#fff"
+  }
+  mas_tracker_n1: mas_tracker {
+    style.fill: "#fff"
+  }
 
   mavros_n1 -> mas_common_frame_n1
-  ultralytics_ros_n1 -> mas_common_frame_n1
+  ultralytics_ros_n1 -> mas_multiview_n1
+  mas_multiview_n1 -> mas_tracker_n1
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -94,10 +101,10 @@ agent_n: "Agent N (MAS instance N)" {
 
   # ── Internal edges ──
 
-  ultralytics_ros -> mas_multiview: "bbox_xywh\ntimestamp"
-  ultralytics_ros -> mas_policy: "bbox_xywh\ntimestamp"
-  mas_multiview -> mas_tracker: "target pos est (all)\ntarget pos cov (all)"
-  mas_tracker -> mas_policy: "target pos est (selected)\ntarget pos cov (selected)"
+  ultralytics_ros -> mas_multiview: "detections\n(bbox, tracker_id)"
+  ultralytics_ros -> mas_policy: "detections\n(ego bbox)"
+  mas_multiview -> mas_tracker: "triangulated points\n(pos, cov, detection_ids)\ntarget_rays_w"
+  mas_tracker -> mas_policy: "chosen_target_pose\n(pos, cov)\nchosen_target_ray_w"
   mas_common_frame -> mas_policy: "<mission frame>\npose, cov(pos, ori)\nvel(lin/ang)"
   mavros -> mas_common_frame: "<local frame>\npose, cov(pos, ori)\nvel(lin/ang)"
   mavros -> mas_policy: "lin acc"
@@ -239,13 +246,20 @@ operator: "Operator" {
 
 # ── Agent N+1 → Agent N (cross-agent) ──
 
-agent_n1.mas_common_frame_n1 -> agent_n.mas_policy: "<mission frame>\npos, vel(lin)\nray_w, combined ang vel\nzoom level" {
+# Cross-agent: peer common_frame → ego policy (position, velocity, ang_vel, zoom)
+agent_n1.mas_common_frame_n1 -> agent_n.mas_policy: "<mission frame>\npos, vel(lin)\ncombined_ang_vel_w\nzoom_level" {
   style.stroke: "#2d6a2d"
 }
-agent_n1.mas_common_frame_n1 -> agent_n.mas_multiview: "<mission frame>\nray_w\npose, cov(pos, ori)" {
+# Cross-agent: peer multiview → ego multiview (pre-computed bearing rays for triangulation)
+agent_n1.mas_multiview_n1 -> agent_n.mas_multiview: "target_rays_w\n(bearing rays)" {
   style.stroke: "#2d6a2d"
 }
-agent_n1.ultralytics_ros_n1 -> agent_n.mas_policy: "bbox empty" {
+# Cross-agent: peer tracker → ego policy (selected target ray)
+agent_n1.mas_tracker_n1 -> agent_n.mas_policy: "chosen_target_ray_w" {
+  style.stroke: "#2d6a2d"
+}
+# Cross-agent: peer detection status → ego policy (compact Bool)
+agent_n1.ultralytics_ros_n1 -> agent_n.mas_policy: "bbox_empty\n(Bool)" {
   style.stroke: "#2d6a2d"
 }
 

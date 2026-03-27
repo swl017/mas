@@ -1,14 +1,12 @@
-mas_policy_node:
+# Shared parameters applied to every per-vehicle policy_node instance.
+# Vehicle-specific params (vehicle_name, peer_names) are set by the launch file.
+/**:
   ros__parameters:
     # --- Checkpoint ---
     checkpoint_path: ""  # Path to SKRL .pt checkpoint file (required)
 
-    # --- Agent configuration ---
-    num_agents: 2
-    vehicle_names: ["px4_1", "px4_2"]
-
     # --- Network architecture ---
-    obs_dim: 62          # 30 ego + 16*(num_agents-1) inter-agent [+ 6 triangulation]
+    num_agents: 2        # obs_dim computed: 30 + 16*(num_agents-1) [+ 6 triangulation]
     action_dim: 7        # vx, vy, vz, yaw_rate, gimbal_az_rate, gimbal_el_rate, zoom_rate
     architecture: "mappo_rnn"  # "mappo_rnn" or "ppo_mlp"
     hidden_size: 64
@@ -17,26 +15,26 @@ mas_policy_node:
 
     # --- Control ---
     control_frequency: 25.0  # Hz (must match training decimation)
-    max_lin_vel: 10.0        # m/s (match training env max_lin_vel)
-    max_yaw_rate: 0.7854     # rad/s (45 deg/s, match training env)
+    max_lin_vel: 10.0        # m/s
+    max_yaw_rate: 0.7854     # rad/s (45 deg/s)
     device: "cpu"
 
     # --- Observation ---
     image_width: 640
     image_height: 480
-    yaw_joint_offset: -1.5708  # -pi/2 (match training gimbal_controller.YAW_JOINT_OFFSET)
-    enable_triangulation: false
-    use_common_frame: true     # true: use common_frame/odom (ENU), false: use mavros/local_position/odom
-    stale_timeout: 2.0         # seconds: reset hidden state if no data for this long
+    yaw_joint_offset: -1.5708  # -pi/2
+    enable_triangulation: true
+    use_common_frame: true
+    stale_timeout: 2.0
 
     # --- Safety ---
     enable_cbf: true
-    cbf_D_s: 2.0              # Physical safety distance (m)
-    cbf_v_max: 15.0            # Max expected velocity (m/s)
-    cbf_tau_delay_max: 0.2     # Max communication delay (s)
-    cbf_tau_px4: 0.3           # PX4 tracking lag (s)
-    cbf_gamma_deploy: 1.0      # CBF decay rate
-    cbf_num_iters: 2           # Gauss-Seidel iterations
+    cbf_D_s: 2.0
+    cbf_v_max: 15.0
+    cbf_tau_delay_max: 0.2
+    cbf_tau_px4: 0.3
+    cbf_gamma_deploy: 1.0
+    cbf_num_iters: 2
 
     # --- Debug ---
-    dry_run: false  # If true, log observations/actions without publishing
+    dry_run: false

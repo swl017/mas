@@ -13,15 +13,15 @@ windows:
   focus: false
   layout: tiled
   shell_command_before:
-    - source /opt/ros/galactic/setup.bash
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
-    - ros2 run mavros mavros_node --ros-args -p fcu_url:=udp://:14543@localhost:14553 -p tgt_system:=4 -r __ns:=/${ROBOT_NAME}/mavros
+    - ros2 run mavros mavros_node --ros-args -p fcu_url:=udp://:14543@localhost:14553 -p tgt_system:=4 -p local_position.tf.frame_id:=${ROBOT_NAME}/map -p local_position.tf.child_frame_id:=${ROBOT_NAME}/base_link -p global_position.frame_id:=${ROBOT_NAME}/map -p global_position.child_frame_id:=${ROBOT_NAME}/base_link -r __ns:=/${ROBOT_NAME}/mavros
 
 - window_name: frame
   focus: false
   layout: tiled
   shell_command_before:
-    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
     - ros2 launch mas_common_frame common_frame_single.launch.py ns:=/${ROBOT_NAME}
 
