@@ -1,0 +1,32 @@
+# Gap analysis review
+
+## 1. Component-level comparison
+
+- Remove `mas_multiview_py` as it is redundant and outdated.
+- `camera_switch`, `fc_switch`, `gimbal_switch` are not real active switches. They are only there to mark it explicitly that "here is were sim and real have their counterparts". We need to update the semantic arch to avoid confusion.
+- Let's add an UI for the operator to interact with `mas_mission` and `mas_tracker` in all agents.
+
+## 2. Interface-level comparison
+
+### 2.1 Internal Edges (Agent N)
+- `target pos est/cov (all)`: `mas_multiview` would output an *array* of *position* with *covariance*. I think these three have to go together everywhere. If they are seperate, meaning multiple targets localized simulatneously but reported individually could confuse the tracker. Among the targets, the operator selects one(`target pos est/cov (selected)`) which flow into `mas_policy`.
+- "No mas_mission in the path. Policy publishes cmd_vel directly to offboard, gimbal_cmd_los_rate and zoom_cmd directly to gimbal nodes.": This needs to be fixed.
+- "gimbal_command_rpy_deg goes directly to siyi_gimbal_node, no mission gate.": This needs to be fixed.
+- "offboard's own state machine gates cmd_vel via HOVER→POLICY transition, but there's no external mission state governing it.": Operator UI should trigger that. Should it go through `mas_mission`?
+- `mission_state`: We need to design how this should work. Simplest approach: define enum configs and share them across agents or ROS2 nodes. What are some standard approaches?
+- `camera feed`, `base intrinsics, zoom level`, `MAVLink`: As stated earlier, 'switches' are not real active switches.
+- `gimbal joint angles/LOS, zoom` "(1) No switch — direct topic. (2) Semantic arch specifies "joint angles" but implementation currently uses IMU-stabilized world-frame angles (0x0D). Decision was made to use 0x26 encoder angles but not yet wired. (3) Zoom level not yet routed to multiview in real hardware path.": (1) I didn't quite undestand... (2) "joint angles" is correct. The diagram should be corrected. (3) The diagram should be corrected.
+- `cmd gimbal, cmd zoom` "No mission-gated gimbal command routing.": So this is a design decision. What entity should gate which command to use that can be used in both sim and real?
+- `aircraft attitude`: The `gimbal_stabilizer` in sim should also receive this from the gimbal switch.
+
+### 2.2 Cross-Agent Edges (Agent N+1 -> Agent N)
+- `pos, vel, ray_w, ang vel, zoom`: (1) We need `ray_w` as a seperate topic, since we can't guarantee all source data would arrive in sync. (2) We need to add `zoom level` from peers. (3) Again, we need a dedicated `combined ang vel` topic.
+- `ray_w, pose, cov`: We should keep it, but may be we need a cross-agent topic cache node in each agents to prevent duplicate channels(like `/{peer}/common_frame/odom`(the same topic), `/{peer}/gimbal_state_rpy_deg/rad`(practically the same topic) in this case) across agents.
+- `bbox_empty`: I think we should not try to exchange big topics.
+
+### 2.3 Sim/Real Boundary Edges
+- Why are these identified as GAP?
+
+### 2.4 Operator Edges
+- `Operator → mas_mission: mission select`: We do need define/design service/topics for this.
+- `Operator → mas_tracker: target select`: We do need define/design service/topics for this. For example, the operator could monitor a camera feed with bbox overlay and confirm which target to lock on. Or, we might need a 3D view to make sure all agents are tracking the same target. But we will not try to solve for all cases. Focus on the minimal case where (1) we command the drone to takeoff, optionally move to designated coordinates, (2) command the gimbals to point to one region(x,y,z) (3) if the target can be localized, approve to advance to policy state.

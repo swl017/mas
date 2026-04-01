@@ -27,9 +27,15 @@ def _load_config(context):
 
 def launch_setup(context):
     config = _load_config(context)
+    vehicle_filter = LaunchConfiguration('vehicle_filter').perform(context)
+
+    vehicles = config['vehicles']
+    if vehicle_filter:
+        vehicles = [v for v in vehicles if v['namespace'] == vehicle_filter]
+
     nodes = []
 
-    for vehicle in config['vehicles']:
+    for vehicle in vehicles:
         ns = vehicle['namespace']
         pos = vehicle['position']
 
@@ -62,6 +68,11 @@ def generate_launch_description():
             'config_file',
             default_value='config/vehicles.yaml',
             description='Path to the vehicle configuration file',
+        ),
+        DeclareLaunchArgument(
+            'vehicle_filter',
+            default_value='',
+            description='If set, only launch for this vehicle namespace (e.g. px4_1)',
         ),
         OpaqueFunction(function=launch_setup),
     ])

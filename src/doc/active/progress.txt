@@ -128,3 +128,56 @@ Next:
 - Update semantic d2 diagram: ray_w → target_rays_w
 - Build MAVROS from source for humble (currently using galactic system package in separate process)
 - Commit all changes from this session
+
+----------------------------------------
+2026-03-31 — Gimbal state convention unification
+----------------------------------------
+Done:
+- Defined canonical gimbal state convention: gimbal_state_rpy_deg (degrees, body-frame)
+- mas_policy observation_assembler: switched subscription from gimbal_state_rpy_rad to gimbal_state_rpy_deg, added math.radians() conversion at callback boundary
+- mas_multiview run.sh and launch.sh: fixed stale gimbal_topic_suffix override from rpy_rad to rpy_deg
+- los_rate_controller: removed gimbal_state_rpy_rad publisher (no remaining subscribers)
+- Updated ARCHITECTURE.md, ARCHITECTURE_IMPLEMENTATION_LEVEL.md: merged duplicate gimbal_state rows, removed rpy_rad row
+- Updated CONTEXT.md (mas_policy, tmux), POLICY_ROS2_DEPLOYMENT_REFERENCE.md
+- Updated gap_analysis.md: checked off Priority 1 and 3 gimbal convention tasks, noted QoS mismatch was already resolved
+- Updated remaining_work.md: checked off 4 gimbal convention tasks
+- Updated feature_list.json: gimbal-encoder-wiring → done
+
+Next:
+- Hardware verification for encoder wiring (5 items in gap_analysis.md Priority 1)
+- Build MAVROS from source for humble
+- Update CONTEXT.md for mas_multiview, mas_tracker, gimbal_controller (pending from prior sessions)
+
+----------------------------------------
+2026-03-31 — Tracker ray selection (move from policy to tracker)
+----------------------------------------
+Done:
+- Fixed broken sort3d.launch.py remapping (input_detections/markers → input_detections/triangulated_points)
+- sort3d_node: per-camera TargetRayArray subscriptions (target_rays_w_{i}), replaces single subscription
+- sort3d_node: caches latest TriangulatedPointArray for detection_id lookup
+- sort3d_node: ID-based ray matching in pubChosenTarget() — finds nearest TriangulatedPoint, uses detection_ids to select ego camera ray; angular fallback
+- sort3d.launch.py: OpaqueFunction for dynamic per-camera remappings, new params (num_cameras, camera_name_prefix, self_camera_index)
+- Updated mas_tracker/CONTEXT.md with new interface (subscriptions, publishers, parameters, ray selection logic)
+- Updated ARCHITECTURE.md: chosen_target_ray_w topic, target_rays_w consumer (mas_tracker), per-drone sort3d deployment, new parameters
+- Documented ray-target association flow (detection_ids link cameras rays to 3D targets)
+
+Next:
+- Sim e2e test: verify chosen_target_ray_w publishes with ID-based matching
+- Fix multiview.tmuxp.yaml: sort3d should launch per-drone (not globally), pass self_camera_index
+- Update CONTEXT.md for mas_multiview, gimbal_controller (still pending)
+- Build MAVROS from source for humble
+
+----------------------------------------
+2026-04-01 — Ticket #008: Fix Isaac Sim gimbal joint state feedback
+----------------------------------------
+Done:
+- Fixed OmniGraph node types for Isaac Sim 4.5: omni.isaac.ros2_bridge.* → isaacsim.ros2.bridge.*, omni.isaac.core_nodes.* → isaacsim.core.nodes.*
+- Fixed articulation path: /World/px4_N → /World/px4_N/body (where PhysicsArticulationRootAPI lives)
+- Fixed PublishJointState.inputs:targetPrim: bare string → list form for USD relationship
+- Applied to all 3 launch files: px4_multi_world_iris_gimbal3, px4_multi_world, px4_lidar_world
+- Verified: ros2 topic echo /px4_1/isaac_joint_states shows updating joint positions
+
+Next:
+- Verify downstream: gimbal_state_rpy_deg and camera_pose publishers active with los_rate_controller
+- Sim e2e test with full MAS stack (ticket #001)
+- Commit IsaacPX4 changes

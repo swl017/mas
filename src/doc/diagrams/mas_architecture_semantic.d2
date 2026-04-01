@@ -41,6 +41,18 @@ agent_n1: "Agent N+1 (MAS instance)" {
   mas_tracker_n1: mas_tracker {
     style.fill: "#fff"
   }
+  mas_policy_n1: mas_policy {
+    style.fill: "#fff"
+  }
+  mas_offboard_n1: mas_offboard {
+    style.fill: "#fff"
+  }
+  point_to_region_n1: "gimbal_controller\n(point_to_region)" {
+    style.fill: "#fff"
+  }
+  mas_mission_n1: mas_mission {
+    style.fill: "#fff"
+  }
 
   mavros_n1 -> mas_common_frame_n1
   ultralytics_ros_n1 -> mas_multiview_n1
@@ -67,12 +79,8 @@ agent_n: "Agent N (MAS instance N)" {
   mas_tracker: mas_tracker {
     style.fill: "#fff"
   }
-  mas_policy: mas_policy\n(WIP) {
-    style: {
-      fill: "#fff"
-      stroke: "#4a90d9"
-      stroke-dash: 5
-    }
+  mas_policy: mas_policy {
+    style.fill: "#fff"
   }
   mas_common_frame: mas_common_frame {
     style.fill: "#fff"
@@ -88,15 +96,11 @@ agent_n: "Agent N (MAS instance N)" {
   }
 
   # mas_mission — state machine: IDLE → TRACKING → MISSION
-  # Replaces the anonymous gate; owns mode transitions and command routing.
-  # - TRACKING: forwards point_to_region gimbal/zoom, blocks policy commands
-  # - MISSION:  forwards policy cmd_vel/gimbal/zoom, blocks point_to_region
-  mas_mission: "mas_mission\n(WIP)" {
-    style: {
-      fill: "#fff"
-      stroke: "#4a90d9"
-      stroke-dash: 5
-    }
+  # Owns mode transitions and command routing.
+  # - TRACKING: forwards point_to_region gimbal RPY angle + zoom, blocks policy commands
+  # - MISSION:  forwards policy cmd_vel + gimbal LOS rate + zoom, blocks point_to_region
+  mas_mission: mas_mission {
+    style.fill: "#fff"
   }
 
   # ── Internal edges ──
@@ -110,9 +114,9 @@ agent_n: "Agent N (MAS instance N)" {
   mavros -> mas_policy: "lin acc"
 
   # Policy → mas_mission → downstream
-  mas_policy -> mas_mission: "cmd vel(lin/yaw)\ncmd gimbal los rate\ncmd zoom rate"
-  point_to_region -> mas_mission: "cmd gimbal LOS angle\ncmd zoom"
-  mas_mission -> mas_offboard: "(MISSION)\ncmd vel"
+  mas_policy -> mas_mission: "(MISSION mode)\ncmd vel(lin/yaw)\ncmd gimbal LOS rate\ncmd zoom rate"
+  point_to_region -> mas_mission: "(TRACKING mode)\ncmd gimbal RPY deg\ncmd zoom"
+  mas_mission -> mas_offboard: "cmd vel"
 
   mas_offboard -> mavros: "cmd vel"
 
@@ -250,8 +254,8 @@ operator: "Operator" {
 agent_n1.mas_common_frame_n1 -> agent_n.mas_policy: "<mission frame>\npos, vel(lin)\ncombined_ang_vel_w\nzoom_level" {
   style.stroke: "#2d6a2d"
 }
-# Cross-agent: peer multiview → ego multiview (pre-computed bearing rays for triangulation)
-agent_n1.mas_multiview_n1 -> agent_n.mas_multiview: "target_rays_w\n(bearing rays)" {
+# Cross-agent: peer multiview → ego multiview (pre-computed bearing rays for triangulation, from camera origin to the target through bounding box)
+agent_n1.mas_multiview_n1 -> agent_n.mas_multiview: "target_rays_w\n" {
   style.stroke: "#2d6a2d"
 }
 # Cross-agent: peer tracker → ego policy (selected target ray)
@@ -303,6 +307,18 @@ operator -> agent_n.mas_mission: "mission select" {
   }
 }
 operator -> agent_n.mas_tracker: "target select" {
+  style: {
+    stroke: "#d9a74a"
+    stroke-width: 2
+  }
+}
+operator -> agent_n1.mas_mission_n1: "mission select" {
+  style: {
+    stroke: "#d9a74a"
+    stroke-width: 2
+  }
+}
+operator -> agent_n1.mas_tracker_n1: "target select" {
   style: {
     stroke: "#d9a74a"
     stroke-width: 2

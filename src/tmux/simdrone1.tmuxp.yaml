@@ -16,12 +16,13 @@ windows:
     - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
     - ros2 run mavros mavros_node --ros-args -p fcu_url:=udp://:14541@localhost:14551 -p tgt_system:=2 -p local_position.tf.frame_id:=${ROBOT_NAME}/map -p local_position.tf.child_frame_id:=${ROBOT_NAME}/base_link -p global_position.frame_id:=${ROBOT_NAME}/map -p global_position.child_frame_id:=${ROBOT_NAME}/base_link -r __ns:=/${ROBOT_NAME}/mavros
+    - 'sleep 5 && ros2 service call /${ROBOT_NAME}/mavros/set_message_interval mavros_msgs/srv/MessageInterval "{message_id: 31, message_rate: 100.0}"'
 
 - window_name: frame
   focus: false
   layout: tiled
   shell_command_before:
-    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
     - ros2 launch mas_common_frame common_frame_single.launch.py ns:=/${ROBOT_NAME}
 
@@ -33,31 +34,13 @@ windows:
   panes:
     - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/${ROBOT_NAME} input_topic:=camera/color/image_raw yolo_model:=yolov11m-drone.pt
 
-# --- Multi-vehicle nodes (run once for all drones) ---
-
-- window_name: mission
+- window_name: triangulation
   focus: false
   layout: tiled
   shell_command_before:
     - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
-    - ros2 launch mas_mission mission_deploy.launch.py
-
-- window_name: offboard
-  focus: false
-  layout: tiled
-  shell_command_before:
-    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
-  panes:
-    - ros2 launch mas_offboard offboard.launch.py
-
-- window_name: policy
-  focus: false
-  layout: tiled
-  shell_command_before:
-    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
-  panes:
-    - ros2 launch mas_policy policy_deploy.launch.py use_mission_gate:=true
+    - ros2 launch mas_multiview triangulation.launch.py ns:=/${ROBOT_NAME} num_camera:=3 publish_rate:=0.5 gimbal_angle_order:=zxy
 
 - window_name: tracker
   focus: false
@@ -65,4 +48,44 @@ windows:
   shell_command_before:
     - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
-    - ros2 launch mas_tracker sort3d.launch.py
+    - ros2 launch mas_tracker sort3d.launch.py ns:=/${ROBOT_NAME} self_camera_index:=1
+
+- window_name: gimbal
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 run gimbal_controller point_to_region_node --ros-args -r __ns:=/${ROBOT_NAME} -r gimbal_command_rpy_deg:=tracking/gimbal_cmd_rpy_deg
+
+- window_name: mission
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mas_mission mission_deploy.launch.py vehicle_filter:=${ROBOT_NAME}
+
+- window_name: offboard
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mas_offboard offboard.launch.py vehicle_filter:=${ROBOT_NAME}
+
+- window_name: policy
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mas_policy policy_deploy.launch.py use_mission_gate:=true vehicle_filter:=${ROBOT_NAME}
+
+# - window_name: teleop
+#   focus: true
+#   layout: tiled
+#   shell_command_before:
+#     - source ${ROS2_INSTALL_PATH}/setup.bash && source /home/usrg/IsaacPX4/ros2_ws/install/setup.bash
+#   panes:
+#     - ros2 run gimbal_stabilizer gimbal_teleop_keyboard --ros-args -r __ns:=/${ROBOT_NAME}

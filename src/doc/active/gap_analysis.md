@@ -110,8 +110,8 @@ Ordered by **dependency** (downstream items depend on upstream) and **risk** (im
 
 **Tasks:**
 - [x] Wire encoder angles (0x26) as the primary `gimbal_state_rpy_deg` via launch remapping swap. IMU angles (0x0D) moved to `gimbal_imu_rpy_deg`. Applied direction multipliers to encoder output.
-- [ ] Verify `mas_policy` gimbal input path: currently expects `gimbal_state_rpy_rad` from `los_rate_controller` — confirm this is correct for both sim and real
-- [ ] Define the single canonical gimbal state topic name and message convention (degrees vs radians, body-frame vs world-frame) in the ICD
+- [x] Verify `mas_policy` gimbal input path: switched to `gimbal_state_rpy_deg`, deg→rad conversion internal. Works for both sim and real. (2026-03-29)
+- [x] Define the single canonical gimbal state topic name and message convention: `gimbal_state_rpy_deg` (degrees, body-frame). (2026-03-29)
 
 **Hardware verification required (feat/gimbal-encoder-wiring branch):**
 - [ ] **Encoder sign convention:** Confirm encoder angles with `yaw_direction=1.0, pitch_direction=-1.0` produce correct output for `point_to_region` and `mas_multiview`. If encoder convention already matches downstream expectations natively, set both multipliers to `1.0`.
@@ -148,11 +148,11 @@ Ordered by **dependency** (downstream items depend on upstream) and **risk** (im
 
 **Tasks:**
 - [x] Ensure sim `gimbal_stabilizer` outputs body-frame joint angles matching `0x26` encoder convention — `los_rate_controller` now publishes actual joint positions from `isaac_joint_states` (with `YAW_JOINT_OFFSET` removed) instead of internal targets. `gimbal_stabilizer.py` offset confirmed correct. (2026-03-26)
-- [ ] Align topic names and units (degrees vs radians) between sim and real paths via launch remapping
-- [ ] Document the canonical gimbal state convention in ARCHITECTURE.md
+- [x] Align topic names and units between sim and real — both publishers output `gimbal_state_rpy_deg`, mas_policy subscribes to canonical topic (2026-03-29)
+- [x] Document the canonical gimbal state convention in ARCHITECTURE.md (2026-03-29)
 - [ ] (Deferred) Feed aircraft attitude to sim `gimbal_stabilizer` for higher-fidelity sim
 
-**Note:** QoS mismatch found on `gimbal_state_rpy_rad` — `los_rate_controller` publishes BEST_EFFORT but `mas_policy` subscribes RELIABLE. Same pattern as the MAVROS pose/odom bug. Needs fix in mas_policy or los_rate_controller.
+**Note:** QoS mismatch on `gimbal_state_rpy_rad` was stale — `mas_policy` already uses BEST_EFFORT (`_sensor_qos`). No fix needed. Topic unified to `gimbal_state_rpy_deg` (2026-03-29).
 
 ### Priority 4: Interface Conformance
 

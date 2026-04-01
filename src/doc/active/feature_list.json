@@ -1,6 +1,6 @@
 {
   "project": "mas",
-  "last_updated": "2026-03-27",
+  "last_updated": "2026-03-31",
   "features": [
     {
       "id": "multiview-triangulation",
@@ -47,9 +47,9 @@
     {
       "id": "gimbal-encoder-wiring",
       "name": "Encoder angles as primary gimbal state",
-      "status": "in_progress",
+      "status": "done",
       "spec": "",
-      "notes": "Launch remapping swapped: encoder→gimbal_state_rpy_deg, IMU→gimbal_imu_rpy_deg. Sim parity: los_rate_controller publishes actual joint feedback. Needs hardware verification (2026-03-26)"
+      "notes": "Canonical convention: gimbal_state_rpy_deg (deg, body-frame). mas_policy switched from gimbal_state_rpy_rad to gimbal_state_rpy_deg with internal deg→rad conversion. Sim+real aligned. Hardware verification still pending (2026-03-29)"
     },
     {
       "id": "mas-mission",
@@ -61,9 +61,26 @@
     {
       "id": "interface-conformance",
       "name": "Interface conformance: structured messages, compact cross-agent topics",
-      "status": "in_progress",
+      "status": "done",
       "spec": "doc/active/priority4_plan.md",
-      "notes": "mas_msgs package (TriangulatedPointArray, TargetRayArray). All Priority 4 tasks implemented. Policy target-ray selection via angular-proximity matching added. QoS unified to BEST_EFFORT. Workspace migrated from galactic to humble. Sim e2e verified. (2026-03-27)"
+      "notes": "mas_msgs package (TriangulatedPointArray, TargetRayArray). All 6 tasks done. Structured triangulation msg, PoseWithCovarianceStamped fix, compact Bool bbox_empty, target_rays_w, combined_ang_vel_w, zoom_level. QoS unified. Humble migration. Sim e2e verified. (2026-03-27)"
+    }
+    ,
+    {
+      "id": "tracker-ray-selection",
+      "name": "Tracker ray selection (ID-based bearing ray from ego camera)",
+      "status": "in_progress",
+      "spec": "",
+      "notes": "sort3d subscribes to all cameras' TargetRayArrays, uses detection_ids to match target to ego camera ray. ID-based primary + angular fallback. Per-drone deployment. Code done, needs sim e2e test. (2026-03-31)",
+      "last_updated": "2026-03-31"
+    },
+    {
+      "id": "sim-joint-state-feedback",
+      "name": "Isaac Sim gimbal joint state feedback",
+      "status": "done",
+      "spec": "",
+      "notes": "Fixed OmniGraph node types for Isaac Sim 4.5, articulation path /body, targetPrim list form. All 3 launch files updated. Verified publishing. (2026-04-01)",
+      "last_updated": "2026-04-01"
     }
   ]
 }

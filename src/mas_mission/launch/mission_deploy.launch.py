@@ -16,6 +16,7 @@ import yaml
 def launch_setup(context):
     config_file = LaunchConfiguration('config_file').perform(context)
     initial_state = LaunchConfiguration('initial_state').perform(context)
+    vehicle_filter = LaunchConfiguration('vehicle_filter').perform(context)
 
     if os.path.isabs(config_file):
         config_path = config_file
@@ -29,9 +30,13 @@ def launch_setup(context):
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
 
+    vehicles = config['vehicles']
+    if vehicle_filter:
+        vehicles = [v for v in vehicles if v['namespace'] == vehicle_filter]
+
     nodes = []
 
-    for vehicle in config['vehicles']:
+    for vehicle in vehicles:
         ns = vehicle['namespace']
 
         node = Node(
@@ -62,6 +67,11 @@ def generate_launch_description():
             'initial_state',
             default_value='0',
             description='Initial mission state (0=IDLE, 1=TRACKING, 2=MISSION)',
+        ),
+        DeclareLaunchArgument(
+            'vehicle_filter',
+            default_value='',
+            description='If set, only launch for this vehicle namespace (e.g. px4_1)',
         ),
         OpaqueFunction(function=launch_setup),
     ])

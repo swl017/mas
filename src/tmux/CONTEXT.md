@@ -7,8 +7,8 @@ Tmuxp session configs for launching the MAS system. Each YAML file defines a tmu
 
 ### Per-Drone (Simulation)
 - `simdrone1.tmuxp.yaml` — px4_1: mavros, common_frame, ultralytics_ros + multi-vehicle nodes (offboard, policy, tracker)
-- `simdrone2.tmuxp.yaml` — px4_2: mavros, common_frame, ultralytics_ros
-- `simdrone3.tmuxp.yaml` — px4_3: mavros, common_frame, ultralytics_ros
+- `simdrone2.tmuxp.yaml` — px4_2: mavros, common_frame, ultralytics_ros + multi-vehicle nodes (offboard, policy, tracker)
+- `simdrone3.tmuxp.yaml` — px4_3: mavros, common_frame, ultralytics_ros + multi-vehicle nodes (offboard, policy, tracker)
 
 Mavros SITL ports follow PX4 multi-instance convention:
 | Vehicle | fcu_url | tgt_system |
@@ -49,7 +49,7 @@ The simdrone sessions depend on the Isaac Sim session (`IsaacPX4/tmux/isaac_sim.
 **Isaac Sim gimbal_stabilizer → MAS** (los_rate_controller publishes):
 | Topic | Type | Consumer |
 |-------|------|----------|
-| `/{veh}/gimbal_state_rpy_rad` | `geometry_msgs/Vector3` | mas_policy |
+| `/{veh}/gimbal_state_rpy_deg` | `geometry_msgs/Vector3` | mas_policy |
 
 **MAS → Isaac Sim** (MAS publishes, simulator subscribes):
 | Topic | Type | Producer |

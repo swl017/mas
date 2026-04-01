@@ -4,71 +4,7 @@ Multi-agent drone observation system: 2D detection, multi-view triangulation, 3D
 
 ## Architecture Diagram
 
-```mermaid
-flowchart LR
-    subgraph MAS["MAS — Per-vehicle (all nodes run in /{veh}/ namespace)"]
-        direction TB
-
-        CAM["Camera Driver<br/><i>camera/color/image_raw</i><br/><i>camera/color/camera_info</i>"]
-        YOLO["ultralytics_ros<br/><i>tracker_node</i>"]
-        MV["mas_multiview<br/><i>triangulation_node</i>"]
-        TRK["mas_tracker<br/><i>sort3d_tracking_node</i>"]
-        POL["mas_policy<br/><i>policy_node</i>"]
-        CF["mas_common_frame<br/><i>common_frame_node</i>"]
-        OFF["mas_offboard<br/><i>offboard_control</i>"]
-        GC_SIYI["gimbal_controller<br/><i>siyi_gimbal_node</i>"]
-        GC_PTR["gimbal_controller<br/><i>point_to_region_node</i>"]
-        MAV["MAVROS"]
-
-        CAM -- "image_raw" --> YOLO
-        CAM -- "camera_info" --> MV
-        CAM -- "camera_info" --> GC_PTR
-        YOLO -- "yolo_result_vision" --> MV
-        YOLO -- "yolo_result_vision" --> POL
-        CF -- "common_frame/odom" --> MV
-        CF -- "common_frame/odom" --> POL
-        CF -- "common_frame/odom" --> GC_SIYI
-        CF -- "common_frame/pose" --> GC_PTR
-        GC_SIYI -- "gimbal_state_rpy_deg" --> MV
-        GC_SIYI -- "gimbal_state_rpy_deg" --> GC_PTR
-        MV -- "triangulated_points" --> TRK
-        MV -- "triangulated_covariance" --> POL
-        TRK -- "chosen_target_pose" --> POL
-        TRK -- "target_region" --> GC_PTR
-        MAV -- "pose, vel, imu" --> CF
-        MAV -- "imu/data" --> POL
-        MAV -- "state, odom, pose" --> OFF
-        GC_PTR -- "gimbal_command_rpy_deg" --> GC_SIYI
-        POL -- "cmd_vel" --> OFF
-        POL -- "gimbal_cmd_los_rate" --> GC_SIYI
-        POL -- "zoom_cmd" --> GC_SIYI
-        OFF -- "mavros setpoints" --> MAV
-    end
-
-    subgraph SIM["Sim Env"]
-        direction TB
-        ISIM["Isaac Sim"]
-        PEG["PegasusSimulator"]
-        PX4["PX4 SITL"]
-        GSTAB["gimbal_stabilizer"]
-        MAV_TGT["MAVROS<br/>Target vehicle"]
-        CF_TGT["mas_common_frame<br/>(target)"]
-
-        ISIM --> PEG --> PX4
-        PX4 --> PEG --> ISIM
-        MAV_TGT --> CF_TGT
-    end
-
-    MISSION(["Mission Start"]) -. "triggers POLICY state" .-> OFF
-    MAV -- "mavlink" --- PX4
-    OFF -- "mavros setpoints" --> GSTAB
-    POL -- "gimbal_cmd_los_rate, zoom_cmd" --> GSTAB
-    PEG -- "camera feeds" --> CAM
-
-    style MAS fill:#dbeeff,stroke:#4a90d9
-    style SIM fill:#ffe0d0,stroke:#d97a4a
-    style MISSION fill:#d4edda,stroke:#6abf69
-```
+See `src/doc/diagrams/mas_architecture_semantic.d2`.
 
 ### Mission Phases
 
@@ -87,17 +23,17 @@ All topics below are per-vehicle, resolved within `/{veh}/` namespace unless not
 | `yolo_result_active` | std_msgs/Bool | ultralytics_ros | mas_policy (peers) | BEST_EFFORT |
 | `common_frame/odom` | nav_msgs/Odometry | mas_common_frame | mas_multiview, mas_policy, siyi_gimbal_node | BEST_EFFORT |
 | `common_frame/pose` | geometry_msgs/PoseStamped | mas_common_frame | point_to_region_node | BEST_EFFORT |
-| `gimbal_state_rpy_deg` | geometry_msgs/Vector3 | siyi_gimbal_node (encoder 0x26) | mas_multiview, point_to_region_node | BEST_EFFORT |
+| `gimbal_state_rpy_deg` | geometry_msgs/Vector3 | siyi_gimbal_node (encoder 0x26) | mas_multiview, point_to_region_node, mas_policy (ego) | BEST_EFFORT |
 | `gimbal_imu_rpy_deg` | geometry_msgs/Vector3 | siyi_gimbal_node (IMU 0x0D) | — (secondary, available if needed) | default |
 | `camera/zoom` | std_msgs/Float64 | — | mas_multiview | default |
 | `camera_pose` | geometry_msgs/PoseStamped | — | mas_multiview | default |
 | `triangulated_points` | mas_msgs/TriangulatedPointArray | mas_multiview | mas_tracker | default |
-| `{cam}/target_rays_w` | mas_msgs/TargetRayArray | mas_multiview | mas_multiview (peers), mas_policy | default |
+| `{cam}/target_rays_w` | mas_msgs/TargetRayArray | mas_multiview | mas_tracker, mas_multiview (peers) | default |
 | `tracked_objects/class_{i}` | vision_msgs/Detection3DArray | mas_tracker | — | default |
 | `chosen_target_pose` | geometry_msgs/PoseWithCovarianceStamped | mas_tracker | mas_policy | default |
+| `chosen_target_ray_w` | geometry_msgs/Vector3Stamped | mas_tracker | mas_policy | default |
 | `target_region` | geometry_msgs/PointStamped | mas_tracker | point_to_region_node | default |
 | `gimbal_command_rpy_deg` | geometry_msgs/Vector3 | point_to_region_node | mas_mission (tracking input) | default |
-| `gimbal_state_rpy_rad` | geometry_msgs/Vector3 | los_rate_controller | mas_policy (ego) | default |
 | `combined_ang_vel_w` | geometry_msgs/Vector3Stamped | los_rate_controller / siyi_gimbal_node | mas_policy (peers) | BEST_EFFORT |
 | `zoom_level` | std_msgs/Float32 | los_rate_controller / siyi_gimbal_node | mas_policy (ego + peers) | BEST_EFFORT |
 | `/mission_state_cmd` | std_msgs/Int8 | Operator | mas_mission (all agents) | RELIABLE, transient local |
@@ -140,6 +76,8 @@ All topics below are per-vehicle, resolved within `/{veh}/` namespace unless not
 | `use_precomputed_rays` | bool[] | `[]` | triangulation_node | Per-camera: subscribe to target_rays_w instead of raw topics |
 | `association_distance_threshold` | double | `1.0` | sort3d_tracking_node | Track association threshold |
 | `max_track_age` | int | `30` | sort3d_tracking_node | Frames before track deletion |
+| `num_cameras` | int | `3` | sort3d_tracking_node | Number of cameras (ray subscriptions) |
+| `self_camera_index` | int | `1` | sort3d_tracking_node | 1-indexed ego camera for ray selection |
 | `server_ip` | string | `"192.168.144.25"` | siyi_gimbal_node | SIYI gimbal IP |
 | `publish_rate_hz` | double | `25.0` | siyi_gimbal_node | Gimbal state publish rate |
 | `enable_encoder_stream` | bool | `true` | siyi_gimbal_node | Enable magnetic encoder angle streaming (0x26) |
@@ -214,19 +152,14 @@ Starts: Isaac Sim + PegasusSimulator (auto-launches 3x PX4 SITL), gimbal_stabili
 
 Wait for `Ready for takeoff!` in the simulator pane before proceeding.
 
-**Step 2: Per-agent drone sessions**
+**Step 2: Per-agent drone sessions** (each session is self-contained)
 ```bash
-tmuxp load tmux/simdrone1.tmuxp.yaml   # px4_1 + multi-vehicle nodes
-tmuxp load tmux/simdrone2.tmuxp.yaml   # px4_2 per-vehicle only
-tmuxp load tmux/simdrone3.tmuxp.yaml   # px4_3 (target) per-vehicle only
+tmuxp load tmux/simdrone1.tmuxp.yaml   # px4_1 — all per-drone nodes
+tmuxp load tmux/simdrone2.tmuxp.yaml   # px4_2 — all per-drone nodes
+tmuxp load tmux/simdrone3.tmuxp.yaml   # px4_3 (target) — mavros, frame, camera only
 ```
 
-**Step 3 (optional): Multiview triangulation + tracking**
-```bash
-tmuxp load tmux/multiview.tmuxp.yaml   # triangulation_node + sort3d + common_frame + YOLO + point_to_region
-```
-
-**Step 4: Operator commands** (via ros2 topic pub or `scripts/operator.py`)
+**Step 3: Operator commands** (via ros2 topic pub or `scripts/operator.py`)
 ```bash
 python3 scripts/operator.py
 # Or manually:
@@ -238,25 +171,27 @@ ros2 topic pub /mission_state_cmd std_msgs/Int8 "data: 1" --qos-durability trans
 | Session | File | Windows | Scope |
 |---------|------|---------|-------|
 | `isaac_sim` | `~/IsaacPX4/tmux/isaac_sim.tmuxp.yaml` | simulator, ros2 (gimbal_stabilizer), util (QGC) | Sim environment |
-| `drone1` | `tmux/simdrone1.tmuxp.yaml` | mavros, frame, camera, mission, offboard, policy, tracker | px4_1 per-vehicle + multi-vehicle deploy nodes |
-| `drone2` | `tmux/simdrone2.tmuxp.yaml` | mavros, frame, camera | px4_2 per-vehicle only |
-| `drone3` | `tmux/simdrone3.tmuxp.yaml` | mavros, frame, camera | px4_3 per-vehicle only |
-| `multiview` | `tmux/multiview.tmuxp.yaml` | triangulation, detection, gimbal_pointing_control | Triangulation + tracking (standalone) |
+| `drone1` | `tmux/simdrone1.tmuxp.yaml` | mavros, frame, camera, triangulation, tracker, gimbal, mission, offboard, policy | px4_1 — all per-drone nodes |
+| `drone2` | `tmux/simdrone2.tmuxp.yaml` | mavros, frame, camera, triangulation, tracker, gimbal, mission, offboard, policy | px4_2 — all per-drone nodes |
+| `drone3` | `tmux/simdrone3.tmuxp.yaml` | mavros, frame, camera | px4_3 (target) — basic only |
+| `multiview` | `tmux/multiview.tmuxp.yaml` | triangulation, tracking, detection, gimbal | Standalone alternative (not needed with simdrone sessions) |
 
 ### Node Categories
 
-**Per-vehicle** (one instance per agent, runs in `/{veh}/` namespace):
+All MAS nodes run per-drone (one instance per agent in `/{veh}/` namespace), except `mas_operator`.
+
+**Per-vehicle** (one instance per agent):
 - `mavros_node` — MAVLink bridge (galactic)
 - `common_frame_node_single` — GPS to common frame
-- `tracker_node.py` — YOLO detection
+- `tracker_node.py` — YOLO 2D detection
 - `point_to_region_node` — gimbal pointing
+- `triangulation_node` — multi-view triangulation (subscribes to all cameras via absolute topics)
+- `sort3d_tracking_node` — 3D tracking + ray selection (`self_camera_index` identifies ego camera)
+- `mission_node` — mission state machine
+- `offboard_control` — PX4 offboard controller
+- `policy_node` — MARL policy inference
 
-**Multi-vehicle deploy** (one launch spawns instances for ALL vehicles, configured via `vehicles.yaml`):
-- `mission_deploy.launch.py` — mas_mission (one node per vehicle)
-- `offboard.launch.py` — mas_offboard (one node per vehicle)
-- `policy_deploy.launch.py` — mas_policy (one node per vehicle)
-- `sort3d.launch.py` — mas_tracker (one node)
-- `triangulation.launch.py` — mas_multiview (one node, subscribes to all cameras)
+Launch files that read `vehicles.yaml` (`mission_deploy`, `offboard`, `policy_deploy`) support `vehicle_filter:=px4_N` to launch a single vehicle.
 
 ### PX4 SITL Port Mapping
 
