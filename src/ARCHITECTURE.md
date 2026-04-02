@@ -40,11 +40,12 @@ All topics below are per-vehicle, resolved within `/{veh}/` namespace unless not
 | `mission_state` | std_msgs/Int8 | mas_mission | offboard_control, mas_operator | RELIABLE, transient local |
 | `/operator/markers` | visualization_msgs/MarkerArray | mas_operator | RViz | RELIABLE |
 | `set_auto_pick_mode` | std_msgs/Int8 | mas_operator | mas_tracker | RELIABLE |
-| `set_target_id` | std_msgs/Int8 | mas_operator | mas_tracker | RELIABLE |
+| `set_target_position` | geometry_msgs/PointStamped | mas_operator | mas_tracker | RELIABLE |
 | `cmd_vel` | geometry_msgs/TwistStamped | mas_mission | offboard_control | BEST_EFFORT |
 | `gimbal_cmd_rpy_deg` | geometry_msgs/Vector3 | mas_mission | siyi_gimbal_node | default |
 | `gimbal_cmd_los_rate` | geometry_msgs/Vector3 | mas_mission | los_rate_controller | default |
 | `zoom_cmd` | std_msgs/Float32 | mas_mission | siyi_gimbal_node | default |
+| `policy/value` | std_msgs/Float32 | mas_policy | mas_operator | default |
 | `policy/cmd_vel` | geometry_msgs/TwistStamped | mas_policy | mas_mission | BEST_EFFORT |
 | `policy/gimbal_cmd_los_rate` | geometry_msgs/Vector3 | mas_policy | mas_mission | default |
 | `policy/zoom_cmd` | std_msgs/Float32 | mas_policy | mas_mission | default |

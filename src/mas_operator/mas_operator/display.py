@@ -7,7 +7,7 @@ import time
 from typing import TYPE_CHECKING
 
 from mas_operator.fleet_state import FleetState
-from mas_operator.markers import _find_chosen_track_id
+from mas_operator.markers import _get_chosen_position, _is_chosen
 
 if TYPE_CHECKING:
     from mas_operator.operator_node import OperatorNode
@@ -108,7 +108,7 @@ def _draw_fleet_table(
     stdscr: curses.window, row: int, fleet: FleetState, max_x: int,
 ) -> int:
     """Draw per-vehicle status table."""
-    header = f'{"VEH":<8} {"STATE":<10} {"ARMED":<6} {"MODE":<10} {"AoI(ms)":<10} {"POS (x,y,z)":<28} {"GIMBAL (r,p,y)":<20}'
+    header = f'{"VEH":<8} {"STATE":<10} {"ARMED":<6} {"MODE":<10} {"AoI(ms)":<10} {"V(s)":<8} {"POS (x,y,z)":<28} {"GIMBAL (r,p,y)":<20}'
     _safe_addstr(stdscr, row, 0, header, curses.color_pair(4) | curses.A_BOLD, max_x)
     row += 1
     _safe_addstr(stdscr, row, 0, '─' * min(len(header), max_x - 1), curses.color_pair(5), max_x)
@@ -143,6 +143,12 @@ def _draw_fleet_table(
         else:
             pos_str = '---'
 
+        # V(s) — policy value function
+        if vs.policy_value is not None:
+            val_str = f'{vs.policy_value:.2f}'
+        else:
+            val_str = '---'
+
         # Gimbal
         if vs.gimbal_rpy is not None:
             g = vs.gimbal_rpy
@@ -158,7 +164,7 @@ def _draw_fleet_table(
         else:
             attr = curses.color_pair(5)
 
-        line = f'{veh:<8} {state_str:<10} {armed_str:<6} {mode_str:<10} {aoi_str:<10} {pos_str:<28} {gim_str:<20}'
+        line = f'{veh:<8} {state_str:<10} {armed_str:<6} {mode_str:<10} {aoi_str:<10} {val_str:<8} {pos_str:<28} {gim_str:<20}'
         _safe_addstr(stdscr, row, 0, line, attr, max_x)
         row += 1
 
@@ -242,8 +248,8 @@ def _draw_targets_table(
     _safe_addstr(stdscr, row, 0, '─' * min(len(header), max_x - 1), curses.color_pair(5), max_x)
     row += 1
 
-    # Identify chosen target
-    chosen_id = _find_chosen_track_id(fleet)
+    # Get chosen target position for proximity-based highlighting
+    chosen_pos = _get_chosen_position(fleet)
 
     # Collect tracked objects from all vehicles
     seen_ids: set[str] = set()
@@ -268,10 +274,10 @@ def _draw_targets_table(
                 # Match covariance from triangulated_points by closest position
                 cov_str = _match_tri_cov(vs, p)
 
-                is_chosen = (track_id == chosen_id)
-                sel_str = ' [SEL]' if is_chosen else ''
+                is_sel = _is_chosen(p, chosen_pos)
+                sel_str = ' [SEL]' if is_sel else ''
                 line = f'{track_id:<6} {pos_str:<28} {cov_str:<10} {veh:<8}{sel_str}'
-                attr = (curses.color_pair(1) | curses.A_BOLD) if is_chosen else curses.color_pair(5)
+                attr = (curses.color_pair(1) | curses.A_BOLD) if is_sel else curses.color_pair(5)
                 _safe_addstr(stdscr, row, 0, line, attr, max_x)
                 row += 1
 
@@ -352,11 +358,9 @@ def _handle_key(
         if ord('0') <= key <= ord('9'):
             _target_input_buf += chr(key)
         elif key in (curses.KEY_ENTER, 10, 13):
-            # Submit target ID
+            # Submit target selection by track ID → resolves to position
             if _target_input_buf:
-                target_id = int(_target_input_buf)
-                if target_id > 0:
-                    node.publish_set_target_id(target_id)
+                node.publish_set_target_position(_target_input_buf)
             _target_input_mode = False
             _target_input_buf = ''
         elif key == 27:  # ESC — cancel

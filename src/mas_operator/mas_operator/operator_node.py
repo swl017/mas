@@ -19,10 +19,10 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 
-from geometry_msgs.msg import PoseWithCovarianceStamped, Vector3
+from geometry_msgs.msg import PointStamped, PoseWithCovarianceStamped, Vector3
 from mavros_msgs.msg import State as MavrosState
 from nav_msgs.msg import Odometry
-from std_msgs.msg import Int8
+from std_msgs.msg import Float32, Int8
 from vision_msgs.msg import Detection3DArray
 from visualization_msgs.msg import MarkerArray
 
@@ -100,13 +100,13 @@ class OperatorNode(Node):
             Int8, '/mission_state_cmd', self._qos_reliable_latched,
         )
         self.auto_pick_pubs: dict[str, rclpy.publisher.Publisher] = {}
-        self.set_target_id_pubs: dict[str, rclpy.publisher.Publisher] = {}
+        self.set_target_pos_pubs: dict[str, rclpy.publisher.Publisher] = {}
         for veh in self.vehicle_names:
             self.auto_pick_pubs[veh] = self.create_publisher(
                 Int8, f'/{veh}/set_auto_pick_mode', self._qos_reliable,
             )
-            self.set_target_id_pubs[veh] = self.create_publisher(
-                Int8, f'/{veh}/set_target_id', self._qos_reliable,
+            self.set_target_pos_pubs[veh] = self.create_publisher(
+                PointStamped, f'/{veh}/set_target_position', self._qos_reliable,
             )
 
         self.marker_pub = self.create_publisher(
@@ -164,6 +164,12 @@ class OperatorNode(Node):
             f'/{veh}/triangulated_points',
             partial(self._triangulated_cb, veh),
             self._qos_reliable,
+        )
+        self.create_subscription(
+            Float32,
+            f'/{veh}/policy/value',
+            partial(self._policy_value_cb, veh),
+            self._qos_best_effort,
         )
         for ci in range(self.num_object_classes):
             self.create_subscription(
@@ -240,6 +246,13 @@ class OperatorNode(Node):
             vs = self.fleet.vehicles[veh]
             vs.tracked_objects[class_idx] = msg
             vs.last_heard[f'tracked_objects_{class_idx}'] = now
+
+    def _policy_value_cb(self, veh: str, msg: Float32) -> None:
+        now = time.monotonic()
+        with self.fleet.lock:
+            vs = self.fleet.vehicles[veh]
+            vs.policy_value = msg.data
+            vs.last_heard['policy_value'] = now
 
     def _triangulated_cb(
         self, veh: str, msg: TriangulatedPointArray,
@@ -341,13 +354,35 @@ class OperatorNode(Node):
             f'Published set_auto_pick_mode: {msg.data} to all vehicles'
         )
 
-    def publish_set_target_id(self, target_id: int) -> None:
-        msg = Int8()
-        msg.data = target_id
-        for veh, pub in self.set_target_id_pubs.items():
+    def publish_set_target_position(self, track_id: str) -> None:
+        """Look up track position by ID and publish to all vehicles."""
+        # Find the track position from cached tracked_objects
+        pos = None
+        with self.fleet.lock:
+            for vs in self.fleet.vehicles.values():
+                for det_array in vs.tracked_objects.values():
+                    for det in det_array.detections:
+                        if det.results and det.results[0].hypothesis.class_id == track_id:
+                            pos = det.bbox.center.position
+                            break
+                    if pos:
+                        break
+                if pos:
+                    break
+
+        if pos is None:
+            self.get_logger().warn(f'Track ID {track_id} not found')
+            return
+
+        msg = PointStamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = 'common_frame'
+        msg.point = pos
+        for pub in self.set_target_pos_pubs.values():
             pub.publish(msg)
         self.get_logger().info(
-            f'Published set_target_id: {target_id} to all vehicles'
+            f'Published set_target_position: track {track_id} at '
+            f'({pos.x:.1f}, {pos.y:.1f}, {pos.z:.1f}) to all vehicles'
         )
 
 

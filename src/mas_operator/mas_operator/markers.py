@@ -17,6 +17,24 @@ from mas_operator.metrics import Metrics
 FRAME_ID = 'common_frame'
 
 
+def _get_chosen_position(fleet: FleetState):
+    """Get the chosen target position from any vehicle's chosen_target_pose."""
+    for vs in fleet.vehicles.values():
+        if vs.chosen_target is not None:
+            return vs.chosen_target.pose.pose.position
+    return None
+
+
+def _is_chosen(pos, chosen_pos, threshold_sq: float = 4.0) -> bool:
+    """Check if a track position is near the chosen target (within ~2m)."""
+    if chosen_pos is None:
+        return False
+    dx = pos.x - chosen_pos.x
+    dy = pos.y - chosen_pos.y
+    dz = pos.z - chosen_pos.z
+    return (dx * dx + dy * dy + dz * dz) < threshold_sq
+
+
 def _find_chosen_track_id(fleet: FleetState) -> str | None:
     """Get the cached chosen track ID from any vehicle."""
     for vs in fleet.vehicles.values():
@@ -63,9 +81,8 @@ def build_marker_array(
         ma.markers.append(text)
         marker_id += 1
 
-    # Identify the chosen target track ID by matching chosen_target_pose
-    # position against tracked objects
-    chosen_track_id = _find_chosen_track_id(fleet)
+    # Get chosen target position for proximity-based highlighting
+    chosen_pos = _get_chosen_position(fleet)
 
     # Tracked target markers + text ID labels
     seen_ids: set[str] = set()
@@ -81,7 +98,7 @@ def build_marker_array(
                 seen_ids.add(track_id)
 
                 p = det.bbox.center.position
-                is_chosen = (track_id == chosen_track_id)
+                is_chosen = _is_chosen(p, chosen_pos)
 
                 # Target sphere — chosen target is larger and green
                 target = _make_marker(marker_id, Marker.SPHERE, FRAME_ID)

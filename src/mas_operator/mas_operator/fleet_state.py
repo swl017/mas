@@ -26,6 +26,7 @@ class VehicleState:
     chosen_track_id: str | None = None  # resolved from chosen_target_pose
     tracked_objects: dict[int, Detection3DArray] = field(default_factory=dict)
     triangulated_points: TriangulatedPointArray | None = None
+    policy_value: float | None = None  # V(s) from policy value network
     # topic_key → monotonic reception time
     last_heard: dict[str, float] = field(default_factory=dict)
 
