@@ -17,8 +17,9 @@ INIT ──(mavros topics received)──→ RAMP_UP ──(11 ticks)──→ A
 | Topic | Type | QoS | Notes |
 |-------|------|-----|-------|
 | `mavros/state` | `mavros_msgs/State` | RELIABLE | Armed state, flight mode |
-| `mavros/local_position/pose` | `geometry_msgs/PoseStamped` | RELIABLE | Position + attitude (ENU-FLU) |
-| `mavros/local_position/odom` | `nav_msgs/Odometry` | RELIABLE | Full odometry (ENU-FLU) |
+| `mavros/local_position/pose` | `geometry_msgs/PoseStamped` | BEST_EFFORT | Position + attitude in local frame (ENU-FLU) |
+| `mavros/local_position/odom` | `nav_msgs/Odometry` | BEST_EFFORT | Full odometry in local frame (ENU-FLU) |
+| `common_frame/pose` | `geometry_msgs/PoseStamped` | BEST_EFFORT | Position + attitude in common frame (from mas_common_frame) |
 | `cmd_vel` | `geometry_msgs/TwistStamped` | BEST_EFFORT | Gated velocity command from mas_mission (ENU) |
 | `mission_state` | `std_msgs/Int8` | RELIABLE, transient local | Mission state from mas_mission (gates HOVER→POLICY) |
 
@@ -44,13 +45,13 @@ INIT ──(mavros topics received)──→ RAMP_UP ──(11 ticks)──→ A
 | `vehicle_name` | string | `''` | Vehicle namespace prefix |
 | `update_rate` | float | `100.0` | Timer callback frequency (Hz) |
 | `target_system` | int | `1` | PX4 MAVLink system ID |
-| `position.x` | float | `0.0` | Waypoint X (ENU, meters) |
-| `position.y` | float | `0.0` | Waypoint Y (ENU, meters) |
-| `position.z` | float | `0.0` | Waypoint Z (ENU, meters, positive up) |
-| `position.yaw_deg` | float | `0.0` | Waypoint yaw (degrees) |
+| `position.x` | float | `0.0` | Waypoint X in common frame (meters) |
+| `position.y` | float | `0.0` | Waypoint Y in common frame (meters) |
+| `position.z` | float | `0.0` | Waypoint Z in common frame (meters, positive up) |
+| `position.yaw_deg` | float | `0.0` | Waypoint yaw in common frame (degrees) |
 | `takeoff_speed` | float | `3.0` | Climb rate (m/s) |
 
 ### Dependencies
 
-**Upstream:** MAVROS node (same namespace), `mas_mission` (provides `cmd_vel` and `mission_state`)
-**Downstream:** `mas_common_frame` and `gimbal_stabilizer` subscribe to MAVROS directly
+**Upstream:** MAVROS node (same namespace), `mas_common_frame` (provides `common_frame/pose`), `mas_mission` (provides `cmd_vel` and `mission_state`)
+**Downstream:** `gimbal_stabilizer` subscribes to MAVROS directly

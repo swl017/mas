@@ -1,6 +1,6 @@
 {
   "project": "mas",
-  "last_updated": "2026-03-31",
+  "last_updated": "2026-04-02",
   "features": [
     {
       "id": "multiview-triangulation",
@@ -69,10 +69,10 @@
     {
       "id": "tracker-ray-selection",
       "name": "Tracker ray selection (ID-based bearing ray from ego camera)",
-      "status": "in_progress",
+      "status": "done",
       "spec": "",
-      "notes": "sort3d subscribes to all cameras' TargetRayArrays, uses detection_ids to match target to ego camera ray. ID-based primary + angular fallback. Per-drone deployment. Code done, needs sim e2e test. (2026-03-31)",
-      "last_updated": "2026-03-31"
+      "notes": "sort3d subscribes to all cameras' TargetRayArrays, uses detection_ids to match target to ego camera ray. ID-based primary + angular fallback. Per-drone deployment. Sim e2e verified: chosen_target_ray_w publishes with ID-based matching on both px4_1 and px4_2. (2026-04-02)",
+      "last_updated": "2026-04-02"
     },
     {
       "id": "sim-joint-state-feedback",
@@ -81,6 +81,14 @@
       "spec": "",
       "notes": "Fixed OmniGraph node types for Isaac Sim 4.5, articulation path /body, targetPrim list form. All 3 launch files updated. Verified publishing. (2026-04-01)",
       "last_updated": "2026-04-01"
+    },
+    {
+      "id": "mas-operator",
+      "name": "Operator monitoring and command interface",
+      "status": "done",
+      "spec": "mas_operator/doc/system_spec.md",
+      "notes": "MVP complete: fleet state aggregation, 7 derived metrics, 6 alert conditions, curses terminal UI with target selection, RViz markers (agents, targets with chosen highlight, AoI lines). Manual target selection via set_target_id topic added to mas_tracker. Verified against live sim. (2026-04-02)",
+      "last_updated": "2026-04-02"
     }
   ]
 }

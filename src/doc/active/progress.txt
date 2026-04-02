@@ -181,3 +181,54 @@ Next:
 - Verify downstream: gimbal_state_rpy_deg and camera_pose publishers active with los_rate_controller
 - Sim e2e test with full MAS stack (ticket #001)
 - Commit IsaacPX4 changes
+
+----------------------------------------
+2026-04-01/02 — Ticket #001: Sim e2e test — tracker ray selection
+----------------------------------------
+Done:
+- Per-drone deployment model: all MAS packages now run per-drone (except mas_operator)
+  - triangulation.launch.py: added ns argument for per-drone namespace
+  - triangulation_node.cpp: renamed per-cam viz topic to avoid type collision when namespaced
+  - mission_deploy, offboard, policy_deploy launch files: added vehicle_filter argument for single-vehicle launches
+  - simdrone1/2.tmuxp.yaml: fully self-contained (10 windows each: mavros, frame, camera, triangulation, tracker, gimbal, mission, offboard, policy)
+  - simdrone3.tmuxp.yaml: added offboard window for target drone
+  - multiview.tmuxp.yaml: fixed galactic→humble, now standalone alternative
+  - ARCHITECTURE.md: updated session layout, node categories, deployment steps
+- gimbal_controller/setup.py: fixed subpackage install (packages=[name] → find_packages())
+- cv_bridge: built from source for humble (cmake -DBoost_PYTHON_VERSION=3.8)
+- Created tickets #008 (sim joint state feedback) and #009 (gimbal oscillation) — both resolved in parallel sessions
+- E2E VERIFIED: chosen_target_ray_w publishes on px4_1 and px4_2 with ID-based detection matching
+  - 9 active tracks with multiple targets, 3 ego camera rays with distinct detection_ids
+  - Sort3D consistently selects correct ray via detection_id matching
+  - Policy observation vector (obs_dim=52) incorporates the ray
+- Feature tracker-ray-selection → done
+
+Next:
+- Commit all session changes
+- Update CONTEXT.md for mas_multiview, gimbal_controller (still pending from prior sessions)
+- Build MAVROS from source for humble
+
+----------------------------------------
+2026-04-02 — Ticket #013: mas_operator MVP
+----------------------------------------
+Done:
+- Created mas_operator package (ament_python): unified operator monitoring + command interface
+  - operator_node.py: subscribes to 7 per-vehicle topics (mission_state, odom, gimbal, mavros/state, chosen_target_pose, tracked_objects, triangulated_points), all QoS matched
+  - fleet_state.py: VehicleState/Alert/FleetState dataclasses with thread-safe lock
+  - metrics.py: 7 derived metrics (AoI, cross-agent AoI, cov trace, tri validity, inter-agent distances, fleet consensus, baseline-to-range)
+  - alerts.py: 6 alert conditions (fleet mismatch, comm stale/lost, tri lost, cov spike, collision proximity, agent disarmed) with 1s linger
+  - display.py: curses terminal UI (fleet table, targets table with [SEL] highlight, alerts, command keys), target selection mode (t + ID + Enter)
+  - markers.py: RViz MarkerArray (agent spheres, target spheres with chosen=green highlight, inter-agent AoI lines color-coded green/yellow/red)
+  - config/operator.yaml, launch/operator.launch.py (OpaqueFunction pattern matching mas_mission)
+- Created ticket #013 with QRISPY artifacts: ticket.md, q_questions.md, i_design.md, s_structure.md, state.json
+- Updated ARCHITECTURE.md: triangulated_points subscriber list, tracked_objects subscriber, mission_state_cmd publisher=mas_operator, added /operator/markers and set_auto_pick_mode topics, added mas_operator to Package Summary
+- mas_tracker: added set_target_id subscription (Int8) for manual target selection from operator — sets target_id_ and disables auto-pick
+- Recorded rosbag (bag/mas_bag_20260402_004927) for offline testing
+- Verified against live sim: all subscriptions receiving, metrics computing, alerts firing, RViz markers rendering, target selection working
+
+Next:
+- Create CONTEXT.md for mas_operator (deferred until module is stable)
+- Update mas_tracker/CONTEXT.md with set_target_id interface
+- Add operator tmux window to simdrone sessions or standalone tmuxp
+- Commit all session changes
+- Update CONTEXT.md for mas_multiview, gimbal_controller (still pending)

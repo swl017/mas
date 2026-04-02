@@ -1,0 +1,42 @@
+session_name: drone5
+
+environment:
+  ROS2_INSTALL_PATH: /home/usrg/ros2_humble/install
+  ROS2_WORKSPACE: /home/usrg/mas
+  ROBOT_NAME: px4_5
+
+options:
+  default-command: /bin/bash
+
+windows:
+- window_name: mavros
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 run mavros mavros_node --ros-args -p fcu_url:=udp://:14543@localhost:14553 -p tgt_system:=4 -p local_position.tf.frame_id:=${ROBOT_NAME}/map -p local_position.tf.child_frame_id:=${ROBOT_NAME}/base_link -p global_position.frame_id:=${ROBOT_NAME}/map -p global_position.child_frame_id:=${ROBOT_NAME}/base_link -r __ns:=/${ROBOT_NAME}/mavros
+
+- window_name: frame
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mas_common_frame common_frame_single.launch.py ns:=/${ROBOT_NAME}
+
+# - window_name: camera
+#   focus: false
+#   layout: tiled
+#   shell_command_before:
+#     - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+#   panes:
+#     - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/${ROBOT_NAME} input_topic:=camera/color/image_raw yolo_model:=yolov11m-drone.pt
+
+- window_name: offboard
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mas_offboard offboard.launch.py vehicle_filter:=${ROBOT_NAME}

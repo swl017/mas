@@ -1,0 +1,10 @@
+{
+  "ticket_slug": "013-mas_operator-buildup",
+  "current_stage": "DONE",
+  "last_approved_stage": "P",
+  "next_action": "Create CONTEXT.md, commit changes",
+  "slices_completed": [1, 2, 3, 4, 5],
+  "slices_total": 5,
+  "created": "2026-04-01",
+  "updated": "2026-04-02"
+}

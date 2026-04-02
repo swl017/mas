@@ -479,7 +479,7 @@ If a context window fills mid-workflow or a session must end before all stages a
 
 **When NOT to use:** If the ticket completes within a single session, no files are written. The ticket directory is only created when crossing a session boundary.
 
-**Cleanup:** After the PR is merged, the engineer may delete the ticket directory or keep it as an audit trail. The agent does not delete ticket directories autonomously.
+**Completion:** After the PR is merged, rename the ticket directory to append `-DONE` (e.g., `012-gimbal-teleop-keyboard/` → `012-gimbal-teleop-keyboard-DONE/`) on the user's approval.
 
 **Why a skill (not automatic):** Like `/update-progress`, this requires judgment — the agent needs to determine the ticket slug, identify which artifacts are approved vs. in-progress, and write accurate state. A user-invoked skill preserves control. The engineer can also invoke it proactively before ending a session.
 

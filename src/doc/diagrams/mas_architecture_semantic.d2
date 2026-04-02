@@ -306,9 +306,20 @@ operator -> agent_n.mas_mission: "mission select" {
     stroke-width: 2
   }
 }
+operator <- agent_n.mas_mission: "mission state" {
+  style: {
+    stroke: "#d9a74a"
+    stroke-width: 2
+  }
+}
 operator -> agent_n.mas_tracker: "target select" {
   style: {
     stroke: "#d9a74a"
+    stroke-width: 2
+  }
+}
+operator <- agent_n.mas_tracker: "all tracked targets\n(pos,cov,detection ids)" {
+  style: {
     stroke-width: 2
   }
 }
@@ -318,9 +329,20 @@ operator -> agent_n1.mas_mission_n1: "mission select" {
     stroke-width: 2
   }
 }
+operator <- agent_n1.mas_mission_n1: "mission state" {
+  style: {
+    stroke: "#d9a74a"
+    stroke-width: 2
+  }
+}
 operator -> agent_n1.mas_tracker_n1: "target select" {
   style: {
     stroke: "#d9a74a"
+    stroke-width: 2
+  }
+}
+operator <- agent_n1.mas_tracker_n1: "all tracked targets\n(pos,cov,detection ids)" {
+  style: {
     stroke-width: 2
   }
 }

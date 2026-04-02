@@ -266,6 +266,6 @@ From the operator's perspective, showing what information supports each decision
 
 - **UI layout or rendering technology.** This spec defines information and controls, not visual design. Implementation may be CLI, web dashboard, RViz panel, or custom GUI.
 - **Autonomous decision-making.** Alerts are informational. The operator node does not make or enforce decisions.
-- **Per-vehicle node behavior.** Defined in per-package specs (`mas_mission_spec.md`, etc.).
+- **Per-vehicle node behavior.** Defined in per-package specs (See `mas_mission` and `mas_offboard` packages.).
 - **Network transport optimization.** Camera feed compression, DDS tuning, etc. are deployment concerns.
 - **Target classification or identification.** The operator sees what YOLO detects; identification logic is out of scope.

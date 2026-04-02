@@ -2,7 +2,11 @@
 
 State machine: INIT → RAMP_UP → ARM → TAKEOFF → HOVER → POLICY
 
-All coordinates are ENU-FLU (MAVROS handles NED↔ENU conversion).
+Waypoints are specified in the common frame (shared mission reference frame).
+The node subscribes to common_frame/pose and computes a one-time offset to
+convert waypoints into the MAVROS local frame for setpoint publishing.
+
+All MAVROS interactions are ENU-FLU (MAVROS handles NED↔ENU conversion).
 """
 
 import math
@@ -93,20 +97,27 @@ class OffboardControl(Node):
             f'takeoff_speed={self.takeoff_speed} m/s  rate={self.update_rate} Hz'
         )
 
-        # Pre-compute waypoint PoseStamped (ENU)
+        # Waypoint orientation quaternion (ENU: rotation about Z-up)
+        wp_quat_z = math.sin(wp_yaw_rad / 2.0)
+        wp_quat_w = math.cos(wp_yaw_rad / 2.0)
+
+        # Waypoint in common frame (used for distance/yaw checks)
         self.waypoint_pose = PoseStamped()
-        self.waypoint_pose.header.frame_id = 'map'
+        self.waypoint_pose.header.frame_id = 'common_frame'
         self.waypoint_pose.pose.position.x = wp_x
         self.waypoint_pose.pose.position.y = wp_y
         self.waypoint_pose.pose.position.z = wp_z
-        # Quaternion from yaw (ENU: rotation about Z-up)
         self.waypoint_pose.pose.orientation.x = 0.0
         self.waypoint_pose.pose.orientation.y = 0.0
-        self.waypoint_pose.pose.orientation.z = math.sin(wp_yaw_rad / 2.0)
-        self.waypoint_pose.pose.orientation.w = math.cos(wp_yaw_rad / 2.0)
+        self.waypoint_pose.pose.orientation.z = wp_quat_z
+        self.waypoint_pose.pose.orientation.w = wp_quat_w
 
         self.waypoint_z = wp_z
         self.waypoint_yaw_deg = wp_yaw_deg
+
+        # Waypoint in local frame (computed once common_frame offset is known)
+        self.local_waypoint_pose: PoseStamped | None = None
+        self.local_waypoint_z: float | None = None
 
         # Pre-compute initial_waypoint Odometry message
         self._initial_waypoint_msg = Odometry()
@@ -128,6 +139,7 @@ class OffboardControl(Node):
         self.mavros_state: State | None = None
         self.current_pose: PoseStamped | None = None
         self.current_odom: Odometry | None = None
+        self.common_frame_pose: PoseStamped | None = None
         self.cmd_vel: TwistStamped | None = None
         self.mission_state: int = _MISSION_IDLE
 
@@ -154,6 +166,9 @@ class OffboardControl(Node):
         )
         self.create_subscription(
             Odometry, 'mavros/local_position/odom', self._odom_cb, qos_best_effort
+        )
+        self.create_subscription(
+            PoseStamped, 'common_frame/pose', self._cf_pose_cb, qos_best_effort
         )
         self.create_subscription(
             TwistStamped, 'cmd_vel', self._cmd_vel_cb, qos_best_effort
@@ -199,6 +214,13 @@ class OffboardControl(Node):
 
     def _pose_cb(self, msg: PoseStamped) -> None:
         self.current_pose = msg
+        if self.local_waypoint_pose is None and self.common_frame_pose is not None:
+            self._compute_local_waypoint()
+
+    def _cf_pose_cb(self, msg: PoseStamped) -> None:
+        self.common_frame_pose = msg
+        if self.local_waypoint_pose is None and self.current_pose is not None:
+            self._compute_local_waypoint()
 
     def _odom_cb(self, msg: Odometry) -> None:
         self.current_odom = msg
@@ -210,6 +232,32 @@ class OffboardControl(Node):
         self.mission_state = msg.data
 
     # ── Helpers ─────────────────────────────────────────────────────────
+
+    def _compute_local_waypoint(self) -> None:
+        """Compute waypoint in MAVROS local frame using common→local offset."""
+        cf_p = self.common_frame_pose.pose.position
+        lo_p = self.current_pose.pose.position
+        # offset = local_pos - common_frame_pos (constant once computed)
+        off_x = lo_p.x - cf_p.x
+        off_y = lo_p.y - cf_p.y
+        off_z = lo_p.z - cf_p.z
+
+        wp = self.waypoint_pose  # in common frame
+        self.local_waypoint_pose = PoseStamped()
+        self.local_waypoint_pose.header.frame_id = 'map'
+        self.local_waypoint_pose.pose.position.x = wp.pose.position.x + off_x
+        self.local_waypoint_pose.pose.position.y = wp.pose.position.y + off_y
+        self.local_waypoint_pose.pose.position.z = wp.pose.position.z + off_z
+        self.local_waypoint_pose.pose.orientation = wp.pose.orientation
+        self.local_waypoint_z = self.local_waypoint_pose.pose.position.z
+
+        self.get_logger().info(
+            f'{self.vehicle_name}: Common→local offset: '
+            f'({off_x:.2f}, {off_y:.2f}, {off_z:.2f})m  '
+            f'Local waypoint: ({self.local_waypoint_pose.pose.position.x:.2f}, '
+            f'{self.local_waypoint_pose.pose.position.y:.2f}, '
+            f'{self.local_waypoint_z:.2f})'
+        )
 
     def _publish_velocity(self, vx: float, vy: float, vz: float, yaw_rate: float = 0.0) -> None:
         msg = TwistStamped()
@@ -284,19 +332,19 @@ class OffboardControl(Node):
             self.get_logger().error(f'{self.vehicle_name}: arming service call failed: {e}')
 
     def _distance_to_waypoint(self) -> float:
-        if self.current_pose is None:
+        if self.common_frame_pose is None:
             return float('inf')
-        p = self.current_pose.pose.position
+        p = self.common_frame_pose.pose.position
         w = self.waypoint_pose.pose.position
         return math.sqrt(
             (p.x - w.x) ** 2 + (p.y - w.y) ** 2 + (p.z - w.z) ** 2
         )
 
     def _yaw_error_deg(self) -> float:
-        if self.current_pose is None:
+        if self.common_frame_pose is None:
             return 180.0
         current_yaw_deg = math.degrees(
-            _yaw_from_quat(self.current_pose.pose.orientation)
+            _yaw_from_quat(self.common_frame_pose.pose.orientation)
         )
         return _angle_diff_deg(current_yaw_deg, self.waypoint_yaw_deg)
 
@@ -357,17 +405,27 @@ class OffboardControl(Node):
 
         if self.current_pose is not None:
             alt = self.current_pose.pose.position.z
-            if alt >= self.waypoint_z:
+            target_z = self.local_waypoint_z if self.local_waypoint_z is not None else self.waypoint_z
+            if alt >= target_z:
                 self.get_logger().info(
-                    f'{self.vehicle_name}: Target altitude {self.waypoint_z}m reached '
+                    f'{self.vehicle_name}: Target altitude {target_z}m reached '
                     f'(current {alt:.1f}m), hovering'
                 )
                 self.flight_state = FlightState.HOVER
 
     def _state_hover(self) -> None:
-        # Publish position setpoint
-        self.waypoint_pose.header.stamp = self.get_clock().now().to_msg()
-        self.pos_pub.publish(self.waypoint_pose)
+        if self.local_waypoint_pose is None:
+            # Offset not yet computed — hold position with zero velocity
+            self._publish_zero_velocity()
+            self.get_logger().info(
+                f'{self.vehicle_name}: Waiting for common_frame offset',
+                throttle_duration_sec=5.0,
+            )
+            return
+
+        # Publish local-frame position setpoint to MAVROS
+        self.local_waypoint_pose.header.stamp = self.get_clock().now().to_msg()
+        self.pos_pub.publish(self.local_waypoint_pose)
 
         dist = self._distance_to_waypoint()
         yaw_err = abs(self._yaw_error_deg())

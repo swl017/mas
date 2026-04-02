@@ -27,17 +27,20 @@ All topics below are per-vehicle, resolved within `/{veh}/` namespace unless not
 | `gimbal_imu_rpy_deg` | geometry_msgs/Vector3 | siyi_gimbal_node (IMU 0x0D) | — (secondary, available if needed) | default |
 | `camera/zoom` | std_msgs/Float64 | — | mas_multiview | default |
 | `camera_pose` | geometry_msgs/PoseStamped | — | mas_multiview | default |
-| `triangulated_points` | mas_msgs/TriangulatedPointArray | mas_multiview | mas_tracker | default |
+| `triangulated_points` | mas_msgs/TriangulatedPointArray | mas_multiview | mas_tracker, mas_operator | default |
 | `{cam}/target_rays_w` | mas_msgs/TargetRayArray | mas_multiview | mas_tracker, mas_multiview (peers) | default |
-| `tracked_objects/class_{i}` | vision_msgs/Detection3DArray | mas_tracker | — | default |
-| `chosen_target_pose` | geometry_msgs/PoseWithCovarianceStamped | mas_tracker | mas_policy | default |
+| `tracked_objects/class_{i}` | vision_msgs/Detection3DArray | mas_tracker | mas_operator | default |
+| `chosen_target_pose` | geometry_msgs/PoseWithCovarianceStamped | mas_tracker | mas_policy, mas_operator | default |
 | `chosen_target_ray_w` | geometry_msgs/Vector3Stamped | mas_tracker | mas_policy | default |
 | `target_region` | geometry_msgs/PointStamped | mas_tracker | point_to_region_node | default |
 | `gimbal_command_rpy_deg` | geometry_msgs/Vector3 | point_to_region_node | mas_mission (tracking input) | default |
 | `combined_ang_vel_w` | geometry_msgs/Vector3Stamped | los_rate_controller / siyi_gimbal_node | mas_policy (peers) | BEST_EFFORT |
 | `zoom_level` | std_msgs/Float32 | los_rate_controller / siyi_gimbal_node | mas_policy (ego + peers) | BEST_EFFORT |
-| `/mission_state_cmd` | std_msgs/Int8 | Operator | mas_mission (all agents) | RELIABLE, transient local |
-| `mission_state` | std_msgs/Int8 | mas_mission | offboard_control | RELIABLE, transient local |
+| `/mission_state_cmd` | std_msgs/Int8 | mas_operator | mas_mission (all agents) | RELIABLE, transient local |
+| `mission_state` | std_msgs/Int8 | mas_mission | offboard_control, mas_operator | RELIABLE, transient local |
+| `/operator/markers` | visualization_msgs/MarkerArray | mas_operator | RViz | RELIABLE |
+| `set_auto_pick_mode` | std_msgs/Int8 | mas_operator | mas_tracker | RELIABLE |
+| `set_target_id` | std_msgs/Int8 | mas_operator | mas_tracker | RELIABLE |
 | `cmd_vel` | geometry_msgs/TwistStamped | mas_mission | offboard_control | BEST_EFFORT |
 | `gimbal_cmd_rpy_deg` | geometry_msgs/Vector3 | mas_mission | siyi_gimbal_node | default |
 | `gimbal_cmd_los_rate` | geometry_msgs/Vector3 | mas_mission | los_rate_controller | default |
@@ -123,6 +126,7 @@ All topics below are per-vehicle, resolved within `/{veh}/` namespace unless not
 | `mas_policy` | ament_python | policy_node | MARL policy inference + CBF safety |
 | `mas_mission` | ament_python | mission_node | Mission state machine + command routing |
 | `mas_offboard` | ament_python | offboard_control | Per-vehicle PX4 offboard controller |
+| `mas_operator` | ament_python | operator_node | Operator monitoring, alerts, mission commands (ground station) |
 
 ## Launch System
 

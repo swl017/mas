@@ -1,0 +1,11 @@
+vehicles:
+  - px4_1
+  - px4_2
+
+aoi_warn_ms: 500.0
+aoi_critical_ms: 2000.0
+cov_warn_threshold: 5.0
+safety_distance_m: 9.5
+tri_timeout_s: 3.0
+status_rate_hz: 2.0
+num_object_classes: 1

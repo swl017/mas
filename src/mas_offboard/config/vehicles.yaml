@@ -2,7 +2,7 @@ vehicles:
   - namespace: "px4_1"
     target_system: 2
     position:
-      x: -10.0
+      x: -6.0
       y: 0.0
       z: 3.0
       yaw_deg: -90.0
@@ -10,7 +10,7 @@ vehicles:
     target_system: 3
     position:
       x: 0.0
-      y: -10.0
+      y: -6.0
       z: 3.0
       yaw_deg: 0.0
   - namespace: "px4_3"
@@ -23,16 +23,16 @@ vehicles:
   - namespace: "px4_4"
     target_system: 5
     position:
-      x: 0.0
-      y: 0.0
-      z: 11.0
+      x: 1.0
+      y: 1.0
+      z: 3.0
       yaw_deg: 0.0
   - namespace: "px4_5"
     target_system: 6
     position:
       x: 2.0
       y: 1.0
-      z: 1.0
+      z: 4.0
       yaw_deg: 0.0
   - namespace: "px4_6"
     target_system: 7
