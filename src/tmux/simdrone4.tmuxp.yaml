@@ -15,7 +15,8 @@ windows:
   shell_command_before:
     - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
-    - ros2 run mavros mavros_node --ros-args -p fcu_url:=udp://:14543@localhost:14553 -p tgt_system:=4 -p local_position.tf.frame_id:=${ROBOT_NAME}/map -p local_position.tf.child_frame_id:=${ROBOT_NAME}/base_link -p global_position.frame_id:=${ROBOT_NAME}/map -p global_position.child_frame_id:=${ROBOT_NAME}/base_link -r __ns:=/${ROBOT_NAME}/mavros
+    - ros2 run mavros mavros_node --ros-args -p fcu_url:=udp://:14544@localhost:14554 -p tgt_system:=4 -p local_position.tf.frame_id:=${ROBOT_NAME}/map -p local_position.tf.child_frame_id:=${ROBOT_NAME}/base_link -p global_position.frame_id:=${ROBOT_NAME}/map -p global_position.child_frame_id:=${ROBOT_NAME}/base_link -r __ns:=/${ROBOT_NAME}/mavros
+    - 'sleep 5 && ros2 service call /${ROBOT_NAME}/mavros/set_message_interval mavros_msgs/srv/MessageInterval "{message_id: 31, message_rate: 250.0}" && ros2 service call /${ROBOT_NAME}/mavros/set_message_interval mavros_msgs/srv/MessageInterval "{message_id: 32, message_rate: 100.0}" && ros2 service call /${ROBOT_NAME}/mavros/set_message_interval mavros_msgs/srv/MessageInterval "{message_id: 33, message_rate: 50.0}" && ros2 service call /${ROBOT_NAME}/mavros/set_message_interval mavros_msgs/srv/MessageInterval "{message_id: 105, message_rate: 250.0}" && ros2 service call /${ROBOT_NAME}/mavros/set_message_interval mavros_msgs/srv/MessageInterval "{message_id: 27, message_rate: 250.0}"'
 
 - window_name: frame
   focus: false

@@ -32,6 +32,8 @@ from mavros_msgs.srv import CommandBool, SetMode
 _MISSION_IDLE = 0
 _MISSION_TRACKING = 1
 _MISSION_MISSION = 2
+_MISSION_HOVER_CMD = 3
+_MISSION_WAYPOINT = 4
 
 
 class FlightState(Enum):
@@ -143,6 +145,9 @@ class OffboardControl(Node):
         self.cmd_vel: TwistStamped | None = None
         self.mission_state: int = _MISSION_IDLE
 
+        # Position hold target for HOVER_CMD (captured current position in local frame)
+        self.hover_hold_pose: PoseStamped | None = None
+
         # -- QoS --
         qos_reliable = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
@@ -229,7 +234,46 @@ class OffboardControl(Node):
         self.cmd_vel = msg
 
     def _mission_state_cb(self, msg: Int8) -> None:
+        prev = self.mission_state
         self.mission_state = msg.data
+
+        # Only react when already airborne (HOVER or POLICY)
+        if self.flight_state not in (FlightState.HOVER, FlightState.POLICY):
+            return
+
+        if msg.data == _MISSION_HOVER_CMD and prev != _MISSION_HOVER_CMD:
+            # Capture current position as hold target
+            if self.current_pose is not None:
+                self.hover_hold_pose = PoseStamped()
+                self.hover_hold_pose.header.frame_id = 'map'
+                p = self.current_pose.pose.position
+                self.hover_hold_pose.pose.position.x = p.x
+                self.hover_hold_pose.pose.position.y = p.y
+                self.hover_hold_pose.pose.position.z = p.z
+                self.hover_hold_pose.pose.orientation = (
+                    self.current_pose.pose.orientation
+                )
+            self.flight_state = FlightState.HOVER
+            self.get_logger().info(
+                f'{self.vehicle_name}: HOVER_CMD — holding current position'
+            )
+
+        elif msg.data == _MISSION_WAYPOINT and prev != _MISSION_WAYPOINT:
+            # Return to configured waypoint
+            self.hover_hold_pose = None  # use configured waypoint
+            self.flight_state = FlightState.HOVER
+            self.get_logger().info(
+                f'{self.vehicle_name}: WAYPOINT — returning to configured waypoint'
+            )
+
+        elif msg.data == _MISSION_MISSION and prev in (_MISSION_HOVER_CMD, _MISSION_WAYPOINT):
+            # Resume mission — clear hold pose so HOVER uses configured waypoint
+            # and can auto-transition to POLICY when waypoint reached
+            self.hover_hold_pose = None
+            self.get_logger().info(
+                f'{self.vehicle_name}: Resuming MISSION from '
+                f'{"HOVER_CMD" if prev == _MISSION_HOVER_CMD else "WAYPOINT"}'
+            )
 
     # ── Helpers ─────────────────────────────────────────────────────────
 
@@ -414,6 +458,14 @@ class OffboardControl(Node):
                 self.flight_state = FlightState.HOVER
 
     def _state_hover(self) -> None:
+        # HOVER_CMD: hold at captured position (hover_hold_pose)
+        # WAYPOINT / normal: hold at configured waypoint (local_waypoint_pose)
+        if self.hover_hold_pose is not None:
+            self.hover_hold_pose.header.stamp = self.get_clock().now().to_msg()
+            self.pos_pub.publish(self.hover_hold_pose)
+            # HOVER_CMD never auto-transitions to POLICY — operator must resume
+            return
+
         if self.local_waypoint_pose is None:
             # Offset not yet computed — hold position with zero velocity
             self._publish_zero_velocity()

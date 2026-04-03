@@ -71,13 +71,18 @@ body → yaw_link (yaw_joint, Z axis)
 
 ### 3.2 Joint Axes (from iris_gimbal3.usda)
 
-| Joint | USD Name | Rotation Axis | Physical Effect |
-|-------|----------|---------------|-----------------|
-| Yaw | `yaw_joint` | Z | Pan left(+) / right(-) |
-| Roll | `roll_joint` | X | Tilt CW(+) / CCW(-) viewed from front |
-| Pitch | `pitch_joint` | Y | Tilt up(+) / down(-) |
+**Verified experimentally** (joint_sign_test, 2026-04-04): each joint commanded to ±20° with controller stopped.
 
-**CRITICAL — pitch_joint sign**: Positive `pitch_joint` value tilts the camera **UP**, not down. This is the opposite of the iris_ma6 training convention where "positive pitch = look down". The los_rate_controller handles this inversion internally.
+| Joint | USD Name | USD Rotation Axis | Positive = | Jacobian convention |
+|-------|----------|-------------------|------------|---------------------|
+| Yaw | `yaw_joint` | **+Z** (body) | Pan LEFT (CCW from above) | Same → no negation |
+| Roll | `roll_joint` | **-X** (body) | Tilt CCW (viewed from front) | +X → CW → **negate** |
+| Pitch | `pitch_joint` | **-Y** (body) | Tilt UP | +Y → down → **negate** |
+
+`los_rate_controller` negates roll and pitch at the read/write boundary to convert between USD and Jacobian conventions.
+
+**LOS Convention**
+The gimbal orientation is more intuitive and more coherent to represent in world-frame azimuth and elevation (positive elevation = up, opposite of pitch sign — this is the most confusing part of the convention). Nodes communicate in world-frame LOS angles or rates.
 
 ### 3.3 Joint Limits
 
@@ -199,7 +204,7 @@ yaw_body = atan2(dir_body[1], dir_body[0])
 pitch_body = -atan2(dir_body[2], sqrt(dir_body[0]² + dir_body[1]²))
 ```
 
-Note the **negative sign** on pitch: positive world elevation (above horizon) produces negative `pitch_body` (since positive `pitch_joint` tilts up).
+Note the **negative sign** on pitch: positive world elevation (above horizon) produces negative `pitch_body`, because positive `pitch_joint` tilts down and positive elevation is up (opposite signs).
 
 ### 7.2 Body → World (FK)
 
@@ -232,7 +237,7 @@ roll = atan2(-up_y_yawed, up_z_yawed)
 | Camera offset | `(0.5, -0.5, 0.5, -0.5)` wxyz, ROS convention | Identity `[0, 0, 0]` |
 | YAW_JOINT_OFFSET | `-π/2` | `+π/2` |
 | Gimbal control | Direct joint write at sim rate | Joint position commands via OmniGraph ArticulationController |
-| Pitch convention | Positive = look down (in controller) | Positive `pitch_joint` = tilt up; negated in position mode |
+| Pitch convention | Positive = look down | Same: positive `pitch_joint` = tilt down |
 | IMU source | Isaac Sim articulation data | MAVROS `imu/data` (ENU, xyzw) |
 | Control rate | 100 Hz (sim-time) | 100 Hz (sim-time via `use_sim_time: true`) |
 | State source | `robot.data.joint_pos` (direct) | `isaac_joint_states` (OmniGraph ROS2 bridge) |

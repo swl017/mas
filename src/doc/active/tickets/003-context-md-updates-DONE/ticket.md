@@ -19,4 +19,8 @@ Each CONTEXT.md accurately lists current subscribers, publishers, parameters, an
 Direct fix
 
 ### Status
-Pending since 2026-03-27 — blocked on #001 (tracker CONTEXT.md needs final interface)
+Done (2026-04-02) — all four CONTEXT.md files updated:
+- mas_multiview: added TriangulatedPointArray type, precomputed ray mode, target_rays_w publisher, use_precomputed_rays param, mas_msgs dep
+- mas_tracker: added set_target_id subscription
+- gimbal_controller: added combined_ang_vel_w and zoom_level publishers
+- ultralytics_ros: added yolo_result_active publisher, fixed downstream reference

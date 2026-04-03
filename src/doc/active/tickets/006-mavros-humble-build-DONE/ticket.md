@@ -19,4 +19,4 @@ Only build MAVROS and its deps. Do not change node code or topic wiring. Do not 
 Light
 
 ### Status
-Deferred
+Done (MAVROS runs under humble in per-drone simdrone tmux sessions)

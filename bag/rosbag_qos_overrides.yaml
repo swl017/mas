@@ -3,70 +3,126 @@
 #
 # Usage (record all topics except images):
 #   ros2 bag record -a -o bag_name \
-#     --qos-profile-overrides-path tmux/rosbag_qos_overrides.yaml \
+#     --qos-profile-overrides-path bag/rosbag_qos_overrides.yaml \
 #     --exclude '/px4_.*/image_raw|/px4_.*/camera/color/image_raw'
 
 # --- Per-vehicle topics (px4_1) ---
 
 /px4_1/common_frame/odom:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 /px4_1/common_frame/pose:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 /px4_1/gimbal_state_rpy_deg:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 /px4_1/yolo_result_vision:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 /px4_1/yolo_result_active:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 /px4_1/combined_ang_vel_w:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 /px4_1/zoom_level:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 /px4_1/cmd_vel:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 /px4_1/policy/cmd_vel:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 /px4_1/mavros/imu/data:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 
 # --- Per-vehicle topics (px4_2) ---
 
 /px4_2/common_frame/odom:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 /px4_2/common_frame/pose:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 /px4_2/gimbal_state_rpy_deg:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 /px4_2/yolo_result_vision:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 /px4_2/yolo_result_active:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 /px4_2/combined_ang_vel_w:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 /px4_2/zoom_level:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 /px4_2/cmd_vel:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 /px4_2/policy/cmd_vel:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 /px4_2/mavros/imu/data:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 
 # --- Per-vehicle topics (px4_3, target drone) ---
 
 /px4_3/common_frame/odom:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 /px4_3/common_frame/pose:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 /px4_3/gimbal_state_rpy_deg:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 /px4_3/yolo_result_vision:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 /px4_3/yolo_result_active:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 /px4_3/combined_ang_vel_w:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 /px4_3/zoom_level:
   reliability: best_effort
+  history: keep_last
+  depth: 1
 /px4_3/mavros/imu/data:
   reliability: best_effort
+  history: keep_last
+  depth: 1

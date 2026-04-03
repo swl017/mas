@@ -23,6 +23,7 @@ from geometry_msgs.msg import PointStamped, PoseWithCovarianceStamped, Vector3
 from mavros_msgs.msg import State as MavrosState
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Float32, Int8
+from std_srvs.srv import Trigger
 from vision_msgs.msg import Detection3DArray
 from visualization_msgs.msg import MarkerArray
 
@@ -37,7 +38,15 @@ from mas_operator.metrics import Metrics, compute_metrics
 IDLE = 0
 TRACKING = 1
 MISSION = 2
-_STATE_NAMES = {IDLE: 'IDLE', TRACKING: 'TRACKING', MISSION: 'MISSION'}
+HOVER_CMD = 3
+WAYPOINT = 4
+_STATE_NAMES = {
+    IDLE: 'IDLE',
+    TRACKING: 'TRACKING',
+    MISSION: 'MISSION',
+    HOVER_CMD: 'HOVER_CMD',
+    WAYPOINT: 'WAYPOINT',
+}
 
 
 class OperatorNode(Node):
@@ -107,6 +116,12 @@ class OperatorNode(Node):
             )
             self.set_target_pos_pubs[veh] = self.create_publisher(
                 PointStamped, f'/{veh}/set_target_position', self._qos_reliable,
+            )
+
+        self.reset_hidden_clients: dict[str, rclpy.client.Client] = {}
+        for veh in self.vehicle_names:
+            self.reset_hidden_clients[veh] = self.create_client(
+                Trigger, f'/{veh}/policy_node/reset_hidden_state',
             )
 
         self.marker_pub = self.create_publisher(
@@ -384,6 +399,18 @@ class OperatorNode(Node):
             f'Published set_target_position: track {track_id} at '
             f'({pos.x:.1f}, {pos.y:.1f}, {pos.z:.1f}) to all vehicles'
         )
+
+
+    def call_reset_hidden(self) -> None:
+        """Call reset_hidden_state service on all vehicles (async, non-blocking)."""
+        for veh, client in self.reset_hidden_clients.items():
+            if client.service_is_ready():
+                client.call_async(Trigger.Request())
+            else:
+                self.get_logger().warn(
+                    f'reset_hidden_state service not ready for {veh}'
+                )
+        self.get_logger().info('Reset GRU hidden state on all vehicles')
 
 
 def main(args=None) -> None:

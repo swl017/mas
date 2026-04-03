@@ -83,12 +83,37 @@
       "last_updated": "2026-04-01"
     },
     {
+      "id": "triangulation-aoi-covariance",
+      "name": "AoI-aware triangulation covariance (ticket 017)",
+      "status": "in_progress",
+      "spec": "doc/active/tickets/017-triangulation-default-zero-bug/ticket.md",
+      "notes": "Zero-output bug fix + AoI-aware Σ_drift inflation (Bar-Shalom OOSM). Sim-side compute_sigma_drift() implemented, 100k MC validation passed (constant_velocity model, NEES≈1.2-2.8). C++ node fixes and rosbag validation pending. (2026-04-02)",
+      "last_updated": "2026-04-02"
+    },
+    {
+      "id": "policy-value-monitoring",
+      "name": "Policy value function V(s) monitoring (ticket #015)",
+      "status": "done",
+      "spec": "doc/active/tickets/015-policy-value-monitoring/ticket.md",
+      "notes": "ValueNetRNN loads from SKRL checkpoint, publishes policy/value at 25 Hz. Operator displays V(s) in fleet table. Camera resolution auto-adapt from camera_info. IMU QoS fix. use_sim_time support. GRU reset button. (2026-04-03)",
+      "last_updated": "2026-04-03"
+    },
+    {
       "id": "mas-operator",
       "name": "Operator monitoring and command interface",
       "status": "done",
       "spec": "mas_operator/doc/system_spec.md",
       "notes": "MVP complete: fleet state aggregation, 7 derived metrics, 6 alert conditions, curses terminal UI with target selection, RViz markers (agents, targets with chosen highlight, AoI lines). Manual target selection via set_target_id topic added to mas_tracker. Verified against live sim. (2026-04-02)",
       "last_updated": "2026-04-02"
+    },
+    {
+      "id": "los-control-stabilization",
+      "name": "LOS rate controller stabilization (ticket #022)",
+      "status": "in_progress",
+      "spec": "doc/active/tickets/022-los-control-and-stabilization/ticket.md",
+      "notes": "Resolved. Joint sign inversion (USD -X/-Y axes) fixed with negation at boundary. Jacobian replaced with analytical IK for stability at all gimbal yaw angles. Frustum sign convention fixed. Camera image rock-solid, frustum matches. (2026-04-04)",
+      "last_updated": "2026-04-04",
+      "status": "done"
     }
   ]
 }

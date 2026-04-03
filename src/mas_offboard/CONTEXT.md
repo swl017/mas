@@ -12,6 +12,14 @@ INIT ──(mavros topics received)──→ RAMP_UP ──(11 ticks)──→ A
   ──(dist < 2m, yaw < 10°, mission_state == MISSION)──→ POLICY
 ```
 
+### Mission State Reactions (HOVER/POLICY only)
+
+When airborne (HOVER or POLICY flight state), the node reacts to mission state changes:
+
+- **HOVER_CMD (3):** Captures current local-frame position, switches to HOVER holding that position. Does not auto-transition to POLICY — operator must explicitly resume.
+- **WAYPOINT (4):** Switches to HOVER at the configured waypoint (from `vehicles.yaml` parameters). Auto-transitions to POLICY when waypoint is reached and mission_state returns to MISSION.
+- **MISSION (2) from HOVER_CMD/WAYPOINT:** Clears hover hold pose, resumes normal HOVER→POLICY transition logic.
+
 ### Subscriptions
 
 | Topic | Type | QoS | Notes |
@@ -21,7 +29,7 @@ INIT ──(mavros topics received)──→ RAMP_UP ──(11 ticks)──→ A
 | `mavros/local_position/odom` | `nav_msgs/Odometry` | BEST_EFFORT | Full odometry in local frame (ENU-FLU) |
 | `common_frame/pose` | `geometry_msgs/PoseStamped` | BEST_EFFORT | Position + attitude in common frame (from mas_common_frame) |
 | `cmd_vel` | `geometry_msgs/TwistStamped` | BEST_EFFORT | Gated velocity command from mas_mission (ENU) |
-| `mission_state` | `std_msgs/Int8` | RELIABLE, transient local | Mission state from mas_mission (gates HOVER→POLICY) |
+| `mission_state` | `std_msgs/Int8` | RELIABLE, transient local | Mission state from mas_mission (gates HOVER→POLICY, triggers HOVER_CMD/WAYPOINT hold) |
 
 ### Publishers
 

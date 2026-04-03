@@ -20,4 +20,4 @@ Each drone's sort3d instance launches with correct `self_camera_index` and `num_
 Direct fix
 
 ### Status
-Not started
+Done (completed via tickets #001 and tracker-ray-selection work, 2026-04-02)

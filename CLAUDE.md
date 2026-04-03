@@ -60,6 +60,9 @@ mas/
 
 ## Build
 ```bash
+# ROS2 humble
+/home/usrg/ros2_humble
+
 # Build all
 cd ~/mas && colcon build
 

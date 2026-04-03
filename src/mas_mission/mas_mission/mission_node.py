@@ -22,8 +22,16 @@ from std_msgs.msg import Float32, Int8
 IDLE = 0
 TRACKING = 1
 MISSION = 2
+HOVER_CMD = 3
+WAYPOINT = 4
 
-_STATE_NAMES = {IDLE: 'IDLE', TRACKING: 'TRACKING', MISSION: 'MISSION'}
+_STATE_NAMES = {
+    IDLE: 'IDLE',
+    TRACKING: 'TRACKING',
+    MISSION: 'MISSION',
+    HOVER_CMD: 'HOVER_CMD',
+    WAYPOINT: 'WAYPOINT',
+}
 
 
 class MissionNode(Node):
@@ -79,8 +87,12 @@ class MissionNode(Node):
 
         # -- Upstream: tracking commands (TRACKING state) --
         self.create_subscription(
-            Vector3, 'tracking/gimbal_cmd_rpy_deg', self._tracking_gimbal_cb,
+            Vector3, 'tracking/gimbal_cmd_los_world_deg', self._tracking_gimbal_pos_cb,
             qos_default,
+        )
+        self.create_subscription(
+            Vector3, 'tracking/gimbal_cmd_los_rate', self._tracking_gimbal_rate_cb,
+            qos_best_effort,
         )
         self.create_subscription(
             Float32, 'tracking/zoom_cmd', self._tracking_zoom_cb,
@@ -94,8 +106,8 @@ class MissionNode(Node):
         self.cmd_vel_pub = self.create_publisher(
             TwistStamped, 'cmd_vel', qos_best_effort,
         )
-        self.gimbal_cmd_rpy_deg_pub = self.create_publisher(
-            Vector3, 'gimbal_cmd_rpy_deg', qos_default,
+        self.gimbal_cmd_los_world_deg_pub = self.create_publisher(
+            Vector3, 'gimbal_cmd_los_world_deg', qos_default,
         )
         self.gimbal_cmd_los_rate_pub = self.create_publisher(
             Vector3, 'gimbal_cmd_los_rate', qos_default,
@@ -148,9 +160,13 @@ class MissionNode(Node):
 
     # ── Tracking command callbacks (active in TRACKING) ─────────────────
 
-    def _tracking_gimbal_cb(self, msg: Vector3) -> None:
+    def _tracking_gimbal_pos_cb(self, msg: Vector3) -> None:
         if self.state == TRACKING:
-            self.gimbal_cmd_rpy_deg_pub.publish(msg)
+            self.gimbal_cmd_los_world_deg_pub.publish(msg)
+
+    def _tracking_gimbal_rate_cb(self, msg: Vector3) -> None:
+        if self.state == TRACKING:
+            self.gimbal_cmd_los_rate_pub.publish(msg)
 
     def _tracking_zoom_cb(self, msg: Float32) -> None:
         if self.state == TRACKING:

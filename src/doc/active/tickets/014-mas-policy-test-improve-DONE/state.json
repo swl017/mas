@@ -1,0 +1,12 @@
+{
+  "ticket_slug": "014-mas-policy-test-improve",
+  "current_stage": "Y",
+  "last_approved_stage": "P",
+  "slices_completed": ["slice_1", "slice_2", "slice_3"],
+  "slices_total": 3,
+  "next_action": "All slices complete. Engineer reviews, then → PR",
+  "slices_completed": [],
+  "slices_total": null,
+  "created": "2026-04-02",
+  "updated": "2026-04-02"
+}

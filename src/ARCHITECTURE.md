@@ -54,7 +54,7 @@ All topics below are per-vehicle, resolved within `/{veh}/` namespace unless not
 | `mavros/local_position/odom` | nav_msgs/Odometry | MAVROS | offboard_control | RELIABLE |
 | `mavros/setpoint_velocity/cmd_vel` | geometry_msgs/TwistStamped | offboard_control | MAVROS | default |
 | `mavros/setpoint_position/local` | geometry_msgs/PoseStamped | offboard_control | MAVROS | default |
-| `mavros/imu/data` | sensor_msgs/Imu | MAVROS | mas_policy | default |
+| `mavros/imu/data` | sensor_msgs/Imu | MAVROS | mas_policy | BEST_EFFORT |
 
 ### Services
 
@@ -210,6 +210,22 @@ Launch files that read `vehicles.yaml` (`mission_deploy`, `offboard`, `policy_de
 ```bash
 tmux kill-session -t drone1; tmux kill-session -t drone2; tmux kill-session -t drone3; tmux kill-session -t isaac_sim
 ```
+
+## Timing Convention
+
+All algorithm rates, timer periods, and gain parameters are specified in **nominal rate** — the rate relative to physics/sim time. This is the rate that would be observed in the real world.
+
+| Term | Definition | Example |
+|------|-----------|---------|
+| **Nominal rate** | Rate relative to physics time. Identical in sim and real world. | `gimbal_los_tracker_node` at 100 Hz nominal |
+| **Wall-clock rate** | Observed rate (`ros2 topic hz`). Equals nominal × RTF. | At RTF=0.1, a 100 Hz nominal topic shows 10 Hz |
+| **RTF** | Real-time factor (sim_time / wall_time). RTF=1.0 is real-time. | RTF=0.1 means sim runs 10× slower than real-time |
+
+**Rules:**
+- MAS nodes use `use_sim_time:=true` in simulation so ROS timers fire at the correct nominal rate. The same parameters work in sim and real world without re-tuning.
+- Isaac Sim sensor rates (physics_dt, rendering_dt) and PX4 MAVLink streaming rates (`set_message_interval`) are also specified in nominal (sim-time) Hz.
+- When discussing rates, always clarify nominal vs wall-clock. Default to nominal unless stated otherwise.
+- RTF affects wall-clock latency (stale data) but not algorithm correctness — the dt and gain math stays consistent at any RTF.
 
 ## File Conventions
 

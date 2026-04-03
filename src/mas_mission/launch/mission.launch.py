@@ -29,8 +29,8 @@ def generate_launch_description():
             {'heartbeat_rate_hz': LaunchConfiguration('heartbeat_rate_hz')},
         ],
         remappings=[
-            # Tracking source: point_to_region publishes to gimbal_command_rpy_deg
-            ('tracking/gimbal_cmd_rpy_deg', 'tracking/gimbal_command_rpy_deg'),
+            # Tracking source: point_to_region publishes to gimbal_command_los_world_deg
+            ('tracking/gimbal_cmd_los_world_deg', 'tracking/gimbal_command_los_world_deg'),
         ],
     )
 

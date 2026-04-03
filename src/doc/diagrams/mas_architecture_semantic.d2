@@ -109,6 +109,9 @@ agent_n: "Agent N (MAS instance N)" {
   ultralytics_ros -> mas_policy: "detections\n(ego bbox)"
   mas_multiview -> mas_tracker: "triangulated points\n(pos, cov, detection_ids)\ntarget_rays_w"
   mas_tracker -> mas_policy: "chosen_target_pose\n(pos, cov)\nchosen_target_ray_w"
+  mas_tracker -> mas_multiview: "tracked_target_velocities\n(for AoI Σ_drift target term)" {
+    style.stroke-dash: 3
+  }
   mas_common_frame -> mas_policy: "<mission frame>\npose, cov(pos, ori)\nvel(lin/ang)"
   mavros -> mas_common_frame: "<local frame>\npose, cov(pos, ori)\nvel(lin/ang)"
   mavros -> mas_policy: "lin acc"

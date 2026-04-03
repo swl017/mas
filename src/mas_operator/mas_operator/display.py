@@ -16,7 +16,15 @@ if TYPE_CHECKING:
 IDLE = 0
 TRACKING = 1
 MISSION = 2
-_STATE_NAMES = {IDLE: 'IDLE', TRACKING: 'TRACKING', MISSION: 'MISSION'}
+HOVER_CMD = 3
+WAYPOINT = 4
+_STATE_NAMES = {
+    IDLE: 'IDLE',
+    TRACKING: 'TRACKING',
+    MISSION: 'MISSION',
+    HOVER_CMD: 'HOVER_CMD',
+    WAYPOINT: 'WAYPOINT',
+}
 
 # Refresh rate for the display loop
 _DISPLAY_HZ = 4
@@ -161,6 +169,8 @@ def _draw_fleet_table(
             attr = curses.color_pair(1)
         elif vs.mission_state == TRACKING:
             attr = curses.color_pair(2)
+        elif vs.mission_state in (HOVER_CMD, WAYPOINT):
+            attr = curses.color_pair(3)
         else:
             attr = curses.color_pair(5)
 
@@ -338,7 +348,7 @@ def _draw_commands(
         prompt = f'Select target ID: {_target_input_buf}_ (Enter=confirm, Esc=cancel)'
         _safe_addstr(stdscr, row, 0, prompt, curses.color_pair(2) | curses.A_BOLD, max_x)
     else:
-        legend = '[1]IDLE  [2]TRACK  [3]MISSION  [a]AutoPick ON  [d]AutoPick OFF  [t]Select Target  [q]Quit'
+        legend = '[1]IDLE [2]TRACK [3]MISSION [h]HOVER [w]WAYPOINT [a]AutoPick ON [d]AutoPick OFF [t]Target [r]Reset GRU [q]Quit'
         _safe_addstr(stdscr, row, 0, legend, curses.color_pair(4), max_x)
     return row + 1
 
@@ -373,11 +383,18 @@ def _handle_key(
     elif key == ord('2'):
         node.publish_mission_cmd(TRACKING)
     elif key == ord('3'):
+        node.call_reset_hidden()
         node.publish_mission_cmd(MISSION)
+    elif key == ord('h'):
+        node.publish_mission_cmd(HOVER_CMD)
+    elif key == ord('w'):
+        node.publish_mission_cmd(WAYPOINT)
     elif key == ord('a'):
         node.publish_auto_pick(True)
     elif key == ord('d'):
         node.publish_auto_pick(False)
+    elif key == ord('r'):
+        node.call_reset_hidden()
     elif key == ord('t'):
         _target_input_mode = True
         _target_input_buf = ''

@@ -19,4 +19,4 @@ Exported diagram shows `target_rays_w` on cross-agent edges and `chosen_target_r
 Direct fix
 
 ### Status
-Not started — depends on #001 (confirms final topic name)
+Done (diagram already updated during tracker-ray-selection work, 2026-04-02)

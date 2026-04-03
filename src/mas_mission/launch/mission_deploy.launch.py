@@ -50,6 +50,9 @@ def launch_setup(context):
                 'initial_state': int(initial_state),
                 'heartbeat_rate_hz': 1.0,
             }],
+            remappings=[
+                ('tracking/gimbal_cmd_los_world_deg', 'tracking/gimbal_command_los_world_deg'),
+            ],
         )
         nodes.append(node)
 

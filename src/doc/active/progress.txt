@@ -232,3 +232,84 @@ Next:
 - Add operator tmux window to simdrone sessions or standalone tmuxp
 - Commit all session changes
 - Update CONTEXT.md for mas_multiview, gimbal_controller (still pending)
+
+----------------------------------------
+2026-04-02 — Ticket 017: Triangulation zero-output bug + AoI covariance
+----------------------------------------
+Done:
+- Created ticket 017 (src/doc/active/tickets/017-triangulation-default-zero-bug/ticket.md)
+  - Root cause analysis: zero initial guess, unchecked solver summary, unconditional publish
+  - Empty detection array handling analysis
+  - AoI-aware covariance design based on Bar-Shalom OOSM theory (R_eff = R + H·Σ_drift·Hᵀ)
+  - Literature survey: Bar-Shalom 2002, MSCKF, Sinopoli, Sun/Yates AoI, LOST triangulation
+- Implemented compute_sigma_drift() in triangulation.py (3 process models: random_walk, constant_velocity, OU)
+- Made compute_triangulation_covariance() accept per-camera pos_std/ori_std overrides [N, C]
+- Added AoI config params to triangulation_cfg.py (aoi_process_model, max_detection_age, aoi_ou_theta)
+- Extended monte_carlo_validation.py with --mode aoi_validation (Exp 1: 6 conditions x 6 age bins, Exp 2: model sweep)
+- Ran 100k-sample MC validation: constant_velocity model is clear winner (NEES 2.75→1.19 across 50-500ms ages)
+- Set default aoi_process_model = "constant_velocity" based on results
+- Synced all changes to IsaacLab source tree
+
+Next:
+- Implement C++ fixes A/B/C (zero-output guards in multiview_triangulation.cpp + triangulation_node.cpp)
+- Implement C++ fix D (AoI-aware covariance in covariance_propagation.cpp + triangulation_node.cpp)
+- Run Exp 3: sim rosbag validation (bag/isaac_sim_bag_20260402_214151)
+- Commit ticket 017 + triangulation AoI changes
+
+----------------------------------------
+2026-04-03 — Ticket #015: Policy value function monitoring
+----------------------------------------
+Done:
+- ValueNetRNN class in policy_loader.py (same arch as PolicyNetRNN, value_layer→scalar)
+- load_checkpoint() now returns (policy, scaler, value_net, shared_scaler) — extracts value dict + shared_state_preprocessor from SKRL checkpoint
+- policy_node.py: runs V(shared_obs_norm) after policy forward pass, publishes policy/value (Float32) at 25 Hz. Shared state approximated by tiling ego obs.
+- mas_operator: subscribes to /{veh}/policy/value, displays V(s) column in fleet table
+- Operator [r] key resets GRU hidden states on all vehicles via reset_hidden_state service; auto-resets on [3] MISSION
+- Tests: test_value_network_loads, test_value_network_finite_over_50_ticks, integration test verifies value hidden state
+- Camera resolution auto-adapt: observation_assembler subscribes to camera/color/camera_info, updates bbox normalization dims (was hardcoded 640x480, sim camera is 1920x1200)
+- IMU QoS fix: mavros/imu/data subscription changed RELIABLE→BEST_EFFORT to match MAVROS publisher
+- Sim time support: policy_deploy.launch.py gains use_sim_time arg, simdrone1/2 tmuxp pass use_sim_time:=true
+- Rosbag QoS overrides: bag/rosbag_qos_overrides.yaml + src/tmux/rosbag_qos_overrides.yaml (history+depth required by Humble)
+- Updated ARCHITECTURE.md (policy/value topic), mas_policy/CONTEXT.md (value publisher, camera_info sub)
+- Ticket #015 closed
+
+Next:
+- Verify V(s) range during live sim e2e
+- Commit all session changes
+- Update CONTEXT.md for mas_multiview, gimbal_controller (still pending from prior sessions)
+
+----------------------------------------
+2026-04-03 — Ticket #022: LOS control and stabilization
+----------------------------------------
+Done:
+- Created ticket #022 with frame convention audit, data flow trace, candidate root causes
+- Verified Jacobian pipeline math correct across 6 operating points (roll/pitch/yaw, various gimbal angles)
+- Confirmed launch wiring: los_rate_controller with iris_gimbal3 model, correct joint names
+- Diagnosed root cause of oscillation: PX4 SITL IMU at ~20 Hz sim-time (not 250 Hz), K*dt up to 2.5x designed
+- Fixed: split dt into actual dt (LOS rate integration) and dt_servo (clamped to 1/update_rate for K*dt ≤ 0.325)
+- LOS tracking verified stable: az/el converge to target, yaw compensation works well
+- Fixed frame_conventions.md: pitch_joint positive = tilt down (was incorrectly stated as up), added LOS convention note
+- Roll/pitch compensation under dynamic body tilt still appears insufficient — open investigation
+
+Next:
+- Remove DIAG logging after investigation complete
+- Update CONTEXT.md for gimbal_controller (still pending)
+
+----------------------------------------
+2026-04-04 — Ticket #022 continued: Joint sign fix + analytical IK
+----------------------------------------
+Done:
+- Created joint_sign_test.py: systematic test commanding each joint ±20° to determine USD axis conventions
+- Discovered iris_gimbal3 USD roll/pitch axes are -X/-Y (inverted from code's +X/+Y assumption)
+- Applied roll/pitch negation at read/write boundary in los_rate_controller
+- Jacobian controller diverged at large gimbal yaw due to cross-coupling at ~20 Hz — replaced with analytical IK
+- Rate mode now uses same _world_to_body_angles + _compute_stabilizing_roll as position mode
+- Fixed gimbal_state_rpy_deg sign convention for RVIZ frustum: roll=internal, pitch=negated, yaw=internal
+- Verified: camera image rock-solid at any drone yaw, frustum matches camera during body tilt
+- Updated frame_conventions.md with verified joint axis conventions
+
+Next:
+- Policy flight test (MISSION state with aggressive maneuvers)
+- Remove DIAG logging
+- Check observation_assembler: does it need sign adjustment for gimbal_state_rpy_deg pitch negation?
+- Update CONTEXT.md for gimbal_controller
