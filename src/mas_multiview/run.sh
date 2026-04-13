@@ -1,0 +1,1 @@
+ros2 run mas_multiview triangulation_node --ros-args -p frame_id:=common_frame -p num_camera:=3 -p camera_name_prefix:=px4_ -p detection_topic_suffix:=yolo_result_vision -p camera_info_topic_suffix:=camera/color/camera_info -p camera_odom_topic_suffix:=common_frame/odom -p gimbal_topic_suffix:=gimbal_state_rpy_deg --log-level DEBUG

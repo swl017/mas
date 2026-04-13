@@ -1,0 +1,31 @@
+# COCO 2017 dataset http://cocodataset.org
+
+# download command/URL (optional)
+# download: bash ./scripts/get_coco.sh
+
+# train and val data as 1) directory: path/images/, 2) file: path/images.txt, or 3) list: [path1/images/, path2/images/]
+train: [
+  /home/usrg/drone_dataset/f450/train,
+  /home/usrg/drone_dataset/f450/ft_f450/train,
+  /home/usrg/drone_dataset/synthetic/drone/train,
+  /home/usrg/drone_dataset/ADD/bbox_txt,
+  /home/usrg/drone_dataset/ADD_1/bbox_txt,
+  /home/usrg/drone_dataset/doosan_4/bbox_txt,
+  /home/usrg/drone_dataset/doosan_5/bbox_txt,
+  ]  # 118287 images
+val: [
+  /home/usrg/drone_dataset/f450/test/,
+  /home/usrg/drone_dataset/f450/ft_f450/val/,
+  /home/usrg/drone_dataset/synthetic/drone/test,
+  ]  # 5000 images
+test: [
+  /home/usrg/drone_dataset/f450/test/,
+  /home/usrg/drone_dataset/f450/ft_f450/test/,
+  /home/usrg/drone_dataset/synthetic/drone/test,
+  ]  # 20288 of 40670 images, submit to https://competitions.codalab.org/competitions/20794
+
+# number of classes
+nc: 1
+
+# class names
+names: [ 'drone']

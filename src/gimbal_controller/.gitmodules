@@ -1,0 +1,3 @@
+[submodule "gimbal_controller/siyi_sdk"]
+	path = gimbal_controller/siyi_sdk
+	url = git@github.com:swl017/siyi_sdk.git

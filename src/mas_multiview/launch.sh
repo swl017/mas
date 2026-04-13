@@ -1,0 +1,1 @@
+ros2 launch mas_multiview triangulation.launch.py frame_id:=common_frame num_camera:=3 camera_name_prefix:=px4_ detection_topic_suffix:=yolo_result_vision camera_info_topic_suffix:=camera/color/camera_info camera_odom_topic_suffix:=common_frame/odom gimbal_topic_suffix:=gimbal_state_rpy_deg

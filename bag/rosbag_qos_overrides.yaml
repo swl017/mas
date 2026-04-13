@@ -1,10 +1,10 @@
 # QoS overrides for ros2 bag record.
 # All BEST_EFFORT topics need overrides — rosbag defaults to RELIABLE.
 #
-# Usage (record all topics except images):
-#   ros2 bag record -a -o bag_name \
-#     --qos-profile-overrides-path bag/rosbag_qos_overrides.yaml \
-#     --exclude '/px4_.*/image_raw|/px4_.*/camera/color/image_raw'
+# Usage:
+#   bash bag/rosbag_record.sh
+#
+# Topics sourced from ARCHITECTURE.md topic map.
 
 # --- Per-vehicle topics (px4_1) ---
 
@@ -32,7 +32,7 @@
   reliability: best_effort
   history: keep_last
   depth: 1
-/px4_1/zoom_level:
+/px4_1/camera/zoom_level:
   reliability: best_effort
   history: keep_last
   depth: 1
@@ -41,6 +41,10 @@
   history: keep_last
   depth: 1
 /px4_1/policy/cmd_vel:
+  reliability: best_effort
+  history: keep_last
+  depth: 1
+/px4_1/policy/observation:
   reliability: best_effort
   history: keep_last
   depth: 1
@@ -75,7 +79,7 @@
   reliability: best_effort
   history: keep_last
   depth: 1
-/px4_2/zoom_level:
+/px4_2/camera/zoom_level:
   reliability: best_effort
   history: keep_last
   depth: 1
@@ -84,6 +88,10 @@
   history: keep_last
   depth: 1
 /px4_2/policy/cmd_vel:
+  reliability: best_effort
+  history: keep_last
+  depth: 1
+/px4_2/policy/observation:
   reliability: best_effort
   history: keep_last
   depth: 1
@@ -118,7 +126,7 @@
   reliability: best_effort
   history: keep_last
   depth: 1
-/px4_3/zoom_level:
+/px4_3/camera/zoom_level:
   reliability: best_effort
   history: keep_last
   depth: 1

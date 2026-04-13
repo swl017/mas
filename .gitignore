@@ -3,4 +3,5 @@
 **/install
 bag/
 drone_config/robot.env
+resource/
 # drone_config/network/01-netcfg.yaml
