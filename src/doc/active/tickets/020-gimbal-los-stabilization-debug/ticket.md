@@ -136,20 +136,23 @@ Verified consistent through the full chain:
 - [x] Rename `gimbal_cmd_rpy_deg` topic → `gimbal_cmd_los_world_deg`
 - [x] Fix `mission_deploy.launch.py` missing remapping
 - [x] Add `gimbal_los_tracker_node` — proportional world-frame LOS rate publisher following target pose
-- [x] Port iris_ma6 Jacobian J^{-1} controller into `los_rate_controller` rate mode
+- [x] Port iris_ma6 Jacobian J^{-1} controller into `los_rate_controller` rate mode (configurable via `gimbal_controller_mode`)
 - [x] Verify LOS convention chain (positive elevation = up, end-to-end)
 - [x] Test LOS stabilization with `gimbal_los_tracker_node` (ticket #022)
 - [x] Test LOS stabilization at various drone yaw angles (ticket #022)
-- [ ] Test LOS stabilization during policy-driven flight (MISSION state)
-- [ ] Update remaining doc references (ARCHITECTURE.md, specs) to new topic names
-- [ ] Test during policy-driven flight (MISSION state)
-
+- [x] Update ARCHITECTURE.md doc references to new topic names
+- [x] Configurable gimbal controller mode: analytical, jacobian, combined (analytical position + jacobian velocity)
+- [x] Anti-windup on world-frame integrator (per-axis independent, matching iris_ma6)
+- [x] IMU-triggered control loop (15 Hz wall-clock, 3x better than sim-time dedup)
+- [x] Physics-rate callback (no timer, driven by isaac_joint_states with timestamp dedup)
+- [x] Duplicate message filtering (Isaac Sim publishes ~6 identical-timestamp msgs per physics step)
+- [ ] Test during policy-driven flight (MISSION state) — deferred to policy testing ticket
 
 ### Flow
 I → S → Y → PR
 
 ### Status
-Resolved. Jacobian rate mode replaced with analytical IK (ticket #022). Camera stabilization verified rock-solid at all drone yaw angles. See ticket #022 for joint sign convention discovery and final architecture.
+Done
 
 ### Related
 - **Ticket #022** — continuation of this investigation. Found joint sign inversion (USD -X/-Y axes), replaced Jacobian with analytical IK, fixed frustum sign convention. All LOS stabilization issues resolved.

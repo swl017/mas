@@ -23,16 +23,16 @@ All transitions triggered by operator via `/mission_state_cmd` topic. HOVER_CMD 
 - `/mission_state_cmd` (`std_msgs/Int8`) — operator command (global topic, RELIABLE + transient local)
 - `policy/cmd_vel` (`geometry_msgs/TwistStamped`) — policy velocity command (MISSION state)
 - `policy/gimbal_cmd_los_rate` (`geometry_msgs/Vector3`) — policy gimbal rate command (MISSION state)
-- `policy/zoom_cmd` (`std_msgs/Float32`) — policy zoom command (MISSION state)
+- `policy/zoom_rate_cmd` (`std_msgs/Float32`) — policy zoom rate command (MISSION state)
 - `tracking/gimbal_cmd_los_world_deg` (`geometry_msgs/Vector3`) — tracking gimbal world-frame az/el command (TRACKING state)
-- `tracking/zoom_cmd` (`std_msgs/Float32`) — tracking zoom command (TRACKING state)
+- `tracking/zoom_rate_cmd` (`std_msgs/Float32`) — tracking zoom rate command (TRACKING state)
 
 #### Publishers
 - `mission_state` (`std_msgs/Int8`) — current state enum (RELIABLE + transient local, heartbeat at 1 Hz)
 - `cmd_vel` (`geometry_msgs/TwistStamped`) — gated velocity command → mas_offboard
 - `gimbal_cmd_los_world_deg` (`geometry_msgs/Vector3`) — gated gimbal world-frame az/el command → los_rate_controller
 - `gimbal_cmd_los_rate` (`geometry_msgs/Vector3`) — gated gimbal LOS rate command → gimbal node
-- `zoom_cmd` (`std_msgs/Float32`) — gated zoom command → gimbal node
+- `zoom_rate_cmd` (`std_msgs/Float32`) — gated zoom rate command → los_rate_controller / siyi_gimbal_node
 
 #### Parameters
 - `heartbeat_rate_hz` (`double`, default: `1.0`) — mission_state heartbeat publish rate

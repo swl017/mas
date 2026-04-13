@@ -17,17 +17,21 @@ Ego (relative topics, resolved by node namespace):
 - `common_frame/odom` (`nav_msgs/Odometry`) — ENU odometry from mas_common_frame (when `use_common_frame=true`)
 - `mavros/local_position/odom` (`nav_msgs/Odometry`) — MAVROS odometry fallback (when `use_common_frame=false`)
 - `mavros/imu/data` (`sensor_msgs/Imu`) — body-frame linear acceleration
-- `gimbal_state_rpy_rad` (`geometry_msgs/Vector3`) — gimbal body-frame RPY from los_rate_controller (rad)
+- `gimbal_state_rpy_deg` (`geometry_msgs/Vector3`) — gimbal body-frame RPY (deg, converted to rad internally). 0=forward, no offset subtraction needed.
 - `yolo_result_vision` (`vision_msgs/Detection2DArray`) — YOLO detections for bbox observation
+- `combined_ang_vel_w` (`geometry_msgs/Vector3Stamped`) — ego combined angular velocity in world frame (from los_rate_controller / siyi_ros_node)
+- `chosen_target_ray_w` (`geometry_msgs/Vector3Stamped`) — ego bearing ray to chosen target (from mas_tracker)
 
 Ego additional:
-- `zoom_level` (`std_msgs/Float32`) — current zoom level from gimbal controller
+- `camera/zoom_level` (`std_msgs/Float64`) — current zoom level from gimbal controller
+- `camera/color/camera_info` (`sensor_msgs/CameraInfo`) — camera resolution for bbox normalization (auto-adapts to actual camera)
 
 Peers (absolute topics, `/{peer_name}/` prefix):
 - `/{peer}/common_frame/odom` (`nav_msgs/Odometry`) — peer position + velocity
 - `/{peer}/combined_ang_vel_w` (`geometry_msgs/Vector3Stamped`) — peer pre-computed combined angular velocity (body + gimbal) in world frame
 - `/{peer}/yolo_result_active` (`std_msgs/Bool`) — peer detection active (compact, replaces full Detection2DArray cross-agent)
-- `/{peer}/zoom_level` (`std_msgs/Float32`) — peer zoom level
+- `/{peer}/camera/zoom_level` (`std_msgs/Float64`) — peer zoom level
+- `/{peer}/policy/observation` (`std_msgs/Float32MultiArray`) — peer assembled observation vector for value network shared state (BEST_EFFORT, depth=1)
 
 Global:
 - `/chosen_target_pose` (`geometry_msgs/PoseWithCovarianceStamped`) — triangulation result with covariance (when `enable_triangulation=true`)
@@ -35,9 +39,11 @@ Global:
 #### Publishers
 
 Relative topics (resolved by node namespace):
+- `policy/value` (`std_msgs/Float32`) — value function V(s) scalar at 25 Hz, consumed by mas_operator for monitoring. Uses true shared state (concatenated ego + peer observations via cross-agent topic).
+- `policy/observation` (`std_msgs/Float32MultiArray`) — ego assembled observation vector at 25 Hz (BEST_EFFORT, depth=1), consumed by peer policy_nodes for value network shared state construction.
 - `cmd_vel` (`geometry_msgs/TwistStamped`) — velocity + yaw rate setpoint in ENU at 25 Hz, consumed by offboard_py
-- `gimbal_cmd_los_rate` (`geometry_msgs/Vector3`) — normalized [-1,1] azimuth/elevation rate at 25 Hz, consumed by los_rate_controller
-- `zoom_cmd` (`std_msgs/Float32`) — normalized [-1,1] zoom rate at 25 Hz
+- `gimbal_cmd_los_rate` (`geometry_msgs/Vector3`) — LOS azimuth/elevation rate in rad/s at 25 Hz (denormalized from policy output × `max_gimbal_rate`), consumed by los_rate_controller
+- `zoom_rate_cmd` (`std_msgs/Float32`) — zoom rate in zoom-levels/s at 25 Hz (denormalized from policy output × `max_zoom_rate`)
 
 #### Services
 - `~/reset_hidden_state` (`std_srvs/Trigger`) — reset GRU hidden state for this agent
@@ -55,11 +61,13 @@ Relative topics (resolved by node namespace):
 - `control_frequency` (`double`, default: `25.0`) — inference loop rate (Hz)
 - `max_lin_vel` (`double`, default: `10.0`) — max linear velocity for action scaling (m/s)
 - `max_yaw_rate` (`double`, default: `0.7854`) — max yaw rate for action scaling (rad/s)
+- `max_gimbal_rate` (`double`, default: `3.14159`) — max gimbal LOS rate for action denormalization (rad/s, must match training)
+- `max_zoom_rate` (`double`, default: `1.0`) — max zoom rate for action denormalization (zoom-levels/s, must match training)
 - `enable_cbf` (`bool`, default: `true`) — enable CBF inter-agent safety filter
 - `enable_triangulation` (`bool`, default: `false`) — append 6D triangulation tail to observations
 - `image_width` (`int`, default: `640`) — image width for bbox normalization
 - `image_height` (`int`, default: `480`) — image height for bbox normalization
-- `yaw_joint_offset` (`double`, default: `-1.5708`) — gimbal yaw joint offset (rad)
+- `max_bbox_aoi` (`double`, default: `20.0`) — max bbox age-of-information (s), clips to training episode length
 - `device` (`string`, default: `"cpu"`) — torch device (`"cpu"` or `"cuda"`)
 - `dry_run` (`bool`, default: `false`) — log observations/actions without publishing
 - `use_common_frame` (`bool`, default: `true`) — use common_frame/odom (ENU) vs MAVROS odom
@@ -73,16 +81,16 @@ Relative topics (resolved by node namespace):
 
 ## Dependencies
 - mas_common_frame — provides `common_frame/odom` (ego + peers)
-- los_rate_controller / siyi_gimbal_node — provides `gimbal_state_rpy_rad` (ego), `combined_ang_vel_w` (peers), `zoom_level` (ego + peers)
+- los_rate_controller / siyi_gimbal_node — provides `gimbal_state_rpy_deg` (ego), `combined_ang_vel_w` (peers), `camera/zoom_level` (ego + peers)
 - ultralytics_ros — provides `yolo_result_vision` (ego), `yolo_result_active` (peers)
 - mas_tracker — provides `chosen_target_pose`
 - offboard_py — consumes `cmd_vel`
 
 ## Key Files
 - `mas_policy/policy_node.py` — per-vehicle ROS2 node (25 Hz timer loop)
-- `mas_policy/policy_loader.py` — standalone PolicyNetRNN/MLP + SKRL checkpoint loading
+- `mas_policy/policy_loader.py` — standalone PolicyNetRNN/MLP/ValueNetRNN + SKRL checkpoint loading
 - `mas_policy/observation_assembler.py` — ego + peer subscribers → 62/68D observation vector
-- `mas_policy/action_publisher.py` — 7D actions → cmd_vel + gimbal_cmd_los_rate + zoom_cmd
+- `mas_policy/action_publisher.py` — 7D actions → cmd_vel + gimbal_cmd_los_rate + zoom_rate_cmd
 - `mas_policy/cbf_filter.py` — deployment CBF safety filter (halfspace projection)
 - `mas_policy/utils.py` — math utilities (gimbal_ray_direction_world, euler_from_quat, frame conversions)
 - `config/policy_deploy.yaml` — shared parameter defaults
@@ -95,13 +103,14 @@ Relative topics (resolved by node namespace):
 
 - `_odom_callback()`: Caches position, velocity, orientation, angular velocity for ego or peer. No publishing.
 - `_imu_callback()`: Caches body-frame linear acceleration (ego only). No publishing.
-- `_gimbal_state_callback()`: Caches gimbal angles for ego, estimates rates via finite differences. No publishing.
+- `_gimbal_state_callback()`: Caches gimbal body-frame angles for ego (deg→rad, 0=forward, no offset). No publishing.
 - `_detection_callback()`: Caches normalized bbox and detection timestamp for ego. No publishing.
 - `_peer_detection_active_callback()`: Caches bbox_empty from compact Bool for peers. No publishing.
-- `_peer_combined_ang_vel_callback()`: Caches pre-computed combined angular velocity for peers. No publishing.
+- `_peer_combined_ang_vel_callback()`: Caches pre-computed combined angular velocity for ego and peers. No publishing.
 - `_zoom_level_callback()`: Caches zoom level for ego or peer. No publishing.
 - `_triangulation_callback()`: Caches triangulation position and std_dev from covariance. No publishing.
-- `_control_loop()` (25 Hz timer): Reads all cached state, assembles ego observation vector, runs policy forward pass with GRU hidden state, applies CBF filter, publishes ego actions. Sole periodic mutation point.
+- `_peer_obs_callback()`: Caches peer's assembled observation vector (Float32MultiArray) for value network shared state. No publishing.
+- `_control_loop()` (25 Hz timer): Reads all cached state, assembles ego observation vector, publishes it on `policy/observation`, runs policy forward pass with GRU hidden state (tanh squashing), constructs true shared state from ego + peer observations for value network, applies CBF filter (with stale peer velocity zeroing), publishes ego actions. Sole periodic mutation point.
 - `_reset_hidden_callback()`: On-demand service. Zeros GRU hidden state.
 
 ## Spec

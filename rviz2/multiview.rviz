@@ -6,7 +6,8 @@ Panels:
       Expanded:
         - /Global Options1
         - /yolo11/Topic1
-        - /Operator1
+        - /triangulated 11
+        - /triangulated 21
         - /Operator1/Topic1
       Splitter Ratio: 0.658823549747467
     Tree Height: 345
@@ -339,16 +340,13 @@ Visualization Manager:
         camera0/detection0/line: true
         camera0/detection0/position: true
         camera0/detection0/ray: true
-        camera0/detection1/line: true
-        camera0/detection1/position: true
-        camera0/detection1/ray: true
         camera0/frustum: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /px4_1/triangulated_points_viz
+        Value: /px4_1/cam1/triangulated_points_viz
       Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
@@ -366,7 +364,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /px4_2/triangulated_points_viz
+        Value: /px4_2/cam2/triangulated_points_viz
       Value: true
     - Alpha: 0.30000001192092896
       Class: rviz_default_plugins/PointStamped
@@ -453,25 +451,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 13.498053550720215
+      Distance: 51.69062042236328
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 7.328514575958252
-        Y: -6.461221218109131
-        Z: 4.5682373046875
+        X: 16.766620635986328
+        Y: -12.702383995056152
+        Z: -7.496405124664307
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.7803984880447388
+      Pitch: 0.42039912939071655
       Target Frame: px4_1/base_link
       Value: Orbit (rviz_default_plugins)
-      Yaw: 4.845409393310547
+      Yaw: 4.305411338806152
     Saved: ~
 Window Geometry:
   Displays:
@@ -489,8 +487,8 @@ Window Geometry:
   Views:
     collapsed: true
   Width: 1470
-  X: 0
-  Y: 27
+  X: 823
+  Y: 215
   yolo1:
     collapsed: false
   yolo2:

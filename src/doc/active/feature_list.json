@@ -1,6 +1,6 @@
 {
   "project": "mas",
-  "last_updated": "2026-04-02",
+  "last_updated": "2026-04-04",
   "features": [
     {
       "id": "multiview-triangulation",
@@ -109,11 +109,34 @@
     {
       "id": "los-control-stabilization",
       "name": "LOS rate controller stabilization (ticket #022)",
-      "status": "in_progress",
+      "status": "done",
       "spec": "doc/active/tickets/022-los-control-and-stabilization/ticket.md",
       "notes": "Resolved. Joint sign inversion (USD -X/-Y axes) fixed with negation at boundary. Jacobian replaced with analytical IK for stability at all gimbal yaw angles. Frustum sign convention fixed. Camera image rock-solid, frustum matches. (2026-04-04)",
-      "last_updated": "2026-04-04",
-      "status": "done"
+      "last_updated": "2026-04-04"
+    },
+    {
+      "id": "topic-convention-cleanup",
+      "name": "Zoom and gimbal topic convention cleanup (ticket #024)",
+      "status": "done",
+      "spec": "doc/active/tickets/024-triangulation-fix/ticket.md",
+      "notes": "Fixed triangulation pitch double-negation (ticket #022 regression). Unified zoom topics: camera/zoom_level (state), camera/zoom_level_cmd (to sim), zoom_rate_cmd (rate in zoom-levels/s). Denormalized gimbal_cmd_los_rate from [-1,1] to rad/s. All topics now carry physically meaningful values. Fixed zoom QoS mismatch (Reliable→BestEffort). (2026-04-04)",
+      "last_updated": "2026-04-04"
+    },
+    {
+      "id": "gimbal-los-stabilization",
+      "name": "Gimbal LOS stabilization (ticket #020)",
+      "status": "done",
+      "spec": "doc/active/tickets/020-gimbal-los-stabilization-debug/ticket.md",
+      "notes": "Comprehensive gimbal stabilization overhaul. Root causes: position mode held fixed body-frame joints, point_to_region wrong frame, roll computed for wrong yaw. Fixes: world-frame targets, analytical IK + optional Jacobian J^{-1} (configurable: analytical/jacobian/combined), anti-windup per-axis, IMU-triggered control loop, duplicate message filtering, topic rename gimbal_cmd_rpy_deg→gimbal_cmd_los_world_deg. LOS convention: positive el=up. Created gimbal_los_tracker_node. Verified: 0.5° az / 0.0° el pointing accuracy during orbit. (2026-04-07)",
+      "last_updated": "2026-04-07"
+    },
+    {
+      "id": "sim-topic-update-rate",
+      "name": "Sim topic update rate optimization (ticket #021)",
+      "status": "done",
+      "spec": "doc/active/tickets/021-sim-topic-update-rate/ticket.md",
+      "notes": "Increased PX4 MAVLink streaming rates (LOCAL_POSITION_NED 1→100 Hz, ATTITUDE_QUATERNION 100→250 Hz). Replaced mas_common_frame 10 Hz timer with callback-driven publishing. Increased Isaac rendering_dt to 100 Hz. IMU-triggered gimbal controller at 15 Hz wall-clock. Fixed wall-clock dt inflation at low RTF by using sim-time timestamps. Added servo_rate_limit for delayed feedback stability. (2026-04-07)",
+      "last_updated": "2026-04-07"
     }
   ]
 }

@@ -24,34 +24,44 @@ agent_n1: "Agent N+1 (MAS instance)" {
     stroke: "#6abf69"
     stroke-width: 2
     multiple: true
+    font-size: 24
   }
 
   mavros_n1: MAVROS {
     style.fill: "#fff"
+    style.font-size: 20
   }
   mas_common_frame_n1: mas_common_frame {
     style.fill: "#fff"
+    style.font-size: 20
   }
   ultralytics_ros_n1: ultralytics_ros {
     style.fill: "#fff"
+    style.font-size: 20
   }
   mas_multiview_n1: mas_multiview {
     style.fill: "#fff"
+    style.font-size: 20
   }
   mas_tracker_n1: mas_tracker {
     style.fill: "#fff"
+    style.font-size: 20
   }
   mas_policy_n1: mas_policy {
     style.fill: "#fff"
+    style.font-size: 20
   }
   mas_offboard_n1: mas_offboard {
     style.fill: "#fff"
+    style.font-size: 20
   }
   point_to_region_n1: "gimbal_controller\n(point_to_region)" {
     style.fill: "#fff"
+    style.font-size: 20
   }
   mas_mission_n1: mas_mission {
     style.fill: "#fff"
+    style.font-size: 20
   }
 
   mavros_n1 -> mas_common_frame_n1
@@ -63,36 +73,45 @@ agent_n1: "Agent N+1 (MAS instance)" {
 # Agent N (main instance, blue)
 # ═══════════════════════════════════════════════════════════
 
-agent_n: "Agent N (MAS instance N)" {
+agent_n: "Agent N (MAS instance)" {
   style: {
     fill: "#dbeeff"
     stroke: "#4a90d9"
     stroke-width: 2
+    font-size: 24
   }
 
   ultralytics_ros: ultralytics_ros {
     style.fill: "#fff"
+    style.font-size: 20
   }
   mas_multiview: mas_multiview {
     style.fill: "#fff"
+    style.font-size: 20
   }
   mas_tracker: mas_tracker {
     style.fill: "#fff"
+    style.font-size: 20
   }
   mas_policy: mas_policy {
     style.fill: "#fff"
+    style.font-size: 20
   }
   mas_common_frame: mas_common_frame {
     style.fill: "#fff"
+    style.font-size: 20
   }
   mas_offboard: mas_offboard {
     style.fill: "#fff"
+    style.font-size: 20
   }
   mavros: MAVROS {
     style.fill: "#fff"
+    style.font-size: 20
   }
   point_to_region: "gimbal_controller\n(point_to_region)" {
     style.fill: "#fff"
+    style.font-size: 20
   }
 
   # mas_mission — state machine: IDLE → TRACKING → MISSION
@@ -101,6 +120,7 @@ agent_n: "Agent N (MAS instance N)" {
   # - MISSION:  forwards policy cmd_vel + gimbal LOS rate + zoom, blocks point_to_region
   mas_mission: mas_mission {
     style.fill: "#fff"
+    style.font-size: 20
   }
 
   # ── Internal edges ──
@@ -175,33 +195,41 @@ sim: "Sim Env" {
     fill: "#ffe0d0"
     stroke: "#d97a4a"
     stroke-width: 2
+    font-size: 24
   }
 
   isaac_sim: Isaac Sim {
     style.fill: "#fff"
+    style.font-size: 20
   }
 
   pegasus_simulator: PegasusSimulator {
     style.fill: "#fff"
+    style.font-size: 20
   }
   px4_sitl: PX4 SITL {
     style.fill: "#fff"
+    style.font-size: 20
   }
   gimbal_stabilizer: gimbal_stabilizer {
     style.fill: "#fff"
+    style.font-size: 20
   }
 
   target: Target {
     style: {
       fill: "#fff"
       stroke: "#d97a4a"
+      font-size: 20
     }
 
     mavros_tgt: MAVROS {
       style.fill: "#fff"
+      style.font-size: 20
     }
     mas_common_frame_tgt: mas_common_frame {
       style.fill: "#fff"
+      style.font-size: 20
     }
 
     mavros_tgt -> mas_common_frame_tgt
@@ -221,16 +249,20 @@ real: "Real-world" {
     fill: "#f8d7e8"
     stroke: "#d94a8a"
     stroke-width: 2
+    font-size: 24
   }
 
   usb_cam: usb_cam {
     style.fill: "#fff"
+    style.font-size: 20
   }
   siyi_gimbal_node: siyi_gimbal_node {
     style.fill: "#fff"
+    style.font-size: 20
   }
   px4_real: PX4 (real) {
     style.fill: "#fff"
+    style.font-size: 20
   }
 }
 
@@ -244,6 +276,7 @@ operator: "Operator" {
     fill: "#fff3cd"
     stroke: "#d9a74a"
     stroke-width: 2
+    font-size: 24
   }
 }
 

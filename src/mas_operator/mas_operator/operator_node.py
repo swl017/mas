@@ -50,6 +50,10 @@ _STATE_NAMES = {
 
 
 class OperatorNode(Node):
+    def _now(self) -> float:
+        """Current time in seconds, using ROS clock (respects use_sim_time)."""
+        return self.get_clock().now().nanoseconds / 1e9
+
     def __init__(self) -> None:
         super().__init__('operator_node')
 
@@ -197,28 +201,28 @@ class OperatorNode(Node):
     # ── Subscription callbacks ─────────────────────────────────────────
 
     def _mission_state_cb(self, veh: str, msg: Int8) -> None:
-        now = time.monotonic()
+        now = self._now()
         with self.fleet.lock:
             vs = self.fleet.vehicles[veh]
             vs.mission_state = msg.data
             vs.last_heard['mission_state'] = now
 
     def _odom_cb(self, veh: str, msg: Odometry) -> None:
-        now = time.monotonic()
+        now = self._now()
         with self.fleet.lock:
             vs = self.fleet.vehicles[veh]
             vs.odom = msg
             vs.last_heard['odom'] = now
 
     def _gimbal_cb(self, veh: str, msg: Vector3) -> None:
-        now = time.monotonic()
+        now = self._now()
         with self.fleet.lock:
             vs = self.fleet.vehicles[veh]
             vs.gimbal_rpy = msg
             vs.last_heard['gimbal'] = now
 
     def _mavros_state_cb(self, veh: str, msg: MavrosState) -> None:
-        now = time.monotonic()
+        now = self._now()
         with self.fleet.lock:
             vs = self.fleet.vehicles[veh]
             vs.mavros_state = msg
@@ -227,7 +231,7 @@ class OperatorNode(Node):
     def _chosen_target_cb(
         self, veh: str, msg: PoseWithCovarianceStamped,
     ) -> None:
-        now = time.monotonic()
+        now = self._now()
         with self.fleet.lock:
             vs = self.fleet.vehicles[veh]
             vs.chosen_target = msg
@@ -256,14 +260,14 @@ class OperatorNode(Node):
     def _tracked_objects_cb(
         self, veh: str, class_idx: int, msg: Detection3DArray,
     ) -> None:
-        now = time.monotonic()
+        now = self._now()
         with self.fleet.lock:
             vs = self.fleet.vehicles[veh]
             vs.tracked_objects[class_idx] = msg
             vs.last_heard[f'tracked_objects_{class_idx}'] = now
 
     def _policy_value_cb(self, veh: str, msg: Float32) -> None:
-        now = time.monotonic()
+        now = self._now()
         with self.fleet.lock:
             vs = self.fleet.vehicles[veh]
             vs.policy_value = msg.data
@@ -272,7 +276,7 @@ class OperatorNode(Node):
     def _triangulated_cb(
         self, veh: str, msg: TriangulatedPointArray,
     ) -> None:
-        now = time.monotonic()
+        now = self._now()
         with self.fleet.lock:
             vs = self.fleet.vehicles[veh]
             vs.triangulated_points = msg
@@ -281,7 +285,7 @@ class OperatorNode(Node):
     # ── Metrics timer (placeholder — implemented in Slice 2) ───────────
 
     def _metrics_timer_cb(self) -> None:
-        now = time.monotonic()
+        now = self._now()
         with self.fleet.lock:
             metrics = compute_metrics(
                 self.fleet, now, self.tri_timeout_s,

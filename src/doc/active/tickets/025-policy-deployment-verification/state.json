@@ -1,0 +1,10 @@
+{
+  "ticket_slug": "025-policy-deployment-verification",
+  "current_stage": "Y",
+  "last_approved_stage": "P",
+  "next_action": "Live sim integration test, then PR",
+  "slices_completed": [1, 2, 3, 4, 5],
+  "slices_total": 5,
+  "created": "2026-04-04",
+  "updated": "2026-04-04"
+}

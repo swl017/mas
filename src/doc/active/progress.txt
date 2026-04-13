@@ -311,5 +311,94 @@ Done:
 Next:
 - Policy flight test (MISSION state with aggressive maneuvers)
 - Remove DIAG logging
-- Check observation_assembler: does it need sign adjustment for gimbal_state_rpy_deg pitch negation?
 - Update CONTEXT.md for gimbal_controller
+
+----------------------------------------
+2026-04-04 — Ticket #023: Policy gimbal observation sign/offset convention
+----------------------------------------
+Done:
+- Investigated gimbal observation (obs[15:16]) sign/offset conventions between training (iris_ma6) and deployment (ROS2)
+- Traced full data flow for yaw: training uses YAW_JOINT_OFFSET=-π/2, deployment uses +π/2, but different camera mountings produce different raw joint values that cancel the offset difference. Numerically verified match at forward, 45° left, 90° right.
+- Traced full data flow for pitch: training reads raw_pitch directly, deployment double-negates (boundary + publish) to produce same raw_pitch. Match confirmed.
+- Identified pre-existing FK fallback sign issue: gimbal_ray_direction_world assumes positive pitch=down, but iris_gimbal3 -Y axis means positive raw_pitch=up. Not a deployment mismatch — same bug in both envs, and FK is only fallback (tracker ray used normally).
+- Conclusion: no code change needed. Conventions are aligned.
+
+Next:
+- Policy flight test (MISSION state with aggressive maneuvers)
+- Remove DIAG logging from los_rate_controller
+- Update CONTEXT.md for gimbal_controller
+
+----------------------------------------
+2026-04-04 — Ticket #024: Triangulation fix + zoom/gimbal topic cleanup
+----------------------------------------
+Done:
+- Created ticket #024 for triangulation not computing after ticket #022 gimbal fix
+- Root cause: pitch double-negation in zxy gimbal angle path (los_rate_controller already negated, triangulation_node negated again). Fixed by removing double negation from both sides.
+- Unified zoom topics — eliminated ambiguity between state, command, and rate:
+  - `zoom_level` (Float32) + `camera/zoom` (Float64) → `camera/zoom_level` (Float64) for state
+  - `camera/zoom` (Float64, to sim) → `camera/zoom_level_cmd` (Float64) for level command
+  - `zoom_cmd` (Float32, normalized) → `zoom_rate_cmd` (Float32, zoom-levels/s) for rate command
+  - Denormalization moved from consumer (los_rate_controller) to publisher (action_publisher)
+  - Removed self-loop: los_rate_controller no longer subscribes to its own camera/zoom
+  - Removed `max_zoom_rate` param from los_rate_controller (now in policy_deploy.yaml)
+  - Added `max_zoom_rate` param to policy_node (default 1.0, matches training)
+- Denormalized gimbal_cmd_los_rate from [-1,1] to actual rad/s:
+  - action_publisher now scales by `max_gimbal_rate` (default π rad/s)
+  - gimbal_los_tracker_node publishes Kp*error in rad/s, clamped to ±max_gimbal_rate
+  - los_rate_controller accepts raw rad/s, integrates directly (removed × max_gimbal_rate)
+  - Added `max_gimbal_rate` param to policy_node/policy_deploy.yaml
+- Fixed triangulation zoom subscription QoS: changed from Reliable to BestEffort to match publisher
+- Confirmed triangulation works with num_camera:=2 (excluding target drone px4_3 from camera list)
+- Updated all CONTEXT.md (mas_policy, mas_mission, mas_multiview, gimbal_controller, gimbal_stabilizer, tmux, PegasusSimulator backends/graphical_sensors)
+- Updated ARCHITECTURE.md, ARCHITECTURE_IMPLEMENTATION_LEVEL.md, POLICY_ROS2_DEPLOYMENT_REFERENCE.md
+
+Files changed (MAS): triangulation_node.cpp, mission_node.py, action_publisher.py, policy_node.py, policy_deploy.yaml, observation_assembler.py, policy_deploy.launch.py, siyi_ros_node.py, gimbal_los_tracker_node.py, zoom.tmux.yaml, rosbag_qos_overrides.yaml, 7x CONTEXT.md, 3x ARCHITECTURE*.md
+Files changed (IsaacPX4): los_rate_controller.py, gimbal_stabilizer/CONTEXT.md, ros2_backend.py, graphical_sensors/CONTEXT.md
+
+Next:
+- Policy flight test (MISSION state with aggressive maneuvers)
+- Remove DIAG logging from los_rate_controller
+- Commit zoom/gimbal topic cleanup changes (both MAS and IsaacPX4 repos)
+
+----------------------------------------
+2026-04-07 — Tickets #020 + #021: Gimbal LOS stabilization + sim topic rates
+----------------------------------------
+Done:
+- Ticket #020: Gimbal LOS stabilization (CLOSED)
+  - Root cause 1: position mode held fixed body-frame joints — fixed with world-frame IK every tick
+  - Root cause 2: point_to_region output in yaw-only frame — added world-frame az/el method
+  - Root cause 3: stabilizing roll computed for wrong yaw — use IK target yaw
+  - Renamed topic chain: gimbal_cmd_rpy_deg → gimbal_cmd_los_world_deg (all code, launch, tmux, CONTEXT.md)
+  - Added gimbal_los_tracker_node: proportional world-frame error → LOS rate publisher
+  - Ported iris_ma6 Jacobian J^{-1} controller as configurable option (gimbal_controller_mode: analytical/jacobian/combined)
+  - Fixed Jacobian quaternion error bug: q_err = q_current * q_desired^{-1} (axis in body frame, not desired frame)
+  - Anti-windup on world-frame LOS integrator (per-axis independent, matching iris_ma6)
+  - LOS convention established: positive elevation = up (ENU), verified end-to-end
+  - Verified: 0.5° az / 0.0° el pointing accuracy during orbit with tilt
+- Ticket #021: Sim topic update rates (CLOSED)
+  - PX4 MAVLink streaming: LOCAL_POSITION_NED 1→100 Hz, ATTITUDE_QUATERNION 100→250 Hz
+  - mas_common_frame: replaced 10 Hz timer with callback-driven publishing (matches MAVROS input rate)
+  - Isaac rendering_dt: 1/30 → 1/100 (100 Hz unique joint states)
+  - Camera frequency: 60 → 25 Hz (must divide rendering freq)
+  - IMU-triggered control loop: 15 Hz wall-clock (3x better than 4 Hz sim-time dedup)
+  - Fixed sim-time dt: use IMU message timestamps instead of wall-clock (K*dt constant at any RTF)
+  - Added servo_rate_limit: clips omega_cmd before J^{-1} (prevents overshoot with delayed feedback)
+  - Duplicate message filtering: Isaac Sim publishes ~6 identical-timestamp msgs per physics step
+- los_rate_controller changes (IsaacPX4/ros2_ws):
+  - Timer removed — control loop driven by joint_state_callback or IMU callback (configurable via control_trigger)
+  - Three gimbal controller modes: analytical (default), jacobian, combined
+  - Configurable via launch arg: gimbal_controller_mode:=jacobian
+  - Added use_sim_time to multi_agent_gimbal.launch.py
+  - Config: yaw_limits ±45° (matches iris_ma6 training), pointing_gain 32.5
+- gimbal_controller changes (MAS):
+  - gimbal_los_tracker_node: subscribes to target pose + ego odom + LOS state, publishes proportional LOS rate
+  - point_to_region: added world-frame output, renamed topic
+  - mission_node: renamed topic, added remapping to mission_deploy.launch.py
+  - All tmux files updated with new topic names and use_sim_time
+  - Updated ARCHITECTURE.md, CONTEXT.md (mas_mission, gimbal_controller)
+
+Next:
+- Policy flight test (MISSION state with aggressive maneuvers)
+- Add feedforward to gimbal_los_tracker_node (steady-state error during orbit from proportional-only control)
+- Test Jacobian vs analytical vs combined mode comparison under aggressive maneuvers
+- Commit all changes (both MAS and IsaacPX4 repos)

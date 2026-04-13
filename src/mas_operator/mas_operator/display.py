@@ -72,9 +72,10 @@ def _draw_screen(
         max_y, max_x = stdscr.getmaxyx()
 
         row = 0
+        now = node._now()
         with fleet.lock:
             row = _draw_header(stdscr, row, max_x)
-            row = _draw_fleet_table(stdscr, row, fleet, max_x)
+            row = _draw_fleet_table(stdscr, row, fleet, max_x, now)
             row += 1
             row = _draw_triangulation(stdscr, row, fleet, max_x)
             row += 1
@@ -114,6 +115,7 @@ def _draw_header(stdscr: curses.window, row: int, max_x: int) -> int:
 
 def _draw_fleet_table(
     stdscr: curses.window, row: int, fleet: FleetState, max_x: int,
+    now: float = 0.0,
 ) -> int:
     """Draw per-vehicle status table."""
     header = f'{"VEH":<8} {"STATE":<10} {"ARMED":<6} {"MODE":<10} {"AoI(ms)":<10} {"V(s)":<8} {"POS (x,y,z)":<28} {"GIMBAL (r,p,y)":<20}'
@@ -121,8 +123,6 @@ def _draw_fleet_table(
     row += 1
     _safe_addstr(stdscr, row, 0, '─' * min(len(header), max_x - 1), curses.color_pair(5), max_x)
     row += 1
-
-    now = time.monotonic()
 
     for veh, vs in fleet.vehicles.items():
         # State

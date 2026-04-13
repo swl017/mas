@@ -103,7 +103,7 @@ def gimbal_ray_direction_world(
     Direct port from iris_ma_env6_test.py:79-103.
 
     Args:
-        yaw_body: (...,) body-frame gimbal yaw (rad). Must already have YAW_JOINT_OFFSET subtracted.
+        yaw_body: (...,) body-frame gimbal yaw (rad), 0=forward.
         pitch_body: (...,) body-frame gimbal pitch (rad).
         q_body: (..., 4) body orientation quaternion (wxyz).
 
@@ -121,34 +121,6 @@ def gimbal_ray_direction_world(
     )
     return quat_rotate(q_body, dir_body)
 
-
-def compute_combined_angular_velocity_world(
-    body_angular_velocity_b: np.ndarray,
-    gimbal_pitch_rate: float,
-    gimbal_yaw_rate: float,
-    q_body: np.ndarray,
-) -> np.ndarray:
-    """Compute combined (body + gimbal) angular velocity in world frame.
-
-    Simplified port from derived_field_computers.py:298-356.
-
-    Args:
-        body_angular_velocity_b: (3,) body angular velocity in body frame.
-        gimbal_pitch_rate: Gimbal pitch rate (rad/s).
-        gimbal_yaw_rate: Gimbal yaw rate (rad/s).
-        q_body: (4,) body orientation quaternion (wxyz).
-
-    Returns:
-        (3,) combined angular velocity in world frame.
-    """
-    # Gimbal angular velocity in body frame (simplified: small angle approx)
-    gimbal_angular_velocity_b = np.array([0.0, gimbal_pitch_rate, gimbal_yaw_rate])
-
-    # Combined in body frame
-    combined_b = body_angular_velocity_b + gimbal_angular_velocity_b
-
-    # Transform to world frame
-    return quat_rotate_inverse(q_body, combined_b)
 
 
 def ned_to_enu_position(pos_ned: np.ndarray) -> np.ndarray:

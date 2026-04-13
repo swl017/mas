@@ -2,15 +2,15 @@
 
 Per-vehicle design: publishes using relative topics (resolved by node namespace).
 - cmd_vel (TwistStamped, ENU) → offboard_py
-- gimbal_cmd_los_rate (Vector3, normalized [-1,1]) → los_rate_controller
-- zoom_cmd (Float32, normalized)
+- gimbal_cmd_los_rate (Vector3, rad/s) → los_rate_controller
+- zoom_rate_cmd (Float32, zoom-levels/s) → los_rate_controller
 
 Action mapping from _pre_physics_step() at iris_ma_env6_test.py:523-530:
   [0-2] vx,vy,vz  × max_lin_vel → cmd_vel linear (ENU)
   [3]   yaw_rate   × max_yaw_rate → cmd_vel angular.z
-  [4]   gimbal_az  pass-through [-1,1] → gimbal_cmd_los_rate.x
-  [5]   gimbal_el  pass-through [-1,1] → gimbal_cmd_los_rate.y
-  [6]   zoom_rate  pass-through [-1,1] → zoom_cmd
+  [4]   gimbal_az  × max_gimbal_rate → gimbal_cmd_los_rate.x (rad/s)
+  [5]   gimbal_el  × max_gimbal_rate → gimbal_cmd_los_rate.y (rad/s)
+  [6]   zoom_rate  × max_zoom_rate → zoom_rate_cmd (zoom-levels/s)
 """
 
 from __future__ import annotations
@@ -39,15 +39,19 @@ class ActionPublisher:
         node: Node,
         max_lin_vel: float = 10.0,
         max_yaw_rate: float = 0.7854,
+        max_gimbal_rate: float = 3.141592653589793,
+        max_zoom_rate: float = 1.0,
     ):
         self._node = node
         self._max_lin_vel = max_lin_vel
         self._max_yaw_rate = max_yaw_rate
+        self._max_gimbal_rate = max_gimbal_rate
+        self._max_zoom_rate = max_zoom_rate
 
         # Relative topics — namespace provides the vehicle prefix
         self._cmd_vel_pub = node.create_publisher(TwistStamped, 'cmd_vel', 10)
         self._gimbal_rate_pub = node.create_publisher(Vector3, 'gimbal_cmd_los_rate', 10)
-        self._zoom_pub = node.create_publisher(Float32, 'zoom_cmd', 10)
+        self._zoom_pub = node.create_publisher(Float32, 'zoom_rate_cmd', 10)
 
     def publish(self, action: np.ndarray):
         """Publish a single 7D action.
@@ -67,16 +71,16 @@ class ActionPublisher:
         cmd_vel.twist.angular.z = float(action[3] * self._max_yaw_rate)
         self._cmd_vel_pub.publish(cmd_vel)
 
-        # Gimbal LOS rate command (normalized [-1, 1])
+        # Gimbal LOS rate command (denormalized to rad/s)
         gimbal_msg = Vector3()
-        gimbal_msg.x = float(action[4])  # azimuth rate
-        gimbal_msg.y = float(action[5])  # elevation rate
+        gimbal_msg.x = float(action[4] * self._max_gimbal_rate)  # azimuth rate (rad/s)
+        gimbal_msg.y = float(action[5] * self._max_gimbal_rate)  # elevation rate (rad/s)
         gimbal_msg.z = 0.0
         self._gimbal_rate_pub.publish(gimbal_msg)
 
-        # Zoom rate command
+        # Zoom rate command (denormalized to zoom-levels/s)
         zoom_msg = Float32()
-        zoom_msg.data = float(action[6])
+        zoom_msg.data = float(action[6] * self._max_zoom_rate)
         self._zoom_pub.publish(zoom_msg)
 
     def publish_zero(self):

@@ -88,6 +88,62 @@ class PolicyNetRNN(nn.Module):
         return torch.zeros(self.gru_num_layers, 1, self.gru_hidden_size, device=device)
 
 
+class ValueNetRNN(nn.Module):
+    """Standalone MAPPO-RNN value network for inference.
+
+    Same architecture as PolicyNetRNN but outputs a scalar V(s).
+    Input is shared state (obs_dim * num_agents) in MAPPO.
+    """
+
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_size: int = 64,
+        gru_hidden_size: int = 64,
+        gru_num_layers: int = 1,
+    ):
+        super().__init__()
+        self.gru_hidden_size = gru_hidden_size
+        self.gru_num_layers = gru_num_layers
+
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, hidden_size),
+            nn.ReLU(),
+        )
+        self.gru = nn.GRU(
+            hidden_size, gru_hidden_size,
+            num_layers=gru_num_layers, batch_first=True,
+        )
+        self.value_layer = nn.Linear(gru_hidden_size, 1)
+
+    def forward(
+        self,
+        obs: torch.Tensor,
+        hidden: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Forward pass for single-step inference.
+
+        Args:
+            obs: Shared state tensor (1, input_dim).
+            hidden: GRU hidden state (num_layers, 1, gru_hidden_size).
+
+        Returns:
+            value: (1, 1) scalar value estimate.
+            new_hidden: Updated GRU hidden state.
+        """
+        x = self.net(obs)
+        x = x.unsqueeze(1)
+        out, h = self.gru(x, hidden)
+        out = out.squeeze(1)
+        return self.value_layer(out), h
+
+    def init_hidden(self, device: torch.device = torch.device("cpu")) -> torch.Tensor:
+        """Create zero-initialized hidden state."""
+        return torch.zeros(self.gru_num_layers, 1, self.gru_hidden_size, device=device)
+
+
 class PolicyNetMLP(nn.Module):
     """Standalone PPO MLP policy network for inference.
 
@@ -132,6 +188,64 @@ def _strip_prefix(state_dict: dict, prefix: str) -> dict:
     return stripped
 
 
+def _load_net(net: nn.Module, state_dict: dict, name: str, device: torch.device) -> None:
+    """Load weights into a network, stripping prefixes if needed. Validates all keys present."""
+    try:
+        net.load_state_dict(state_dict, strict=False)
+    except RuntimeError:
+        stripped = _strip_prefix(state_dict, "module.")
+        net.load_state_dict(stripped, strict=False)
+
+    net.to(device)
+    net.eval()
+
+    loaded_keys = set(net.state_dict().keys())
+    ckpt_keys = set(state_dict.keys())
+    matched = loaded_keys & ckpt_keys
+    missing = loaded_keys - ckpt_keys
+    unexpected = ckpt_keys - loaded_keys
+    logger.info(f"{name}: loaded {len(matched)} params, {len(missing)} missing, {len(unexpected)} unexpected")
+    if missing:
+        raise RuntimeError(
+            f"Checkpoint missing {len(missing)} {name} keys (architecture mismatch?): {missing}"
+        )
+
+
+def _build_scaler(
+    mean: torch.Tensor | None,
+    var: torch.Tensor | None,
+    expected_dim: int,
+    device: torch.device,
+    name: str = "observation",
+) -> ScalerState:
+    """Build a ScalerState from checkpoint tensors, with validation."""
+    if mean is not None and var is not None:
+        scaler = ScalerState(
+            running_mean=mean.to(device).float(),
+            running_var=var.to(device).float(),
+        )
+        scaler_dim = scaler.running_mean.shape[0]
+        if scaler_dim != expected_dim:
+            raise RuntimeError(
+                f"{name} scaler dimension mismatch: scaler has {scaler_dim}, expected {expected_dim}"
+            )
+        logger.info(f"Loaded {name} scaler (dim={scaler_dim})")
+        return scaler
+
+    logger.warning(f"No {name} scaler found in checkpoint — using identity normalization")
+    return ScalerState(
+        running_mean=torch.zeros(expected_dim, device=device),
+        running_var=torch.ones(expected_dim, device=device),
+    )
+
+
+def _extract_scaler_tensors(sp: dict) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+    """Extract mean/var tensors from a preprocessor dict."""
+    mean = sp.get("running_mean", sp.get("mean"))
+    var = sp.get("running_var", sp.get("running_variance", sp.get("var")))
+    return mean, var
+
+
 def load_checkpoint(
     checkpoint_path: str,
     obs_dim: int,
@@ -140,25 +254,31 @@ def load_checkpoint(
     hidden_size: int = 64,
     gru_hidden_size: int = 64,
     gru_num_layers: int = 1,
+    num_agents: int = 1,
     device: torch.device = torch.device("cpu"),
-) -> tuple[nn.Module, ScalerState]:
-    """Load SKRL checkpoint and construct standalone policy network.
+    agent_id: str = "",
+) -> tuple[nn.Module, ScalerState, ValueNetRNN | None, ScalerState | None]:
+    """Load SKRL checkpoint and construct standalone policy + value networks.
 
-    SKRL checkpoints contain per-agent dicts with policy weights and
-    preprocessor state. We load from the first agent (shared weights).
+    SKRL checkpoints contain per-agent dicts with policy weights, value weights,
+    and preprocessor states. Policy weights are shared; preprocessor states
+    (running_mean/running_variance) differ per agent.
 
     Args:
         checkpoint_path: Path to .pt checkpoint file.
-        obs_dim: Observation dimension.
+        obs_dim: Observation dimension (per agent).
         action_dim: Action dimension.
         architecture: "mappo_rnn" or "ppo_mlp".
         hidden_size: MLP hidden layer size.
         gru_hidden_size: GRU hidden size (RNN only).
         gru_num_layers: Number of GRU layers (RNN only).
+        num_agents: Number of agents (for value network shared state dim).
         device: Torch device.
+        agent_id: Agent key to load preprocessor states from (e.g., "drone_0").
+            If empty, loads from the first agent found in the checkpoint.
 
     Returns:
-        Tuple of (policy_net, scaler_state).
+        Tuple of (policy_net, scaler_state, value_net_or_None, shared_scaler_or_None).
     """
     path = Path(checkpoint_path)
     if not path.exists():
@@ -170,37 +290,60 @@ def load_checkpoint(
     # SKRL saves checkpoints as dict. Find the policy weights.
     # Structure varies: could be top-level or nested under agent UIDs.
     policy_state_dict = None
+    value_state_dict = None
     scaler_mean = None
     scaler_var = None
+    shared_scaler_mean = None
+    shared_scaler_var = None
 
-    # Try to find policy and scaler in the checkpoint
+    # Try to find policy, value, and scalers in the checkpoint.
+    # If agent_id is specified, load from that agent's entry.
     if "policy" in ckpt:
         # Direct top-level format
         policy_state_dict = ckpt["policy"]
+        value_state_dict = ckpt.get("value")
         if "state_preprocessor" in ckpt:
-            sp = ckpt["state_preprocessor"]
-            scaler_mean = sp.get("running_mean", sp.get("mean"))
-            scaler_var = sp.get("running_var", sp.get("running_variance", sp.get("var")))
+            scaler_mean, scaler_var = _extract_scaler_tensors(ckpt["state_preprocessor"])
+        if "shared_state_preprocessor" in ckpt:
+            shared_scaler_mean, shared_scaler_var = _extract_scaler_tensors(ckpt["shared_state_preprocessor"])
     else:
-        # Try SKRL per-agent format: iterate over keys to find first agent
-        for key, value in ckpt.items():
-            if isinstance(value, dict):
-                if "policy" in value:
-                    policy_state_dict = value["policy"]
-                    if "state_preprocessor" in value:
-                        sp = value["state_preprocessor"]
-                        scaler_mean = sp.get("running_mean", sp.get("mean"))
-                        scaler_var = sp.get("running_var", sp.get("running_variance", sp.get("var")))
-                    break
-                # Nested checkpoint_modules format
-                if "checkpoint_modules" in value:
-                    modules = value["checkpoint_modules"]
-                    if "policy" in modules:
-                        policy_state_dict = modules["policy"]
-                    if "state_preprocessor" in modules:
-                        sp = modules["state_preprocessor"]
-                        scaler_mean = sp.get("running_mean", sp.get("mean"))
-                        scaler_var = sp.get("running_var", sp.get("running_variance", sp.get("var")))
+        # SKRL per-agent format. Select agent by agent_id or fall back to first.
+        def _extract_from_agent_dict(agent_dict):
+            nonlocal policy_state_dict, value_state_dict
+            nonlocal scaler_mean, scaler_var, shared_scaler_mean, shared_scaler_var
+            if "policy" in agent_dict:
+                policy_state_dict = agent_dict["policy"]
+                value_state_dict = agent_dict.get("value")
+                if "state_preprocessor" in agent_dict:
+                    scaler_mean, scaler_var = _extract_scaler_tensors(agent_dict["state_preprocessor"])
+                if "shared_state_preprocessor" in agent_dict:
+                    shared_scaler_mean, shared_scaler_var = _extract_scaler_tensors(agent_dict["shared_state_preprocessor"])
+                return True
+            if "checkpoint_modules" in agent_dict:
+                modules = agent_dict["checkpoint_modules"]
+                if "policy" in modules:
+                    policy_state_dict = modules["policy"]
+                value_state_dict = modules.get("value")
+                if "state_preprocessor" in modules:
+                    scaler_mean, scaler_var = _extract_scaler_tensors(modules["state_preprocessor"])
+                if "shared_state_preprocessor" in modules:
+                    shared_scaler_mean, shared_scaler_var = _extract_scaler_tensors(modules["shared_state_preprocessor"])
+                return True
+            return False
+
+        if agent_id and agent_id in ckpt and isinstance(ckpt[agent_id], dict):
+            _extract_from_agent_dict(ckpt[agent_id])
+            logger.info(f"Loaded from agent_id='{agent_id}'")
+        else:
+            if agent_id:
+                available = [k for k in ckpt if isinstance(ckpt[k], dict) and "policy" in ckpt[k]]
+                logger.warning(
+                    f"agent_id='{agent_id}' not found in checkpoint. "
+                    f"Available: {available}. Falling back to first agent."
+                )
+            for key, value in ckpt.items():
+                if isinstance(value, dict) and _extract_from_agent_dict(value):
+                    logger.info(f"Loaded from agent key '{key}'")
                     break
 
     if policy_state_dict is None:
@@ -208,7 +351,7 @@ def load_checkpoint(
         logger.warning("Could not find 'policy' key; attempting flat state dict load")
         policy_state_dict = ckpt
 
-    # Construct network
+    # --- Construct and load policy network ---
     if architecture == "mappo_rnn":
         policy = PolicyNetRNN(obs_dim, action_dim, hidden_size, gru_hidden_size, gru_num_layers)
     elif architecture == "ppo_mlp":
@@ -216,39 +359,30 @@ def load_checkpoint(
     else:
         raise ValueError(f"Unknown architecture: {architecture}")
 
-    # Load weights — try direct load, then try stripping common prefixes
-    try:
-        policy.load_state_dict(policy_state_dict, strict=False)
-    except RuntimeError:
-        # Try stripping "module." prefix (DataParallel wrapping)
-        stripped = _strip_prefix(policy_state_dict, "module.")
-        policy.load_state_dict(stripped, strict=False)
+    _load_net(policy, policy_state_dict, "policy", device)
 
-    policy.to(device)
-    policy.eval()
+    # --- Build observation scaler ---
+    scaler = _build_scaler(scaler_mean, scaler_var, obs_dim, device, "observation")
 
-    # Log loaded parameters
-    loaded_keys = set(policy.state_dict().keys())
-    ckpt_keys = set(policy_state_dict.keys())
-    matched = loaded_keys & ckpt_keys
-    missing = loaded_keys - ckpt_keys
-    unexpected = ckpt_keys - loaded_keys
-    logger.info(f"Loaded {len(matched)} parameters, {len(missing)} missing, {len(unexpected)} unexpected")
-    if missing:
-        logger.warning(f"Missing keys: {missing}")
+    # --- Construct and load value network (optional) ---
+    value_net = None
+    shared_scaler = None
+    if value_state_dict is not None and architecture == "mappo_rnn":
+        # Infer shared state dim from value network's first layer
+        first_weight = value_state_dict.get("net.0.weight")
+        if first_weight is not None:
+            shared_state_dim = first_weight.shape[1]
+        else:
+            shared_state_dim = obs_dim * num_agents
 
-    # Build scaler state
-    if scaler_mean is not None and scaler_var is not None:
-        scaler = ScalerState(
-            running_mean=scaler_mean.to(device).float(),
-            running_var=scaler_var.to(device).float(),
+        value_net = ValueNetRNN(shared_state_dim, hidden_size, gru_hidden_size, gru_num_layers)
+        _load_net(value_net, value_state_dict, "value", device)
+
+        shared_scaler = _build_scaler(
+            shared_scaler_mean, shared_scaler_var, shared_state_dim, device, "shared_state",
         )
-        logger.info(f"Loaded observation scaler (dim={scaler.running_mean.shape[0]})")
-    else:
-        logger.warning("No observation scaler found in checkpoint — using identity normalization")
-        scaler = ScalerState(
-            running_mean=torch.zeros(obs_dim, device=device),
-            running_var=torch.ones(obs_dim, device=device),
-        )
+        logger.info(f"Value network loaded: input_dim={shared_state_dim}")
+    elif value_state_dict is None:
+        logger.info("No value network found in checkpoint — V(s) monitoring disabled")
 
-    return policy, scaler
+    return policy, scaler, value_net, shared_scaler

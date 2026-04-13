@@ -6,8 +6,8 @@ topics via absolute paths for inter-agent observations.
 
 Observation structure:
 - Ego (30D): pos(3), vel(3), euler_rpy(3), ang_vel_b(3), lin_acc_b(3),
-  gimbal_yaw_body(1), gimbal_pitch_body(1), ray_dir_w(3),
-  combined_ang_vel_w(3), bbox_aoi(1), zoom(1), bbox(4), bbox_empty(1)
+  gimbal_yaw_body(1, 0=forward), gimbal_pitch_body(1), ray_dir_w(3),
+  combined_ang_vel_w(3, from topic), bbox_aoi(1, clipped), zoom(1), bbox(4), bbox_empty(1)
 - Inter-agent (16D per other): pos(3), vel(3), ray_dir_w(3),
   combined_ang_vel_w(3), zoom(1), bbox_empty(1), data_age(1), bbox_age(1)
 - Optional triangulation tail (6D): tri_pos(3), tri_std(3)
@@ -27,21 +27,16 @@ from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 
 from geometry_msgs.msg import PoseWithCovarianceStamped, Vector3, Vector3Stamped
 from nav_msgs.msg import Odometry
-from sensor_msgs.msg import Imu
-from std_msgs.msg import Bool, Float32
+from sensor_msgs.msg import CameraInfo, Imu
+from std_msgs.msg import Bool, Float64
 from vision_msgs.msg import Detection2DArray
 
 from .utils import (
     euler_xyz_from_quat,
-    gimbal_ray_direction_world,
-    compute_combined_angular_velocity_world,
     wrap_to_pi,
 )
 
 logger = logging.getLogger(__name__)
-
-# Default YAW_JOINT_OFFSET from training (gimbal_controller.py)
-YAW_JOINT_OFFSET = -math.pi / 2
 
 
 @dataclass
@@ -56,11 +51,9 @@ class VehicleState:
     linear_acceleration_b: np.ndarray = field(default_factory=lambda: np.zeros(3))
     motion_timestamp: float = 0.0
 
-    # Gimbal state (from los_rate_controller)
-    gimbal_yaw_body: float = 0.0   # radians, body-frame
+    # Gimbal state (from los_rate_controller / siyi_ros_node)
+    gimbal_yaw_body: float = 0.0   # radians, body-frame, 0=forward
     gimbal_pitch_body: float = 0.0  # radians
-    gimbal_yaw_rate: float = 0.0   # estimated rate (rad/s)
-    gimbal_pitch_rate: float = 0.0
     gimbal_timestamp: float = 0.0
 
     # Detection state (from YOLO)
@@ -103,9 +96,9 @@ class ObservationAssembler:
         peer_names: list[str],
         image_width: int = 640,
         image_height: int = 480,
-        yaw_joint_offset: float = YAW_JOINT_OFFSET,
         enable_triangulation: bool = False,
         use_common_frame: bool = True,
+        max_bbox_aoi: float = 20.0,
     ):
         """Initialize observation assembler for a single ego vehicle.
 
@@ -115,9 +108,9 @@ class ObservationAssembler:
             peer_names: Other vehicles' namespaces (e.g., ["px4_2", "px4_3"]).
             image_width: Camera image width for bbox normalization.
             image_height: Camera image height for bbox normalization.
-            yaw_joint_offset: Gimbal yaw joint offset (default: -pi/2).
             enable_triangulation: Whether to include 6D triangulation tail.
             use_common_frame: If True, use common_frame/odom (ENU).
+            max_bbox_aoi: Maximum bbox age-of-information (s). Clips to training range.
         """
         self._node = node
         self._ego_name = ego_name
@@ -125,17 +118,13 @@ class ObservationAssembler:
         self._all_names = [ego_name] + list(peer_names)
         self._image_width = image_width
         self._image_height = image_height
-        self._yaw_joint_offset = yaw_joint_offset
         self._enable_triangulation = enable_triangulation
         self._use_common_frame = use_common_frame
+        self._max_bbox_aoi = max_bbox_aoi
 
         # Cached state for ego + all peers
         self._states: dict[str, VehicleState] = {
             name: VehicleState() for name in self._all_names
-        }
-        # Previous gimbal angles for rate estimation
-        self._prev_gimbal: dict[str, tuple[float, float, float]] = {
-            name: (0.0, 0.0, 0.0) for name in self._all_names
         }
 
         # Triangulation state
@@ -185,16 +174,17 @@ class ObservationAssembler:
         )
         self._subscriptions.append(sub)
 
-        # IMU
+        # IMU (BEST_EFFORT to match MAVROS publisher)
         sub = node.create_subscription(
             Imu, 'mavros/imu/data',
-            lambda msg, v=ego: self._imu_callback(msg, v), 10,
+            lambda msg, v=ego: self._imu_callback(msg, v),
+            self._sensor_qos,
         )
         self._subscriptions.append(sub)
 
         # Gimbal state (BEST_EFFORT to match los_rate_controller/siyi publisher)
         sub = node.create_subscription(
-            Vector3, 'gimbal_state_rpy_rad',
+            Vector3, 'gimbal_state_rpy_deg',
             lambda msg, v=ego: self._gimbal_state_callback(msg, v),
             self._sensor_qos,
         )
@@ -210,8 +200,16 @@ class ObservationAssembler:
 
         # Zoom level (BEST_EFFORT to match publisher)
         sub = node.create_subscription(
-            Float32, 'zoom_level',
+            Float64, 'camera/zoom_level',
             lambda msg, v=ego: self._zoom_level_callback(msg, v),
+            self._sensor_qos,
+        )
+        self._subscriptions.append(sub)
+
+        # Combined angular velocity (ego, from los_rate_controller / siyi_ros_node)
+        sub = node.create_subscription(
+            Vector3Stamped, 'combined_ang_vel_w',
+            lambda msg, v=ego: self._peer_combined_ang_vel_callback(msg, v),
             self._sensor_qos,
         )
         self._subscriptions.append(sub)
@@ -220,6 +218,13 @@ class ObservationAssembler:
         sub = node.create_subscription(
             Vector3Stamped, 'chosen_target_ray_w',
             lambda msg, v=ego: self._chosen_target_ray_callback(msg, v), 10,
+        )
+        self._subscriptions.append(sub)
+
+        # Camera info (for bbox normalization — adapts to actual camera resolution)
+        sub = node.create_subscription(
+            CameraInfo, 'camera/color/camera_info',
+            self._camera_info_callback, 10,
         )
         self._subscriptions.append(sub)
 
@@ -257,7 +262,7 @@ class ObservationAssembler:
 
         # Zoom level (cross-agent, BEST_EFFORT)
         sub = node.create_subscription(
-            Float32, f'/{peer}/zoom_level',
+            Float64, f'/{peer}/camera/zoom_level',
             lambda msg, v=peer: self._zoom_level_callback(msg, v),
             self._sensor_qos,
         )
@@ -296,25 +301,15 @@ class ObservationAssembler:
         state.linear_acceleration_b = np.array([acc.x, acc.y, acc.z])
 
     def _gimbal_state_callback(self, msg: Vector3, veh: str):
-        """Cache gimbal state (body-frame, radians)."""
+        """Cache gimbal state (body-frame, deg → rad).
+
+        The gimbal_state_rpy_deg topic provides body-frame angles with
+        yaw=0 meaning forward. No offset subtraction needed.
+        """
         state = self._states[veh]
-        now = self._get_time()
-
-        # msg: x=roll, y=pitch, z=yaw
-        new_yaw = msg.z
-        new_pitch = msg.y
-
-        # Estimate gimbal rates from finite differences
-        prev_yaw, prev_pitch, prev_t = self._prev_gimbal[veh]
-        dt = now - prev_t
-        if dt > 0.001:
-            state.gimbal_yaw_rate = (new_yaw - prev_yaw) / dt
-            state.gimbal_pitch_rate = (new_pitch - prev_pitch) / dt
-
-        state.gimbal_yaw_body = new_yaw
-        state.gimbal_pitch_body = new_pitch
-        state.gimbal_timestamp = now
-        self._prev_gimbal[veh] = (new_yaw, new_pitch, now)
+        state.gimbal_yaw_body = math.radians(msg.z)
+        state.gimbal_pitch_body = math.radians(msg.y)
+        state.gimbal_timestamp = self._get_time()
 
     def _detection_callback(self, msg: Detection2DArray, veh: str):
         """Cache YOLO detection bbox."""
@@ -340,7 +335,7 @@ class ObservationAssembler:
 
         state.detection_timestamp = self._get_time()
 
-    def _zoom_level_callback(self, msg: Float32, veh: str):
+    def _zoom_level_callback(self, msg: Float64, veh: str):
         """Cache zoom level from dedicated topic."""
         self._states[veh].zoom_level = float(msg.data)
 
@@ -358,6 +353,17 @@ class ObservationAssembler:
     def _chosen_target_ray_callback(self, msg: Vector3Stamped, veh: str):
         """Cache pre-selected target bearing ray from tracker."""
         self._states[veh].chosen_target_ray_w = np.array([msg.vector.x, msg.vector.y, msg.vector.z])
+
+    def _camera_info_callback(self, msg: CameraInfo):
+        """Update bbox normalization dimensions from actual camera resolution."""
+        if msg.width > 0 and msg.height > 0:
+            if msg.width != self._image_width or msg.height != self._image_height:
+                logger.info(
+                    f"Camera resolution updated: {self._image_width}x{self._image_height} "
+                    f"→ {msg.width}x{msg.height}"
+                )
+                self._image_width = msg.width
+                self._image_height = msg.height
 
     def _triangulation_callback(self, msg: PoseWithCovarianceStamped):
         """Cache triangulation result with covariance."""
@@ -396,25 +402,22 @@ class ObservationAssembler:
         roll, pitch, yaw = euler_xyz_from_quat(ego.orientation_w)
         euler_rpy = wrap_to_pi(np.array([roll, pitch, yaw]))
 
-        gimbal_yaw_obs = ego.gimbal_yaw_body - self._yaw_joint_offset
+        # Gimbal angles are body-frame with 0=forward (topic already offset-corrected)
+        gimbal_yaw_obs = ego.gimbal_yaw_body
         gimbal_pitch_obs = ego.gimbal_pitch_body
 
-        # Use pre-selected target ray from tracker, fall back to gimbal LOS
+        # Use pre-selected target ray from tracker; zero when unavailable
+        # (matches training env: ray is zero when no bbox detected)
         if ego.chosen_target_ray_w is not None:
             ray_w = ego.chosen_target_ray_w
         else:
-            ray_w = gimbal_ray_direction_world(
-                np.array(gimbal_yaw_obs),
-                np.array(gimbal_pitch_obs),
-                ego.orientation_w,
-            )
-        combined_ang_vel_w = compute_combined_angular_velocity_world(
-            ego.angular_velocity_b,
-            ego.gimbal_pitch_rate,
-            ego.gimbal_yaw_rate,
-            ego.orientation_w,
-        )
+            ray_w = np.zeros(3)
+
+        # Combined angular velocity from dedicated topic (same source as peers)
+        combined_ang_vel_w = ego.combined_ang_vel_w
+
         bbox_aoi = now - ego.detection_timestamp if ego.detection_timestamp > 0 else 0.0
+        bbox_aoi = min(bbox_aoi, self._max_bbox_aoi)
 
         ego_obs = np.concatenate([
             ego.position_w,                         # 0-2: position (3)
@@ -437,16 +440,11 @@ class ObservationAssembler:
         for peer in self._peer_names:
             other = self._states[peer]
 
-            # Use pre-selected target ray from peer's tracker, fall back to gimbal LOS
+            # Use pre-selected target ray from peer's tracker; zero when unavailable
             if other.chosen_target_ray_w is not None:
                 other_ray_w = other.chosen_target_ray_w
             else:
-                other_gimbal_yaw = other.gimbal_yaw_body - self._yaw_joint_offset
-                other_ray_w = gimbal_ray_direction_world(
-                    np.array(other_gimbal_yaw),
-                    np.array(other.gimbal_pitch_body),
-                    other.orientation_w,
-                )
+                other_ray_w = np.zeros(3)
             # Peer combined_ang_vel: use pre-computed value from dedicated topic
             other_combined_ang_vel_w = other.combined_ang_vel_w
             data_age = now - other.motion_timestamp if other.motion_timestamp > 0 else 0.0

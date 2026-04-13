@@ -17,12 +17,14 @@
     control_frequency: 25.0  # Hz (must match training decimation)
     max_lin_vel: 10.0        # m/s
     max_yaw_rate: 0.7854     # rad/s (45 deg/s)
+    max_gimbal_rate: 3.141592653589793  # rad/s (180 deg/s, must match training env)
+    max_zoom_rate: 1.0       # zoom-levels/s (must match training env)
     device: "cpu"
 
     # --- Observation ---
     image_width: 640
     image_height: 480
-    yaw_joint_offset: -1.5708  # -pi/2
+    max_bbox_aoi: 20.0       # clip bbox age-of-information (s), matches training episode length
     enable_triangulation: true
     use_common_frame: true
     stale_timeout: 2.0

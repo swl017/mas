@@ -3,7 +3,7 @@
 State machine: IDLE → TRACKING → MISSION
 
 All transitions triggered by operator via /mission_state_cmd topic.
-Routes gimbal/zoom/velocity commands from the active source based on state.
+Routes gimbal/zoom-rate/velocity commands from the active source based on state.
 """
 
 import rclpy
@@ -16,7 +16,7 @@ from rclpy.qos import (
 )
 
 from geometry_msgs.msg import TwistStamped, Vector3
-from std_msgs.msg import Float32, Int8
+from std_msgs.msg import Float32, Float64, Int8
 
 # Mission state constants
 IDLE = 0
@@ -81,7 +81,7 @@ class MissionNode(Node):
             qos_default,
         )
         self.create_subscription(
-            Float32, 'policy/zoom_cmd', self._policy_zoom_cb,
+            Float32, 'policy/zoom_rate_cmd', self._policy_zoom_cb,
             qos_default,
         )
 
@@ -95,7 +95,7 @@ class MissionNode(Node):
             qos_best_effort,
         )
         self.create_subscription(
-            Float32, 'tracking/zoom_cmd', self._tracking_zoom_cb,
+            Float32, 'tracking/zoom_rate_cmd', self._tracking_zoom_cb,
             qos_default,
         )
 
@@ -112,8 +112,11 @@ class MissionNode(Node):
         self.gimbal_cmd_los_rate_pub = self.create_publisher(
             Vector3, 'gimbal_cmd_los_rate', qos_default,
         )
-        self.zoom_cmd_pub = self.create_publisher(
-            Float32, 'zoom_cmd', qos_default,
+        self.zoom_rate_cmd_pub = self.create_publisher(
+            Float32, 'zoom_rate_cmd', qos_default,
+        )
+        self.zoom_level_set_pub = self.create_publisher(
+            Float64, 'zoom_level_set', qos_default,
         )
 
         # -- Heartbeat timer --
@@ -136,13 +139,24 @@ class MissionNode(Node):
         old_name = _STATE_NAMES[self.state]
         new_name = _STATE_NAMES[requested]
 
-        if requested == self.state:
+        if requested == self.state and requested != IDLE:
             self.get_logger().info(f'Already in {new_name}, ignoring')
             return
 
         self.state = requested
         self._publish_state()
-        self.get_logger().info(f'State transition: {old_name} → {new_name}')
+        if old_name != new_name:
+            self.get_logger().info(f'State transition: {old_name} → {new_name}')
+
+        # Reset zoom on IDLE (always, even if already IDLE)
+        if requested == IDLE:
+            zoom_rate_msg = Float32()
+            zoom_rate_msg.data = 0.0
+            self.zoom_rate_cmd_pub.publish(zoom_rate_msg)
+            zoom_level_msg = Float64()
+            zoom_level_msg.data = 1.0
+            self.zoom_level_set_pub.publish(zoom_level_msg)
+            self.get_logger().info('Zoom reset to 1.0')
 
     # ── Policy command callbacks (active in MISSION) ────────────────────
 
@@ -156,7 +170,7 @@ class MissionNode(Node):
 
     def _policy_zoom_cb(self, msg: Float32) -> None:
         if self.state == MISSION:
-            self.zoom_cmd_pub.publish(msg)
+            self.zoom_rate_cmd_pub.publish(msg)
 
     # ── Tracking command callbacks (active in TRACKING) ─────────────────
 
@@ -170,7 +184,7 @@ class MissionNode(Node):
 
     def _tracking_zoom_cb(self, msg: Float32) -> None:
         if self.state == TRACKING:
-            self.zoom_cmd_pub.publish(msg)
+            self.zoom_rate_cmd_pub.publish(msg)
 
     # ── Heartbeat ───────────────────────────────────────────────────────
 

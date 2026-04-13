@@ -61,9 +61,9 @@ All policy outputs are in [-1, 1]. Scaling applied before sending to actuators.
 | 1 | vy (world ENU) | x max_lin_vel | [-10, 10] m/s | `cmd_vel` | twist.linear.y |
 | 2 | vz (world ENU) | x max_lin_vel | [-10, 10] m/s | `cmd_vel` | twist.linear.z |
 | 3 | yaw rate | x max_yaw_rate | [-0.785, 0.785] rad/s | `cmd_vel` | twist.angular.z |
-| 4 | gimbal az rate | pass-through | [-1, 1] normalized | `gimbal_cmd_los_rate` | x |
-| 5 | gimbal el rate | pass-through | [-1, 1] normalized | `gimbal_cmd_los_rate` | y |
-| 6 | zoom rate | pass-through | [-1, 1] normalized | `zoom_cmd` | data |
+| 4 | gimbal az rate | x max_gimbal_rate | [-π, π] rad/s | `gimbal_cmd_los_rate` | x |
+| 5 | gimbal el rate | x max_gimbal_rate | [-π, π] rad/s | `gimbal_cmd_los_rate` | y |
+| 6 | zoom rate | x max_zoom_rate | [-1, 1] zoom-levels/s | `zoom_rate_cmd` | data |
 
 `ActionPublisher` (mas_policy) handles scaling and publishing. See `mas_policy/action_publisher.py`.
 
@@ -229,13 +229,13 @@ policy_node
   | publishes (relative, remapped to policy/* when mission-gated):
   |   /{ns}/[policy/]cmd_vel          (TwistStamped)
   |   /{ns}/[policy/]gimbal_cmd_los_rate (Vector3)
-  |   /{ns}/[policy/]zoom_cmd         (Float32)
+  |   /{ns}/[policy/]zoom_rate_cmd    (Float32)
   v
 mas_mission (mission_node, state=MISSION)
   | routes to:
   |   /{ns}/cmd_vel                 (TwistStamped)
   |   /{ns}/gimbal_cmd_los_rate     (Vector3)
-  |   /{ns}/zoom_cmd                (Float32)
+  |   /{ns}/zoom_rate_cmd           (Float32)
   v
 mas_offboard (offboard_control, state=POLICY)
   | publishes:
@@ -251,7 +251,7 @@ MAVROS --> PX4
 | `/{ns}/common_frame/odom` | Odometry | Position + velocity (primary) | ENU-FLU |
 | `/{ns}/mavros/local_position/odom` | Odometry | Fallback when `use_common_frame=false` | ENU-FLU |
 | `/{ns}/mavros/imu/data` | Imu | Angular vel, linear accel | ENU-FLU body |
-| `/{ns}/gimbal_state_rpy_rad` | Vector3 | Gimbal joints (body frame) | FLU body |
+| `/{ns}/gimbal_state_rpy_deg` | Vector3 | Gimbal joints (body frame, deg→rad internally) | FLU body |
 | `/{ns}/yolo_result_vision` | Detection2DArray | YOLO detections | image |
 | `/{ns}/zoom_level` | Float32 | Current zoom factor | - |
 | `/{ns}/target_rays_w` | TargetRayArray | Camera bearing rays (world) | ENU |

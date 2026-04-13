@@ -162,9 +162,61 @@ isaac_joint_states  →  los_rate_controller (negate roll/pitch at boundary)
 - **Ticket #022** — established iris_gimbal3 joint axis conventions (roll=-X, pitch=-Y), negation at boundary
 - **Ticket #020** — LOS stabilization, gimbal topic conventions table
 
+## Investigation Results (2026-04-04)
+
+### Result: No mismatch — conventions are aligned
+
+#### 1. Yaw observation (obs[15]) — MATCH
+
+Training formula: `obs_yaw = raw_yaw_joint - (-π/2) = raw_yaw_joint + π/2`
+Deployment formula: `obs_yaw = raw_yaw_joint - π/2`
+
+These differ by π, but the raw yaw values differ by the same π due to different camera mountings:
+- Training: camera offset `(0.5,-0.5,0.5,-0.5)` on pitch_link → at yaw_joint=0, camera faces -X
+- Deployment: identity camera on pitch_link → at yaw_joint=0, camera faces body -Y
+
+Numerical verification:
+| Physical direction | Training raw → obs | Deployment raw → obs |
+|---|---|---|
+| Forward | -π/2 → **0** | +π/2 → **0** |
+| 45° left | -π/4 → **π/4** | 3π/4 → **π/4** |
+| 90° right | -π → **-π/2** | 0 → **-π/2** |
+
+Offsets cancel correctly at all angles.
+
+#### 2. Pitch observation (obs[16]) — MATCH
+
+Training: `obs_pitch = joint_positions_b[:, 0]` = raw_pitch (confirmed index 0 = pitch via explicit `torch.stack([pitch, yaw, roll])` at iris_ma_env6_test.py:744-750).
+
+Deployment chain:
+1. `raw_pitch` from isaac_joint_states (by name lookup, not index)
+2. `actual_pitch = -raw_pitch` (los_rate_controller.py:388, boundary negation for -Y axis)
+3. `msg.y = degrees(-actual_pitch) = degrees(raw_pitch)` (los_rate_controller.py:604)
+4. `obs_pitch = radians(msg.y) = raw_pitch` (observation_assembler.py:312)
+
+Double negation cancels. Both produce `raw_pitch`.
+
+#### 3. FK fallback ray (obs[17:19]) — same pre-existing sign issue in both
+
+`gimbal_ray_direction_world` uses `-sin(pitch)` → positive pitch = look down. But iris_gimbal3's effective pitch axis is -Y (ticket #022), so positive raw_pitch = look UP. The FK produces a physically incorrect ray.
+
+This does NOT affect policy behavior because:
+- Training: `ego_ray_w = ego_data.camera_ray_directions_w` (from actual camera, not FK)
+- Deployment: `ray_w = ego.chosen_target_ray_w` (from tracker, not FK)
+- FK is only the fallback path when tracker has no data
+
+If the FK fallback matters in the future, negate pitch before calling:
+```python
+ray_w = gimbal_ray_direction_world(yaw, -pitch, q_body)  # negate for -Y axis
+```
+
+### Conclusion
+
+No code change required. The observation conventions are aligned between training and deployment. The YAW_JOINT_OFFSET sign difference (+π/2 vs -π/2) correctly compensates for the different camera mounting orientations. The pitch double-negation in the deployment chain preserves the raw joint value that training uses directly.
+
 ## Status
 
 ```
 Flow: I -> S -> Y -> PR
-Status: Investigation
+Status: Investigation complete — no fix needed
 ```
