@@ -42,14 +42,16 @@
       "name": "SIYI encoder angles & aircraft attitude injection",
       "status": "done",
       "spec": "gimbal_controller/doc/siyi_encoder_attitude_spec.md",
-      "notes": "0x26 encoder stream + 0x22 attitude injection in SDK & ROS node (2026-03-26)"
+      "notes": "0x26 not supported on A8 mini (ZT30 only). 0x22 attitude injection from IMU at 100 Hz. 0x3E GPS injection added. Joint angles derived from 0x0D + aircraft IMU. (2026-04-14)",
+      "last_updated": "2026-04-14"
     },
     {
       "id": "gimbal-encoder-wiring",
       "name": "Encoder angles as primary gimbal state",
-      "status": "done",
+      "status": "in_progress",
       "spec": "",
-      "notes": "Canonical convention: gimbal_state_rpy_deg (deg, body-frame). mas_policy switched from gimbal_state_rpy_rad to gimbal_state_rpy_deg with internal deg→rad conversion. Sim+real aligned. Hardware verification still pending (2026-03-29)"
+      "notes": "gimbal_state_rpy_deg now carries derived joint angles: yaw=0x0D encoder, pitch/roll=heading-aircraft (rotated by yaw). Sign verified on bench. 0x07 rate + 0x05 zoom commands added. Yaw drift under 0x22 injection open. Flight test pending. (2026-04-14)",
+      "last_updated": "2026-04-14"
     },
     {
       "id": "mas-mission",

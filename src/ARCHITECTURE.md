@@ -21,10 +21,10 @@ All topics below are per-vehicle, resolved within `/{veh}/` namespace unless not
 | `camera/color/camera_info` | sensor_msgs/CameraInfo | camera driver | mas_multiview, point_to_region_node | default |
 | `yolo_result_vision` | vision_msgs/Detection2DArray | ultralytics_ros | mas_multiview, mas_policy (ego) | BEST_EFFORT |
 | `yolo_result_active` | std_msgs/Bool | ultralytics_ros | mas_policy (peers) | BEST_EFFORT |
-| `common_frame/odom` | nav_msgs/Odometry | mas_common_frame | mas_multiview, mas_policy, siyi_gimbal_node | BEST_EFFORT |
+| `common_frame/odom` | nav_msgs/Odometry | mas_common_frame | mas_multiview, mas_policy, siyi_gimbal_node (0x22 + velocity) | BEST_EFFORT |
 | `common_frame/pose` | geometry_msgs/PoseStamped | mas_common_frame | point_to_region_node | BEST_EFFORT |
-| `gimbal_state_rpy_deg` | geometry_msgs/Vector3 | siyi_gimbal_node (encoder 0x26) | mas_multiview, point_to_region_node, mas_policy (ego) | BEST_EFFORT |
-| `gimbal_imu_rpy_deg` | geometry_msgs/Vector3 | siyi_gimbal_node (IMU 0x0D) | — (secondary, available if needed) | default |
+| `gimbal_state_rpy_deg` | geometry_msgs/Vector3 | siyi_gimbal_node (derived joint angles) | mas_multiview, point_to_region_node, mas_policy (ego) | BEST_EFFORT |
+| `gimbal_imu_rpy_deg` | geometry_msgs/Vector3 | siyi_gimbal_node (0x0D heading-frame) | — (secondary, available if needed) | default |
 | `camera/zoom` | std_msgs/Float64 | — | mas_multiview | default |
 | `camera_pose` | geometry_msgs/PoseStamped | — | mas_multiview | default |
 | `triangulated_points` | mas_msgs/TriangulatedPointArray | mas_multiview | mas_tracker, mas_operator | default |
@@ -54,7 +54,8 @@ All topics below are per-vehicle, resolved within `/{veh}/` namespace unless not
 | `mavros/local_position/odom` | nav_msgs/Odometry | MAVROS | offboard_control | RELIABLE |
 | `mavros/setpoint_velocity/cmd_vel` | geometry_msgs/TwistStamped | offboard_control | MAVROS | default |
 | `mavros/setpoint_position/local` | geometry_msgs/PoseStamped | offboard_control | MAVROS | default |
-| `mavros/imu/data` | sensor_msgs/Imu | MAVROS | mas_policy | BEST_EFFORT |
+| `mavros/imu/data` | sensor_msgs/Imu | MAVROS | mas_policy, siyi_gimbal_node (joint derivation) | BEST_EFFORT |
+| `mavros/global_position/global` | sensor_msgs/NavSatFix | MAVROS | siyi_gimbal_node (0x3E GPS) | BEST_EFFORT |
 
 ### Services
 

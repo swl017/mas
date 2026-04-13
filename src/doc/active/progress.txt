@@ -402,3 +402,50 @@ Next:
 - Add feedforward to gimbal_los_tracker_node (steady-state error during orbit from proportional-only control)
 - Test Jacobian vs analytical vs combined mode comparison under aggressive maneuvers
 - Commit all changes (both MAS and IsaacPX4 repos)
+
+----------------------------------------
+2026-04-13/14 — Ticket #005: Gimbal encoder hardware verification
+----------------------------------------
+Done:
+- Hardware identification: SIYI A8 mini, firmware v7.3.0, serial 7302253649
+- **0x26 NOT supported on A8 mini** (ZT30 only per SDK Protocol V0.1.1 Appendix 2)
+  - Gimbal silently ignores 0x26 requests, encoder values always zero
+  - Confirmed via one-shot request, stream request, and buffer callback inspection
+- 0x0D frame convention mapped via bench test (Lock/Follow/FPV modes):
+  - Yaw: joint angle (magnetic encoder), drift-free, all modes
+  - Pitch: heading-frame (IMU), NED convention (positive=down inverted from ENU)
+  - Roll: heading-frame (IMU), same sign as ENU
+- Controllability: only yaw and pitch commandable (0x07, 0x0E, 0x41). Roll always auto-managed.
+- Joint angle derivation in siyi_ros_node.py:
+  - Yaw: direct from 0x0D (encoder-based)
+  - Pitch/Roll: 0x0D heading - aircraft attitude, rotated by yaw joint angle
+  - Aircraft attitude from mavros/imu/data (ENU), decoupled from odom
+  - NED/ENU pitch sign flip: different subtraction direction for pitch vs roll
+  - Sign verified on bench with MAVROS IMU
+- 0x22 attitude injection moved from odom to IMU callback, throttled at 100 Hz timer
+  - Discovered yaw drift caused by 0x22 injection with mismatched heading reference on bench
+  - Drift stops when 0x22 disabled — workaround: enable_aircraft_attitude:=false for bench
+- 0x3E (Send GPS Raw Data) support added:
+  - SDK: sendGPSRawDataMsg() in siyi_message.py, requestSendGPSRawData() in siyi_sdk.py
+  - ROS: gps_callback subscribes to mavros/global_position/global, velocity cached from odom
+  - Matches ArduPilot send_attitude_position() pattern (0x22 + 0x3E)
+- Rate command (0x07) and zoom command (0x05) subscribers added to siyi_ros_node
+  - gimbal_cmd_los_rate (Vector3, x=yaw y=pitch, normalized -1..1) → 0x07 heading-frame rate
+  - zoom_cmd (Float32, +1=in -1=out 0=stop) → 0x05 zoom
+  - Created test_los_rate_control.py: proportional LOS hold with 0x0D feedback + 0x07 rate output
+- SDK fixes:
+  - tf_transformations → transforms3d (pip, works on Jetson)
+  - Socket reconnection bug fixed (_create_socket() + recreate after disconnect)
+  - Clean shutdown: disconnect() recursion guard, thread join timeouts, suppress errors during stop
+  - Encoder stream request commented out (not supported on A8 mini)
+  - Rates: SDK gimbalAttLoop 100 Hz, ROS publish 100 Hz
+  - Timestamp overflow fix for 0x22 (epoch ms > uint32 max)
+- Launch file: removed unused encoder_stream params, updated defaults to 100 Hz
+- Updated CONTEXT.md, ARCHITECTURE.md (topic table), gap_analysis.md, ticket.md, memory
+
+Next:
+- Investigate 0x22 yaw drift root cause (heading reference mismatch)
+- Verify joint angle derivation in flight with real centrifugal forces
+- point_to_region closed-loop test with derived joint angles
+- mas_multiview triangulation reprojection test with derived joint angles
+- Commit all session changes

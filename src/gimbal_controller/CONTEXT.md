@@ -10,25 +10,26 @@ Gimbal hardware interface (SIYI SDK) and camera pointing control for target trac
 **Pattern:** Decoupled (subscriber → cache command, timer → publish state + actuate)
 
 #### Subscriptions
-- `siyi_gimbal_angles/command_rpy_deg` (`geometry_msgs/Vector3`) — target gimbal angles from point_to_region_node
-- `mavros/imu/data` (`sensor_msgs/Imu`) — aircraft attitude + angular velocity for joint angle derivation and combined_ang_vel_w (BEST_EFFORT QoS)
-- `common_frame/odom` (`nav_msgs/Odometry`) — robot odometry for aircraft attitude injection to gimbal via 0x22 (BEST_EFFORT QoS)
+- `siyi_gimbal_angles/command_rpy_deg` (`geometry_msgs/Vector3`) — target gimbal angles (heading-frame, 0x0E)
+- `gimbal_cmd_los_rate` (`geometry_msgs/Vector3`) — heading-frame LOS rate command (x=yaw, y=pitch, normalized -1..1, 0x07)
+- `zoom_cmd` (`std_msgs/Float32`) — zoom rate command (+1=in, -1=out, 0=stop, 0x05)
+- `mavros/imu/data` (`sensor_msgs/Imu`) — aircraft attitude for joint angle derivation + 0x22 injection (BEST_EFFORT)
+- `common_frame/odom` (`nav_msgs/Odometry`) — velocity cache for 0x3E GPS injection (BEST_EFFORT)
+- `mavros/global_position/global` (`sensor_msgs/NavSatFix`) — GPS for 0x3E injection (BEST_EFFORT)
 
 #### Publishers
-- `siyi_gimbal_angles/encoder_rpy_deg` (`geometry_msgs/Vector3`) — **primary gimbal state**: joint-frame angles (degrees) at 25 Hz. Remapped to `gimbal_state_rpy_deg` in launch. Direction multipliers (`yaw_direction`, `pitch_direction`) applied. Derived as: yaw from 0x0D (encoder-based joint angle in all modes), pitch/roll from `0x0D_heading - aircraft_attitude_ENU`. Requires `common_frame/odom` for pitch/roll derivation.
-- `siyi_gimbal_angles/state_rpy_deg` (`geometry_msgs/Vector3`) — **secondary**: 0x0D raw heading-frame angles at 25 Hz. Remapped to `gimbal_imu_rpy_deg` in launch. Yaw=joint(encoder), pitch/roll=world(IMU).
+- `siyi_gimbal_angles/state_rpy_deg` (`geometry_msgs/Vector3`) — **primary gimbal state**: 0x0D angles at 100 Hz. Remapped to `gimbal_state_rpy_deg` in launch. Yaw=joint(encoder), pitch/roll=heading(IMU). Direction multipliers applied.
+- `siyi_gimbal_angles/encoder_rpy_deg` (`geometry_msgs/Vector3`) — derived joint-frame angles at 100 Hz. Yaw from 0x0D (encoder), pitch/roll from `0x0D_heading - aircraft_attitude_ENU` rotated by yaw joint angle. Requires `mavros/imu/data` for pitch/roll derivation.
 - `combined_ang_vel_w` (`geometry_msgs/Vector3Stamped`) — gimbal angular velocity in world frame (finite-difference of joint angles)
 - `camera/zoom_level` (`std_msgs/Float64`) — current zoom level from SDK `getZoomLevel()`
 
 #### Parameters
-- `server_ip` (`string`, default: `"192.168.144.25"`) — SIYI gimbal IP
+- `server_ip` (`string`, default: `"192.168.144.26"`) — SIYI gimbal IP
 - `server_port` (`int`, default: `37260`) — SIYI gimbal port
-- `publish_rate_hz` (`double`, default: `25.0`) — state publish rate
-- `yaw_direction` (`double`, default: `1.0`) — yaw sign convention
-- `pitch_direction` (`double`, default: `-1.0`) — pitch sign convention
-- `enable_encoder_stream` (`bool`, default: `true`) — enable magnetic encoder angle streaming (0x26)
-- `enable_aircraft_attitude` (`bool`, default: `true`) — enable aircraft EKF attitude injection (0x22)
-- `encoder_stream_freq` (`int`, default: `50`) — encoder stream frequency in Hz
+- `publish_rate_hz` (`double`, default: `100.0`) — state publish rate
+- `yaw_direction` (`double`, default: `1.0`) — yaw sign multiplier (left=positive)
+- `pitch_direction` (`double`, default: `-1.0`) — pitch sign multiplier (down=positive after negation)
+- `enable_aircraft_attitude` (`bool`, default: `true`) — enable 0x22 attitude injection (from IMU at 100 Hz) and 0x3E GPS injection
 
 ---
 

@@ -140,6 +140,7 @@ class COMMAND:
     ACQUIRE_GIMBAL_ATT = '0d'
     SET_GIMBAL_ATTITUDE = '0e'
     SEND_AIRCRAFT_ATTITUDE = '22'
+    SEND_GPS_RAW_DATA = '3e'
     SET_DATA_STREAM = '25'
     REQUEST_GIMBAL_ENCODER = '26'
     ABSOLUTE_ZOOM = '0f'
@@ -592,6 +593,28 @@ class SIYIMESSAGE:
         payload = struct.pack('<I6f', int(time_ms), roll, pitch, yaw, rollspeed, pitchspeed, yawspeed)
         data = payload.hex()
         cmd_id = COMMAND.SEND_AIRCRAFT_ATTITUDE
+        return self.encodeMsg(data, cmd_id)
+
+    def sendGPSRawDataMsg(self, time_ms, lat, lon, alt_msl, alt_ellipsoid, vn, ve, vd):
+        """
+        Send raw GPS data to gimbal (0x3E).
+
+        Params
+        --
+        - time_ms [uint32_t] Timestamp in ms since boot
+        - lat [int32_t] Latitude in degE7
+        - lon [int32_t] Longitude in degE7
+        - alt_msl [int32_t] Altitude MSL in cm
+        - alt_ellipsoid [int32_t] Altitude above WGS84 ellipsoid in cm
+        - vn [int32_t] North velocity in mm/s
+        - ve [int32_t] East velocity in mm/s
+        - vd [int32_t] Down velocity in mm/s
+        """
+        payload = struct.pack('<I7i', int(time_ms), int(lat), int(lon),
+                              int(alt_msl), int(alt_ellipsoid),
+                              int(vn), int(ve), int(vd))
+        data = payload.hex()
+        cmd_id = COMMAND.SEND_GPS_RAW_DATA
         return self.encodeMsg(data, cmd_id)
 
     def requestGimbalEncoderAngleMsg(self):

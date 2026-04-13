@@ -12,8 +12,8 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Vector3, Vector3Stamped
 from nav_msgs.msg import Odometry
-from sensor_msgs.msg import Imu
-from std_msgs.msg import Float64
+from sensor_msgs.msg import Imu, NavSatFix
+from std_msgs.msg import Float32, Float64
 from transforms3d.euler import quat2euler
 
 class SiyiGimbalNode(Node):
@@ -84,6 +84,22 @@ class SiyiGimbalNode(Node):
             self.angle_callback,
             qos_profile)
 
+        # Rate command subscriber (0x07 gimbal rotation)
+        # Heading-frame LOS rate: gimbal moves camera pointing direction in world frame.
+        # In Lock mode: world heading/elevation rate. In Follow mode: yaw=body offset rate.
+        self.rate_sub = self.create_subscription(
+            Vector3,
+            'gimbal_cmd_los_rate',
+            self.rate_callback,
+            qos_profile)
+
+        # Zoom command subscriber
+        self.zoom_sub = self.create_subscription(
+            Float32,
+            'zoom_cmd',
+            self.zoom_callback,
+            qos_profile)
+
         # Encoder angles publisher
         if self.enable_encoder_stream:
             self.encoder_pub = self.create_publisher(
@@ -102,12 +118,17 @@ class SiyiGimbalNode(Node):
             self.imu_callback,
             best_effort_qos)
 
-        # Aircraft attitude injection (0x22) — subscribe to odom
+        # Aircraft attitude injection (0x22) + GPS data (0x3E) — subscribe to odom and GPS
         if self.enable_aircraft_attitude:
             self.odom_sub = self.create_subscription(
                 Odometry,
                 'common_frame/odom',
                 self.odom_callback,
+                best_effort_qos)
+            self.gps_sub = self.create_subscription(
+                NavSatFix,
+                'mavros/global_position/global',
+                self.gps_callback,
                 best_effort_qos)
 
         # --- Combined angular velocity publisher ---
@@ -131,9 +152,26 @@ class SiyiGimbalNode(Node):
         self._aircraft_pitch_enu_deg = 0.0
         self._aircraft_roll_enu_deg = 0.0
 
+        # Velocity cache (ENU, m/s) for 0x3E GPS data
+        self._velocity_enu = np.zeros(3)
+
+        # IMU cache for 0x22 attitude injection (NED, sent by timer at 100 Hz)
+        self._imu_valid = False
+        self._imu_roll_ned = 0.0
+        self._imu_pitch_ned = 0.0
+        self._imu_yaw_ned = 0.0
+        self._imu_wx_ned = 0.0
+        self._imu_wy_ned = 0.0
+        self._imu_wz_ned = 0.0
+        self._imu_time_ms = 0
+
         # --- ROS2 Timer for Periodic Publishing ---
         timer_period = 1.0 / publish_rate  # seconds
         self.timer = self.create_timer(timer_period, self.publish_angles_callback)
+
+        # --- 0x22 attitude injection timer (100 Hz, only when enabled) ---
+        if self.enable_aircraft_attitude:
+            self.att_inject_timer = self.create_timer(0.01, self.attitude_inject_callback)
 
         self.get_logger().info(f"Siyi Gimbal Node Started. Publishing state at {publish_rate} Hz.")
 
@@ -154,6 +192,33 @@ class SiyiGimbalNode(Node):
             self.cam.requestSetAngles(target_yaw_deg, target_pitch_deg)
         except Exception as e:
             self.get_logger().error(f"Failed to send angle command to camera: {e}")
+
+    def rate_callback(self, msg: Vector3):
+        """Heading-frame LOS rate command via 0x07.
+        Input: x=yaw_rate, y=pitch_rate (normalized -1..1).
+        0x07 is heading-frame: gimbal internally handles joint actuation + stabilization.
+        Positive yaw=pan left, positive pitch=tilt down. Send 0 to stop.
+        """
+        try:
+            # Scale from [-1,1] to [-100,100] int8, clamp
+            yaw_speed = max(-100, min(100, int(msg.x * 100)))
+            pitch_speed = max(-100, min(100, int(msg.y * 100)))
+            self.cam.requestGimbalSpeed(yaw_speed, pitch_speed)
+        except Exception as e:
+            self.get_logger().error(f"Failed to send rate command: {e}")
+
+    def zoom_callback(self, msg: Float32):
+        """Zoom rate command. Positive=zoom in, negative=zoom out, 0=stop."""
+        try:
+            zoom_val = msg.data
+            if zoom_val > 0:
+                self.cam.requestZoomIn()
+            elif zoom_val < 0:
+                self.cam.requestZoomOut()
+            else:
+                self.cam.requestZoomHold()
+        except Exception as e:
+            self.get_logger().error(f"Failed to send zoom command: {e}")
 
     def publish_angles_callback(self):
         """Callback function called by the timer to publish current angles."""
@@ -259,47 +324,76 @@ class SiyiGimbalNode(Node):
             q = msg.orientation
             self._body_quat_wxyz = np.array([q.w, q.x, q.y, q.z])
 
-            # Cache aircraft attitude (ENU, degrees) for joint angle derivation
+            # Extract Euler angles (ENU)
             roll_enu, pitch_enu, yaw_enu = quat2euler([q.w, q.x, q.y, q.z], axes='sxyz')
+
+            # Cache aircraft attitude (ENU, degrees) for joint angle derivation
             self._aircraft_pitch_enu_deg = math.degrees(pitch_enu)
             self._aircraft_roll_enu_deg = math.degrees(roll_enu)
+
+            # Cache NED attitude + rates for 0x22 injection (sent by timer, not here)
+            self._imu_roll_ned = roll_enu          # NED roll = ENU roll
+            self._imu_pitch_ned = -pitch_enu       # NED pitch = -ENU pitch
+            yaw_ned = math.pi / 2.0 - yaw_enu
+            self._imu_yaw_ned = math.atan2(math.sin(yaw_ned), math.cos(yaw_ned))
+            self._imu_wx_ned = av.x
+            self._imu_wy_ned = -av.y
+            self._imu_wz_ned = -av.z
+            self._imu_time_ms = (msg.header.stamp.sec * 1000 + msg.header.stamp.nanosec // 1_000_000) % (2**32)
+            self._imu_valid = True
 
         except Exception as e:
             self.get_logger().error(f"Error in imu_callback: {e}")
 
     def odom_callback(self, msg: Odometry):
-        """Send aircraft attitude to gimbal via 0x22 (ENU odom → NED)."""
+        """Cache velocity from odom (ENU) for 0x3E GPS data."""
         try:
-            q = msg.pose.pose.orientation
-            roll_enu, pitch_enu, yaw_enu = quat2euler([q.w, q.x, q.y, q.z], axes='sxyz')
-
-            # ENU → NED conversion (for 0x22 SIYI SDK interface only)
-            roll_ned = roll_enu
-            pitch_ned = -pitch_enu
-            yaw_ned = math.pi / 2.0 - yaw_enu
-            # Wrap yaw to [-pi, pi]
-            yaw_ned = math.atan2(math.sin(yaw_ned), math.cos(yaw_ned))
-
-            # Angular velocities: ENU → NED
-            wx_ned = msg.twist.twist.angular.x
-            wy_ned = -msg.twist.twist.angular.y
-            wz_ned = -msg.twist.twist.angular.z
-
-            # Timestamp in ms from header
-            time_ms = msg.header.stamp.sec * 1000 + msg.header.stamp.nanosec // 1_000_000
-
-            self.cam.requestSendAircraftAttitude(
-                time_ms, roll_ned, pitch_ned, yaw_ned,
-                wx_ned, wy_ned, wz_ned)
-
+            v = msg.twist.twist.linear
+            self._velocity_enu = np.array([v.x, v.y, v.z])
         except Exception as e:
             self.get_logger().error(f"Error in odom_callback: {e}")
 
+    def gps_callback(self, msg: NavSatFix):
+        """Send GPS raw data to gimbal via 0x3E."""
+        try:
+            time_ms = msg.header.stamp.sec * 1000 + msg.header.stamp.nanosec // 1_000_000
+
+            lat = int(msg.latitude * 1e7)    # degE7
+            lon = int(msg.longitude * 1e7)   # degE7
+            alt_msl = int(msg.altitude * 100)  # cm
+            alt_ellipsoid = alt_msl  # approximate (no undulation available)
+
+            # Velocity ENU → NED (mm/s)
+            vn = int(self._velocity_enu[1] * 1000)  # ENU Y (North) → NED X
+            ve = int(self._velocity_enu[0] * 1000)  # ENU X (East)  → NED Y
+            vd = int(-self._velocity_enu[2] * 1000)  # ENU Z (Up)   → NED -Z
+
+            self.cam.requestSendGPSRawData(
+                time_ms, lat, lon, alt_msl, alt_ellipsoid,
+                vn, ve, vd)
+
+        except Exception as e:
+            self.get_logger().error(f"Error in gps_callback: {e}")
+
+    def attitude_inject_callback(self):
+        """Send cached 0x22 attitude to gimbal at 100 Hz. Only sends if IMU data received."""
+        if not self._imu_valid:
+            return
+        try:
+            self.cam.requestSendAircraftAttitude(
+                self._imu_time_ms,
+                self._imu_roll_ned, self._imu_pitch_ned, self._imu_yaw_ned,
+                self._imu_wx_ned, self._imu_wy_ned, self._imu_wz_ned)
+        except Exception as e:
+            self.get_logger().error(f"Error in attitude_inject_callback: {e}")
+
     def disconnect_camera(self):
         """Safely disconnect the camera."""
-        if hasattr(self, 'cam') and self.cam.isConnected:
-            self.get_logger().info("Disconnecting SIYI camera.")
-            self.cam.disconnect()
+        if hasattr(self, 'cam'):
+            try:
+                self.cam.disconnect()
+            except Exception:
+                pass
 
 # The original test() function remains unchanged as it doesn't use ROS directly
 def test():
@@ -353,7 +447,10 @@ def main(args=None):
         if siyi_gimbal_node:
             siyi_gimbal_node.disconnect_camera()
             siyi_gimbal_node.destroy_node()
-        rclpy.shutdown()
+        try:
+            rclpy.shutdown()
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     main()

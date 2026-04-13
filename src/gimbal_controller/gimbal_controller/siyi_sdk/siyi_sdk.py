@@ -152,6 +152,8 @@ class SIYISDK:
         """
         Gracefully stops all threads, disconnects, and cleans up resources.
         """
+        if self._stop:
+            return  # Already disconnecting, avoid recursion
         self._logger.info("Stopping all threads and disconnecting")
         self._stop = True  # Signal threads to stop
 
@@ -159,18 +161,14 @@ class SIYISDK:
         if self._socket:
             try:
                 self._socket.close()
-            except Exception as e:
-                self._logger.error(f"Error closing socket: {e}")
+            except Exception:
+                pass
 
-        # Wait for threads to finish, if they're still alive
-        if self._recv_thread.is_alive():
-            self._recv_thread.join()
-        if self._conn_thread.is_alive():
-            self._conn_thread.join()
-        if self._g_info_thread.is_alive():
-            self._g_info_thread.join()
-        if self._g_att_thread.is_alive():
-            self._g_att_thread.join()
+        # Wait for threads to finish with timeout
+        for t in [self._recv_thread, self._conn_thread,
+                  self._g_info_thread, self._g_att_thread]:
+            if t.is_alive():
+                t.join(timeout=2.0)
 
         # Reset the stop flag and other variables
         self.resetVars()
@@ -209,8 +207,8 @@ class SIYISDK:
                 self.checkConnection()
                 sleep(t)
             except Exception as e:
-                self._logger.error(f"Error in connection loop: {e}")
-                self.disconnect()
+                if not self._stop:
+                    self._logger.error(f"Error in connection loop: {e}")
                 break
 
     # def recvLoop(self):
@@ -254,8 +252,9 @@ class SIYISDK:
                 self.requestGimbalInfo()
                 sleep(t)
             except Exception as e:
-                self._logger.error(f"Error in gimbal info loop: {e}")
-                self.disconnect()
+                if not self._stop:
+                    self._logger.error(f"Error in gimbal info loop: {e}")
+                break
 
     def gimbalAttLoop(self, t):
         """
@@ -270,8 +269,9 @@ class SIYISDK:
                 self.requestGimbalAttitude()
                 sleep(t)
             except Exception as e:
-                self._logger.error(f"Error in gimbal attitude loop: {e}")
-                self.disconnect()
+                if not self._stop:
+                    self._logger.error(f"Error in gimbal attitude loop: {e}")
+                break
 
     def sendMsg(self, msg):
         """
@@ -311,7 +311,8 @@ class SIYISDK:
         try:
             buff,addr = self._socket.recvfrom(self._BUFF_SIZE)
         except Exception as e:
-            self._logger.error(f"[bufferCallback] {e}")
+            if not self._stop:
+                self._logger.error(f"[bufferCallback] {e}")
             return
 
         buff_str = buff.hex()
@@ -719,6 +720,21 @@ class SIYISDK:
         rollspeed, pitchspeed, yawspeed: [float] Angular velocities in rad/s (NED frame)
         """
         msg = self._out_msg.sendAircraftAttitudeMsg(time_ms, roll, pitch, yaw, rollspeed, pitchspeed, yawspeed)
+        return self.sendMsg(msg)
+
+    def requestSendGPSRawData(self, time_ms, lat, lon, alt_msl, alt_ellipsoid, vn, ve, vd):
+        """
+        Send raw GPS data to gimbal (0x3E).
+
+        Params
+        ---
+        time_ms: [uint32_t] Timestamp in ms since boot
+        lat, lon: [int32_t] Latitude/longitude in degE7
+        alt_msl: [int32_t] Altitude MSL in cm
+        alt_ellipsoid: [int32_t] Altitude above WGS84 ellipsoid in cm
+        vn, ve, vd: [int32_t] Velocity NED in mm/s
+        """
+        msg = self._out_msg.sendGPSRawDataMsg(time_ms, lat, lon, alt_msl, alt_ellipsoid, vn, ve, vd)
         return self.sendMsg(msg)
 
     def requestGimbalEncoderAngle(self):

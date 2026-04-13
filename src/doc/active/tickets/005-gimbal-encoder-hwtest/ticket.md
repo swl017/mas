@@ -104,10 +104,21 @@ Tested Lock, Follow, FPV modes with manual base rotation. Recorded 0x0D (yaw, pi
 
 Roll is never user-commandable (SDK only exposes yaw/pitch via 0x07, 0x0E, 0x41).
 
+### Yaw drift under 0x22 attitude injection
+
+Even with 0x22 injection at 100 Hz from MAVROS IMU, the yaw joint angle drifts slowly in Lock mode. Drift stops when siyi_ros_node is killed (no more 0x22 injection). This suggests the 0x22 data actively causes the drift — either the ENU→NED conversion produces a heading offset that the gimbal tries to track, or the A8 mini's internal heading fusion fights with the injected attitude.
+
+Possible causes:
+- MAVROS IMU yaw (magnetometer-based) disagrees with gimbal's internal heading → gimbal slowly rotates to match
+- ENU→NED yaw conversion (`π/2 - yaw_enu`) produces a different heading reference than what the gimbal expects
+- The A8 mini may not benefit from 0x22 injection on the bench (no GPS, no flight)
+
+**Workaround**: set `enable_aircraft_attitude:=false` when 0x22 is not needed. In flight, the heading disagreement may be smaller since both use GPS-aided EKF.
+
 ### Revised plan
 
 The situation is much better than initially feared:
-- **Yaw**: encoder-based joint angle, drift-free — available directly from 0x0D
+- **Yaw**: encoder-based joint angle, drift-free without 0x22 injection — available directly from 0x0D
 - **Pitch**: heading-frame, needs `pitch_joint = 0x0D_pitch - aircraft_pitch` derivation
 - **Roll**: heading-frame, always stabilized to ~0 in Lock/Follow (auto-managed by gimbal)
 
