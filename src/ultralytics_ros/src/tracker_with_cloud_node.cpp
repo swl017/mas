@@ -149,10 +149,10 @@ void TrackerWithCloudNode::processPointsWithBbox(const pcl::PointCloud<pcl::Poin
     cv::Point3d pt_cv(point.x, point.y, point.z);
     cv::Point2d uv = cam_model_.project3dToPixel(pt_cv);
 
-    if (point.z > 0 && uv.x > 0 && uv.x >= detection2d_msg.bbox.center.x - detection2d_msg.bbox.size_x / 2 &&
-        uv.x <= detection2d_msg.bbox.center.x + detection2d_msg.bbox.size_x / 2 &&
-        uv.y >= detection2d_msg.bbox.center.y - detection2d_msg.bbox.size_y / 2 &&
-        uv.y <= detection2d_msg.bbox.center.y + detection2d_msg.bbox.size_y / 2)
+    if (point.z > 0 && uv.x > 0 && uv.x >= detection2d_msg.bbox.center.position.x - detection2d_msg.bbox.size_x / 2 &&
+        uv.x <= detection2d_msg.bbox.center.position.x + detection2d_msg.bbox.size_x / 2 &&
+        uv.y >= detection2d_msg.bbox.center.position.y - detection2d_msg.bbox.size_y / 2 &&
+        uv.y <= detection2d_msg.bbox.center.position.y + detection2d_msg.bbox.size_y / 2)
     {
       detection_cloud_raw->points.push_back(point);
     }

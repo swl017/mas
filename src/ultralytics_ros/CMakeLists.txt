@@ -31,6 +31,11 @@ include_directories(include)
 find_package(pcl_conversions QUIET)
 find_package(pcl_ros QUIET)
 if(pcl_conversions_FOUND AND pcl_ros_FOUND)
+  find_package(cv_bridge REQUIRED)
+  find_package(image_geometry REQUIRED)
+  find_package(message_filters REQUIRED)
+  find_package(tf2_eigen REQUIRED)
+  find_package(tf2_ros REQUIRED)
   add_executable(tracker_with_cloud_node src/tracker_with_cloud_node.cpp)
   ament_target_dependencies(tracker_with_cloud_node
     rclcpp
