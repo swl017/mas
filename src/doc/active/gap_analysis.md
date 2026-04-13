@@ -114,11 +114,17 @@ Ordered by **dependency** (downstream items depend on upstream) and **risk** (im
 - [x] Define the single canonical gimbal state topic name and message convention: `gimbal_state_rpy_deg` (degrees, body-frame). (2026-03-29)
 
 **Hardware verification required (feat/gimbal-encoder-wiring branch):**
-- [ ] **Encoder sign convention:** Confirm encoder angles with `yaw_direction=1.0, pitch_direction=-1.0` produce correct output for `point_to_region` and `mas_multiview`. If encoder convention already matches downstream expectations natively, set both multipliers to `1.0`.
-- [ ] **Encoder stream continuity:** Verify 0x26 encoder stream at 50 Hz is stable and doesn't drop out during aggressive maneuvers (the whole point of switching from IMU).
-- [ ] **`los_rate_controller` compatibility:** Verify it still works correctly when `gimbal_state_rpy_deg` carries encoder-based body-frame angles instead of IMU-based world-frame angles. This is a frame convention change — may need adjustment in `los_rate_controller`.
-- [ ] **`point_to_region` closed-loop:** Command gimbal to point at a known target, verify the pointing converges (not oscillating or diverging due to sign error).
-- [ ] **`mas_multiview` triangulation:** Run multi-view triangulation with encoder angles, compare reprojection error against baseline with IMU angles.
+- [x] **Encoder sign convention:** PASS — `yaw_direction=1.0, pitch_direction=-1.0` produces correct signs (left yaw=+z, down pitch=+y). Matches downstream convention. (2026-04-13)
+- [x] **Encoder stream continuity:** BLOCKED — 0x26 not supported on A8 mini (ZT30 only per SIYI SDK Protocol V0.1.1 Appendix 2). Gimbal silently ignores requests, returns zeros. (2026-04-13)
+- [ ] **`los_rate_controller` compatibility:** N/A for real hardware (sim-only node). Real hardware uses `siyi_gimbal_node` directly.
+- [ ] **`point_to_region` closed-loop:** Pending — must use 0x0D IMU angles (heading-frame) instead of encoder angles. Requires deriving body-frame joints.
+- [ ] **`mas_multiview` triangulation:** Pending — same dependency on body-frame joint derivation.
+
+**A8 mini limitation (2026-04-13):**
+- 0x26 encoder angles: NOT supported (ZT30 only)
+- 0x0D IMU angles: works but heading-frame (world-stabilized), not body-frame joints
+- No acceleration compensation channel: 0x22 provides attitude only, 0x3E provides GPS velocity only — neither sends linear acceleration. Gimbal IMU drifts under centrifugal force.
+- Drift characterization in progress to determine if `joint = 0x0D - aircraft_attitude` is viable.
 
 ### Priority 2: mas_mission (blocks mission phase management)
 

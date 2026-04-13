@@ -61,7 +61,8 @@ mas/
 ## Build
 ```bash
 # ROS2 humble
-/home/usrg/ros2_humble
+/home/usrg/ros2_humble # Desktop dev env
+/opt/ros/humble # Onboard deploy
 
 # Build all
 cd ~/mas && colcon build

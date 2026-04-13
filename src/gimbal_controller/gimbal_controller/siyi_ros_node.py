@@ -12,24 +12,25 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Vector3, Vector3Stamped
 from nav_msgs.msg import Odometry
+from sensor_msgs.msg import Imu
 from std_msgs.msg import Float64
-from tf_transformations import euler_from_quaternion
+from transforms3d.euler import quat2euler
 
 class SiyiGimbalNode(Node):
     def __init__(self):
         super().__init__('siyi_gimbal_node') # Initialize the Node with a name
 
         # --- Parameters (Optional but good practice) ---
-        self.declare_parameter('server_ip', '192.168.144.25') # Default IP
+        self.declare_parameter('server_ip', '192.168.144.26') # Default IP
         self.declare_parameter('server_port', 37260)        # Default Port
-        self.declare_parameter('publish_rate_hz', 25.0)      # Publish rate
+        self.declare_parameter('publish_rate_hz', 100.0)     # Publish rate
         # Yaw/Pitch direction multipliers can also be parameters if needed
         self.declare_parameter('yaw_direction', 1.0)
         self.declare_parameter('pitch_direction', -1.0)
         # Encoder & aircraft attitude parameters
         self.declare_parameter('enable_encoder_stream', True)
         self.declare_parameter('enable_aircraft_attitude', True)
-        self.declare_parameter('encoder_stream_freq', 50)
+        self.declare_parameter('encoder_stream_freq', 100)
 
         server_ip = self.get_parameter('server_ip').get_parameter_value().string_value
         server_port = self.get_parameter('server_port').get_parameter_value().integer_value
@@ -62,9 +63,11 @@ class SiyiGimbalNode(Node):
             raise
 
         # --- Initialize encoder data stream ---
-        if self.enable_encoder_stream:
-            self.cam.requestDataStreamEncoderAngle(encoder_stream_freq)
-            self.get_logger().info(f"Requested encoder angle stream at {encoder_stream_freq} Hz.")
+        # NOTE: 0x26 magnetic encoder stream not supported on A8 mini (ZT30 only).
+        # Joint angles are derived from 0x0D + aircraft attitude instead.
+        # if self.enable_encoder_stream:
+        #     self.cam.requestDataStreamEncoderAngle(encoder_stream_freq)
+        #     self.get_logger().info(f"Requested encoder angle stream at {encoder_stream_freq} Hz.")
 
         # --- ROS2 Publisher and Subscriber ---
         # QoS Profile: KeepLast(10) is similar to queue_size=10
@@ -88,11 +91,19 @@ class SiyiGimbalNode(Node):
                 'siyi_gimbal_angles/encoder_rpy_deg',
                 qos_profile)
 
-        # Aircraft attitude injection — subscribe to odom
+        best_effort_qos = rclpy.qos.QoSProfile(
+            reliability=rclpy.qos.ReliabilityPolicy.BEST_EFFORT,
+            depth=10)
+
+        # IMU subscriber — aircraft attitude for joint angle derivation + body angular velocity
+        self.imu_sub = self.create_subscription(
+            Imu,
+            'mavros/imu/data',
+            self.imu_callback,
+            best_effort_qos)
+
+        # Aircraft attitude injection (0x22) — subscribe to odom
         if self.enable_aircraft_attitude:
-            best_effort_qos = rclpy.qos.QoSProfile(
-                reliability=rclpy.qos.ReliabilityPolicy.BEST_EFFORT,
-                depth=10)
             self.odom_sub = self.create_subscription(
                 Odometry,
                 'common_frame/odom',
@@ -112,6 +123,13 @@ class SiyiGimbalNode(Node):
         self._prev_enc_time = self.get_clock().now().nanoseconds / 1e9
         self._body_ang_vel_b = np.zeros(3)
         self._body_quat_wxyz = np.array([1.0, 0.0, 0.0, 0.0])
+
+        # Aircraft attitude cache for joint angle derivation (ENU, degrees)
+        # 0x0D reports: yaw=joint(encoder), pitch/roll=heading(world)
+        # Raw 0x0D pitch: positive=up, same as ENU pitch convention
+        # Joint angle = 0x0D_heading - aircraft_ENU
+        self._aircraft_pitch_enu_deg = 0.0
+        self._aircraft_roll_enu_deg = 0.0
 
         # --- ROS2 Timer for Periodic Publishing ---
         timer_period = 1.0 / publish_rate  # seconds
@@ -158,16 +176,34 @@ class SiyiGimbalNode(Node):
             self.angle_pub.publish(angles_msg)
             self.get_logger().debug(f"Published angles: {angles_msg.x}, {angles_msg.y}, {angles_msg.z}")
 
-            # Publish encoder angles if enabled
+            # Publish joint-frame angles (derived from 0x0D + aircraft attitude)
+            # 0x0D: yaw=joint(encoder), pitch/roll=heading(world)
+            # Rotate aircraft attitude into gimbal frame (account for yaw joint offset)
+            # then: joint = aircraft_in_gimbal_frame - heading
             if self.enable_encoder_stream:
-                enc_yaw, enc_pitch, enc_roll = self.cam.getGimbalEncoderAngles()
+                joint_yaw = current_yaw   # already joint frame (encoder-based)
+
+                # Rotate aircraft pitch/roll by yaw joint angle into gimbal frame
+                yaw_rad = math.radians(current_yaw)
+                cos_y = math.cos(yaw_rad)
+                sin_y = math.sin(yaw_rad)
+                ac_pitch_gimbal = (self._aircraft_pitch_enu_deg * cos_y
+                                   + self._aircraft_roll_enu_deg * sin_y)
+                ac_roll_gimbal = (-self._aircraft_pitch_enu_deg * sin_y
+                                  + self._aircraft_roll_enu_deg * cos_y)
+
+                # 0x0D is NED: pitch_NED = -pitch_ENU, roll_NED = roll_ENU
+                # Aircraft is ENU. Different subtraction signs for pitch vs roll.
+                joint_pitch = ac_pitch_gimbal - current_pitch
+                joint_roll = current_roll - ac_roll_gimbal
+
                 enc_msg = Vector3()
-                enc_msg.x = float(enc_roll)
-                enc_msg.y = float(enc_pitch * self.pitch_direction)
-                enc_msg.z = float(enc_yaw * self.yaw_direction)
+                enc_msg.x = float(joint_roll)
+                enc_msg.y = float(joint_pitch * self.pitch_direction)
+                enc_msg.z = float(joint_yaw * self.yaw_direction)
                 self.encoder_pub.publish(enc_msg)
 
-                # Compute gimbal rates from encoder finite differences (body-frame, radians)
+                # Compute gimbal rates from joint angle finite differences (body-frame, radians)
                 enc_yaw_rad = math.radians(enc_msg.z)
                 enc_pitch_rad = math.radians(enc_msg.y)
                 now = self.get_clock().now().nanoseconds / 1e9
@@ -212,19 +248,32 @@ class SiyiGimbalNode(Node):
         except Exception as e:
             self.get_logger().error(f"Error getting or publishing angles: {e}")
 
-    def odom_callback(self, msg: Odometry):
-        """Convert ENU odom to NED and send aircraft attitude to gimbal (0x22)."""
+    def imu_callback(self, msg: Imu):
+        """Cache aircraft attitude and angular velocity from MAVROS IMU (ENU)."""
         try:
-            # Cache body angular velocity and quaternion for combined_ang_vel_w
-            av = msg.twist.twist.angular
+            # Cache body angular velocity (ENU body-frame)
+            av = msg.angular_velocity
             self._body_ang_vel_b = np.array([av.x, av.y, av.z])
-            q = msg.pose.pose.orientation
+
+            # Cache body quaternion for combined_ang_vel_w rotation
+            q = msg.orientation
             self._body_quat_wxyz = np.array([q.w, q.x, q.y, q.z])
 
-            # Extract quaternion from odom
-            roll_enu, pitch_enu, yaw_enu = euler_from_quaternion([q.x, q.y, q.z, q.w])
+            # Cache aircraft attitude (ENU, degrees) for joint angle derivation
+            roll_enu, pitch_enu, yaw_enu = quat2euler([q.w, q.x, q.y, q.z], axes='sxyz')
+            self._aircraft_pitch_enu_deg = math.degrees(pitch_enu)
+            self._aircraft_roll_enu_deg = math.degrees(roll_enu)
 
-            # ENU → NED conversion
+        except Exception as e:
+            self.get_logger().error(f"Error in imu_callback: {e}")
+
+    def odom_callback(self, msg: Odometry):
+        """Send aircraft attitude to gimbal via 0x22 (ENU odom → NED)."""
+        try:
+            q = msg.pose.pose.orientation
+            roll_enu, pitch_enu, yaw_enu = quat2euler([q.w, q.x, q.y, q.z], axes='sxyz')
+
+            # ENU → NED conversion (for 0x22 SIYI SDK interface only)
             roll_ned = roll_enu
             pitch_ned = -pitch_enu
             yaw_ned = math.pi / 2.0 - yaw_enu
@@ -248,7 +297,7 @@ class SiyiGimbalNode(Node):
 
     def disconnect_camera(self):
         """Safely disconnect the camera."""
-        if hasattr(self, 'cam') and self.cam.is_connected:
+        if hasattr(self, 'cam') and self.cam.isConnected:
             self.get_logger().info("Disconnecting SIYI camera.")
             self.cam.disconnect()
 

@@ -43,9 +43,8 @@ class SIYISDK:
 
         self._BUFF_SIZE = 1024
 
-        self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._rcv_wait_t = 5  # Receiving wait time
-        self._socket.settimeout(self._rcv_wait_t)
+        self._socket = self._create_socket()
 
         self.resetVars()
 
@@ -64,7 +63,7 @@ class SIYISDK:
         self._g_info_thread = threading.Thread(target=self.gimbalInfoLoop, args=(self._gimbal_info_loop_rate,))
 
         # Gimbal attitude thread @ 10Hz
-        self._gimbal_att_loop_rate = 0.02
+        self._gimbal_att_loop_rate = 0.01
         self._g_att_thread = threading.Thread(target=self.gimbalAttLoop, args=(self._gimbal_att_loop_rate,))
 
     def resetVars(self):
@@ -92,6 +91,11 @@ class SIYISDK:
         self._last_att_seq = -1
 
         return True
+
+    def _create_socket(self):
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(self._rcv_wait_t)
+        return s
 
     def connect(self, maxWaitTime=3.0, maxRetries=3):
         """
@@ -171,6 +175,9 @@ class SIYISDK:
         # Reset the stop flag and other variables
         self.resetVars()
         self._stop = False
+
+        # Recreate socket so connect() can be called again
+        self._socket = self._create_socket()
 
     def checkConnection(self):
         """
@@ -794,7 +801,7 @@ class SIYISDK:
             self._gimbal_encoder_msg.pitch = toInt(msg[6:8]+msg[4:6]) / 10.0
             self._gimbal_encoder_msg.roll = toInt(msg[10:12]+msg[8:10]) / 10.0
 
-            self._logger.debug("Encoder (yaw, pitch, roll) = (%s, %s, %s)",
+            self._logger.info("Encoder (yaw, pitch, roll) = (%s, %s, %s)",
                                     self._gimbal_encoder_msg.yaw, self._gimbal_encoder_msg.pitch, self._gimbal_encoder_msg.roll)
             return True
         except Exception as e:
