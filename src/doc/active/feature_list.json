@@ -1,6 +1,6 @@
 {
   "project": "mas",
-  "last_updated": "2026-04-14",
+  "last_updated": "2026-04-15",
   "features": [
     {
       "id": "multiview-triangulation",
@@ -147,6 +147,14 @@
       "spec": "doc/active/tickets/026-gimbal-calibration/ticket.md",
       "notes": "gimbal_calibration.py implemented: verify (sign + stream), sweep (yaw/pitch fwd+bwd at 5° for hysteresis), optional checkerboard PnP zero-offset. Outputs calibration.csv + summary.csv + optional rosbag. Uses siyi_ros_node command/encoder topics. Bench test blocked on hardware availability. (2026-04-14)",
       "last_updated": "2026-04-14"
+    },
+    {
+      "id": "camera-intrinsic-calibration",
+      "name": "Camera intrinsic calibration with mrcal (ticket #028)",
+      "status": "done",
+      "spec": "doc/active/tickets/028-camera-intrinsic-calibration-mrcal/ticket.md",
+      "notes": "Closed at the repo-tooling level. Delivered src/scripts/calibration/ workflow: session tree initializer, mrcal runner, dataset layout, and JSON/CSV summarizer. Ticket artifact references recorded in ticket #028. Bench execution remains an operator step using the delivered workflow. (2026-04-15)",
+      "last_updated": "2026-04-15"
     }
   ]
 }

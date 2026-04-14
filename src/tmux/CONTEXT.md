@@ -55,7 +55,7 @@ The simdrone sessions depend on the Isaac Sim session (`IsaacPX4/tmux/isaac_sim.
 | Topic | Type | Producer |
 |-------|------|----------|
 | `/{veh}/gimbal_cmd_los_rate` | `geometry_msgs/Vector3` | mas_policy |
-| `/{veh}/zoom_cmd` | `std_msgs/Float32` | mas_policy |
+| `/{veh}/zoom_rate_cmd` | `std_msgs/Float32` | mas_policy |
 
 ## Usage
 ```bash

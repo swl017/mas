@@ -52,9 +52,36 @@ Gimbal hardware interface (SIYI SDK) and camera pointing control for target trac
 - mas_tracker — provides target_region
 - siyi_gimbal_node — provides gimbal state, consumes gimbal commands
 
+---
+
+### gimbal_calibration
+**File:** `gimbal_controller/gimbal_calibration.py`
+**Pattern:** Bench executable (single-run session driver)
+
+#### Purpose
+- Runs ticket 026 bench calibration inside the package boundary
+- Performs encoder verification, forward/reverse sweep, and optional checkerboard zero-offset estimation
+- Writes session artifacts under `datasets/gimbal_calibration/<session_name>/`
+
+#### Subscriptions
+- `image_raw` (`sensor_msgs/Image`) — optional checkerboard image input
+- `camera/color/camera_info` (`sensor_msgs/CameraInfo`) — optional intrinsics for checkerboard pose estimation
+- `gimbal_state_rpy_deg` (`geometry_msgs/Vector3`) — optional mirrored runtime state for bag capture / comparison
+
+#### Outputs
+- `datasets/gimbal_calibration/<session_name>/samples.csv`
+- `datasets/gimbal_calibration/<session_name>/summary.json`
+- `datasets/gimbal_calibration/<session_name>/bag/` via internal `ros2 bag record`
+- `datasets/gimbal_calibration/<session_name>/notes.md`
+
+#### Helper scripts
+- `scripts/init_gimbal_calibration_session.py` — pre-creates the dataset layout and manifest
+- `scripts/summarize_gimbal_calibration.py` — rebuilds summary JSON from `samples.csv`
+
 ## Key Files
 - `gimbal_controller/siyi_ros_node.py` — Hardware interface node
 - `gimbal_controller/point_to_region_node.py` — Pointing control node
 - `gimbal_controller/point_to_region.py` — Core pointing computation logic
+- `gimbal_controller/gimbal_calibration.py` — Bench calibration runner
 - `gimbal_controller/siyi_sdk.py` — SIYI gimbal SDK wrapper
 - `launch/` — Launch files

@@ -201,16 +201,16 @@
 
 ### D1. Camera Intrinsic Calibration
 
-- [ ] **What**: Focal length, principal point, distortion coefficients per zoom level
-- [ ] **Why**: Validates `CameraRandomizationCfg.focal_length_range` (800-1200 px)
-- [ ] **How to collect**:
+- [x] **What**: Focal length, principal point, distortion coefficients per zoom level
+- [x] **Why**: Validates `CameraRandomizationCfg.focal_length_range` (800-1200 px)
+- [x] **How to collect**:
   1. Standard checkerboard calibration (OpenCV `calibrateCamera`)
   2. Calibrate at each discrete zoom level (1x, 2x, 4x, etc.)
   3. Use 20+ images per zoom level from diverse angles
   4. Use `mrcal` to quantify calibration uncertainty
-- [ ] **Test script**: None needed (bench test with existing calibration tools)
-- [ ] **Extract**: f_x, f_y per zoom level; principal point offset; distortion k1-k5; calibration uncertainty from mrcal
-- [ ] **Maps to**: `CameraRandomizationCfg.focal_length_range`, `fov_scale_range`
+- [x] **Test script**: Repo workflow delivered under `src/scripts/calibration/`
+- [x] **Extract**: f_x, f_y per zoom level; principal point offset; distortion k1-k5; calibration uncertainty from mrcal
+- [x] **Maps to**: `CameraRandomizationCfg.focal_length_range`, `fov_scale_range`
 
 ### D2. Gimbal Joint Calibration
 

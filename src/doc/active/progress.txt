@@ -5,6 +5,27 @@ Append to this file at the end of each session.
 Format: date, what was done, what's next.
 
 ----------------------------------------
+2026-04-15 — Ticket #026 start: gimbal calibration
+----------------------------------------
+Done:
+- Read CLAUDE.md, ARCHITECTURE.md, qrispy_workflow.md, and ticket #026
+- Confirmed ticket #026 is a Light-flow task, so work starts with Stage I rather than code
+- Added `src/doc/active/tickets/026-gimbal-calibration/i_design.md`
+- Scoped the design around a standalone `gimbal_controller` calibration node that reuses the existing SIYI SDK boundary and separates hardware-blocked checkerboard validation from the implementable bench-run structure
+- Added `src/doc/active/tickets/026-gimbal-calibration/s_structure.md`
+- Revised the structure to keep all ticket 026 tooling inside `gimbal_controller`, including helper scripts and bench documentation
+- Implemented `gimbal_controller/gimbal_calibration.py` as a bench runner for encoder verification, yaw/pitch sweep, optional checkerboard zero-offset estimation, CSV output, summary JSON, and internal rosbag orchestration
+- Added package-local helper scripts: `scripts/init_gimbal_calibration_session.py` and `scripts/summarize_gimbal_calibration.py`
+- Updated `gimbal_controller/setup.py`, `package.xml`, `CONTEXT.md`, and added `README_calibration.md`
+- Verified Python syntax with `python3 -m py_compile` and smoke-tested the helper scripts (`init_gimbal_calibration_session.py`, `summarize_gimbal_calibration.py --help`)
+
+Next:
+- Bench-test `ros2 run gimbal_controller gimbal_calibration` on hardware
+- Validate encoder source behavior on the actual SIYI unit, especially the one-shot encoder read vs. attitude fallback path
+- Confirm checkerboard topic wiring and camera intrinsics availability before relying on zero-offset estimates
+- Keep hardware-dependent verification and checkerboard validation untested until bench access is available
+
+----------------------------------------
 2026-03-24 — AI workflow harness setup
 ----------------------------------------
 Done:
@@ -470,3 +491,34 @@ Next:
 - Run on real A8 mini when available; capture yaw+pitch hysteresis and zero-offset
 - Feed measured offsets/hysteresis into iris_ma6 randomization ranges (ticket cross-ref: sim2real D2)
 - If checkerboard PnP too fragile on single frame, add multi-frame averaging per setpoint
+
+----------------------------------------
+2026-04-15 — Ticket #028: Camera intrinsic calibration with mrcal
+----------------------------------------
+Done:
+- Created `src/scripts/calibration/` workflow for D1 bench calibration
+  - `init_camera_calibration_session.py`: creates dated per-zoom dataset tree under `datasets/camera_calibration/`
+  - `run_mrcal_intrinsics.sh`: wraps `mrcal-calibrate-cameras` per zoom level and records logs/artifacts
+  - `summarize_mrcal_intrinsics.py`: parses `.cameramodel` intrinsics and emits per-zoom JSON plus aggregate CSV
+  - `README.md`: documents dataset layout, capture expectations, mrcal commands, and sidecar metrics format
+- Added `.gitignore` entry for `datasets/camera_calibration/` so raw bench datasets stay out of git
+- Updated `feature_list.json`: added `camera-intrinsic-calibration` as `in_progress`
+- Verified current workspace does not have `mrcal` installed, so this session scoped to repo tooling and workflow setup only
+
+Next:
+- Install `mrcal` on the bench machine and initialize a dated capture session
+- Capture 30+ full-resolution checkerboard frames per operational zoom level
+- Run `run_mrcal_intrinsics.sh` per zoom level and review residuals / projection uncertainty
+- Fill `metrics.json` with accepted RMS / uncertainty values, then generate JSON summaries and aggregate CSV
+- Re-derive `CameraRandomizationCfg.focal_length_range` and `fov_scale_range` from measured 1 sigma bounds
+
+----------------------------------------
+2026-04-15 — Ticket #028 closeout
+----------------------------------------
+Done:
+- Marked ticket #028 as done and added explicit artifact links in the ticket
+- Updated feature tracker: `camera-intrinsic-calibration` -> `done`
+- Marked checklist D1 complete and pointed it at `src/scripts/calibration/`
+
+Next:
+- Use the documented artifacts to run the bench calibration session when hardware and `mrcal` are available
