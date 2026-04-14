@@ -19,7 +19,7 @@ All 5 checklist items in `gap_analysis.md` Priority 1 pass on real hardware
 Light (known scope, need I -> S -> Y if fixes are required)
 
 ### Status
-In progress — scope changed due to hardware findings
+In progress — A8 mini does not support 0x26. Workaround path identified: derive body-frame pitch from 0x0D minus aircraft pitch. Yaw already drift-free via 0x0D (magnetic encoder). Awaiting implementation + verification of Tests 4 & 5.
 
 ---
 
@@ -125,8 +125,9 @@ The situation is much better than initially feared:
 Only pitch is vulnerable to centrifugal drift, and pitch centrifugal drift is smaller than yaw would be (gravity reference affected by vertical acceleration component, not horizontal centrifugal force during orbits).
 
 **Next steps:**
-1. Characterize pitch drift under sustained rotation (bench test)
-2. Implement joint-frame pitch derivation: `pitch_joint = 0x0D_pitch - aircraft_pitch`
-3. Send 0x3E (GPS/velocity) to gimbal like ArduPilot does (future work)
-4. Verify `point_to_region` closed-loop with derived joint angles
-5. Verify `mas_multiview` triangulation reprojection error
+1. Implement joint-frame pitch derivation in `siyi_ros_node.py`: replace the zero-valued `encoder_rpy_deg` output with `(roll_from_0x0D, pitch_joint = 0x0D_pitch - aircraft_pitch, yaw_from_0x0D)`. Keep the existing `pitch_direction` sign convention and downstream remapping to `gimbal_state_rpy_deg` so consumers are unaffected.
+2. Decide default for `enable_aircraft_attitude`. Bench tests showed 0x22 injection actively causes yaw drift in Lock mode; recommend default `false` until the MAVROS-ENU → gimbal-NED heading disagreement is understood.
+3. Characterize residual pitch drift under sustained rotation (bench), and under flight (centrifugal force).
+4. Test 4 — `point_to_region` closed-loop: command gimbal at a known target, verify convergence and no oscillation with the derived joint angles.
+5. Test 5 — `mas_multiview` triangulation: compare reprojection error of the derived joint-frame pitch path against the raw 0x0D heading-frame path on a real rosbag.
+6. Future: implement 0x3E (GPS/velocity) injection to give the gimbal acceleration context (ArduPilot parity).

@@ -449,3 +449,24 @@ Next:
 - point_to_region closed-loop test with derived joint angles
 - mas_multiview triangulation reprojection test with derived joint angles
 - Commit all session changes
+
+----------------------------------------
+2026-04-14 — Ticket #026: Gimbal calibration script
+----------------------------------------
+Done:
+- Implemented scripts/gimbal_calibration.py (bench calibration harness, sits on top of siyi_ros_node):
+  - Phase 1 verify: ±15° step commands in yaw/pitch, logs state (0x0D heading-frame) + encoder (derived joint-frame) response, counts stream msgs for continuity check
+  - Phase 2 sweep: yaw [-90°..+90°] and pitch [-80°..+20°] forward then backward at 5° (configurable), paired fwd/bwd samples feed hysteresis metric
+  - Phase 3 checkerboard (optional): captures /camera/color/image_raw, PnP (cv2.solvePnP) against configurable checkerboard, logs cam vs cmd delta for zero-offset
+  - Outputs: calibration.csv (per-sample), summary.csv (per-axis hyst_max/mean + enc-cmd mean/std + cam-cmd mean/std), optional ros2 bag via --record-bag
+  - Signal-safe: SIGINT returns gimbal to 0,0, stops rosbag cleanly
+  - Configurable: --phase {verify,sweep,checkerboard,all}, --yaw-step, --pitch-step, --settle, --output-dir, --checkerboard 9x6, --square-size
+- Uses `siyi_gimbal_angles/command_rpy_deg` publisher + `state_rpy_deg` / `encoder_rpy_deg` subscribers — no direct SIYI SDK use (siyi_ros_node is single writer to the gimbal)
+- Stays within A8 mini limits; conservative sweep bounds avoid endstops
+
+Blocked on: hardware access (mas/005 unblocks). Script untested on real gimbal.
+
+Next:
+- Run on real A8 mini when available; capture yaw+pitch hysteresis and zero-offset
+- Feed measured offsets/hysteresis into iris_ma6 randomization ranges (ticket cross-ref: sim2real D2)
+- If checkerboard PnP too fragile on single frame, add multi-frame averaging per setpoint

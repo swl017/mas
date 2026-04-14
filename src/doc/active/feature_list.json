@@ -1,6 +1,6 @@
 {
   "project": "mas",
-  "last_updated": "2026-04-04",
+  "last_updated": "2026-04-14",
   "features": [
     {
       "id": "multiview-triangulation",
@@ -139,6 +139,14 @@
       "spec": "doc/active/tickets/021-sim-topic-update-rate/ticket.md",
       "notes": "Increased PX4 MAVLink streaming rates (LOCAL_POSITION_NED 1→100 Hz, ATTITUDE_QUATERNION 100→250 Hz). Replaced mas_common_frame 10 Hz timer with callback-driven publishing. Increased Isaac rendering_dt to 100 Hz. IMU-triggered gimbal controller at 15 Hz wall-clock. Fixed wall-clock dt inflation at low RTF by using sim-time timestamps. Added servo_rate_limit for delayed feedback stability. (2026-04-07)",
       "last_updated": "2026-04-07"
+    },
+    {
+      "id": "gimbal-calibration",
+      "name": "Gimbal encoder verification + calibration sweep (ticket #026)",
+      "status": "in_progress",
+      "spec": "doc/active/tickets/026-gimbal-calibration/ticket.md",
+      "notes": "gimbal_calibration.py implemented: verify (sign + stream), sweep (yaw/pitch fwd+bwd at 5° for hysteresis), optional checkerboard PnP zero-offset. Outputs calibration.csv + summary.csv + optional rosbag. Uses siyi_ros_node command/encoder topics. Bench test blocked on hardware availability. (2026-04-14)",
+      "last_updated": "2026-04-14"
     }
   ]
 }
