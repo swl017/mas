@@ -1,0 +1,3 @@
+axis,hyst_n,hyst_max_deg,hyst_mean_deg,state_minus_cmd_mean_deg,state_minus_cmd_std_deg,cam_minus_cmd_mean_deg,cam_minus_cmd_std_deg
+yaw,0,nan,nan,nan,nan,nan,nan
+pitch,0,nan,nan,nan,nan,nan,nan
