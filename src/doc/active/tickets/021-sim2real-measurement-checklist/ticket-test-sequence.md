@@ -1,0 +1,6 @@
+- How to collect data?
+- How to label the collected data without losing track or confusing which corresponds to which test?
+- How to sequence the tests to ensure efficient test schedule?
+- How to do it safely?
+- What environmental conditions to take into account? e.g. average wind of the day
+- Do it indoors(optical flow) or outdoors(GPS)?
