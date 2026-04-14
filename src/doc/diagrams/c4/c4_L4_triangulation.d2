@@ -1,0 +1,237 @@
+# MAS C4 Level 4 — Code: mas_multiview
+# Render: d2 c4_L4_triangulation.d2 c4_L4_triangulation.svg --layout=elk
+
+direction: right
+
+title: {
+  label: "MAS — mas_multiview Code Diagram (C4 Level 4)"
+  near: top-center
+  shape: text
+  style: {
+    font-size: 24
+    bold: true
+  }
+}
+
+# ═══════════════════════════════════════════════════════════
+# mas_multiview package boundary
+# ═══════════════════════════════════════════════════════════
+
+mas_multiview: mas_multiview {
+  style: {
+    fill: "#e8f0fe"
+    stroke: "#438dd5"
+    stroke-width: 2
+    font-size: 24
+  }
+
+  # ── TriangulationNode ──
+
+  tri_node: TriangulationNode {
+    style: {
+      fill: "#85bbf0"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Class: rclcpp::Node]\ntriangulation_node.cpp\n\ntimerCallback() @ publish_rate Hz:\n  1. Setup extrinsics per camera\n     (odom_R × gimbal_R chain)\n  2. Build frustum visualization\n  3. Check readiness (≥2 cameras)\n  4. addDetection() or addPrecomputedRay()\n  5. Publish per-camera TargetRayArray\n  6. Triangulate(max_time, max_err)\n  7. Publish TriangulatedPointArray\n  8. Publish visualization markers\n\nPer-camera caches:\n  detections_, camera_infos_,\n  camera_zooms_, camera_odoms_,\n  gimbals_, precomputed_rays_" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── MultiViewTriangulation ──
+
+  mvt: MultiViewTriangulation {
+    style: {
+      fill: "#85bbf0"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Class]\nmultiview_triangulation.cpp\n\nTriangulate():\n  1. filterDetections()\n     - Reject rays near other cameras\n  2. associateDetections()\n     - Cartesian product of det indices\n  3. estimateInitialPosition()\n     - Weighted midpoint from ray pairs\n     - Reject if repr_err > 20% width\n  4. optimizePositionEstimate()\n     - Ceres NLS solver\n     - Filter by max_reprojection_error\n\nPublic API:\n  addCamera(), setCameraIntrinsics(K)\n  setCameraExtrinsics(R, t)\n  setCameraPoseCovariance(6×6)\n  addDetection(2D), addPrecomputedRay()" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── Camera ──
+
+  camera: Camera {
+    style: {
+      fill: "#85bbf0"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Class]\ncamera.h\n\nK_ (3×3 intrinsics)\nR_ (3×3 rotation, world→cam)\nt_ (3D translation)\npose_covariance_ (6×6)\ngimbal_angles_ (3)\ndetections_ (vector<Detection>)\n\naddDetection2D(det)\n  → compute Ray from K/R/t + pixel\naddPrecomputedRay(origin, dir)\ngetFrustumCorners(length)" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── Detection ──
+
+  detection: Detection {
+    style: {
+      fill: "#d4e8fc"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Structs]\ndetection.h\n\nDetection2D:\n  center (u,v), width, height\n  class_id, confidence\n  ray (computed bearing ray)\n\nDetection3D:\n  position (3), covariance (3×3)\n  detection_ids[] (per-camera)" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── Ray ──
+
+  ray: Ray {
+    style: {
+      fill: "#d4e8fc"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Class]\nray.h\n\nray_origin (3D)\nray_direction (3D, unit)\n\ngetRayFromPixels(K, R, t, pixel)\n  1. Normalize by K⁻¹\n  2. Rotate by R (gimbal + body)\n  3. Origin = camera position\n\ndistanceToPoint(point)\nangleBetweenVectors(v1, v2)" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── ReprojectionError ──
+
+  reproj: ReprojectionError {
+    style: {
+      fill: "#c5e1a5"
+      stroke: "#7cb342"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Ceres CostFunction]\nreprojection.h\n\nBase: Reprojection::project<T>()\n  1. World→cam: Rᵀ×(pos - t)\n  2. FLU→RDF rotation\n  3. Pinhole: u = fx×X/Z + cx\n\nReprojectionError:\n  operator()(pos, residuals)\n    residuals = observed - projected\n  getReprojectionError(point)\n\nRegularizationError:\n  operator()(pos, residuals)\n    residuals = pos - initial_guess" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── CovarianceConfig + Propagation ──
+
+  cov_prop: "Covariance\nPropagation" {
+    style: {
+      fill: "#fff9c4"
+      stroke: "#f9a825"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Functions]\ncovariance_propagation.cpp\n\npropagateCovariance(X, cameras, config):\n  Sandwich formula:\n  Σ_X = A⁻¹ (Jᵀ W S W J) A⁻ᵀ\n\n  Per camera:\n    J_X = (du/dXc) × R_wo\n    S_c = Σ_pix + J_t×Σ_t×J_tᵀ\n      + J_φ×Σ_φ×J_φᵀ + J_g×Σ_g×J_gᵀ\n\n  SVD condition check (< 1e6)\n\nCovarianceConfig:\n  pix_std, pos_std, ori_std,\n  gimbal_std, use_pose_covariance" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── CartesianProduct ──
+
+  cartesian: generateCombinations() {
+    style: {
+      fill: "#fff9c4"
+      stroke: "#f9a825"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Template Function]\ncartesian_product.h\n\nInput: sets of detection indices\n  per camera\nOutput: all combinations\n  (one det per camera)\n\nE.g. cam0: [0,1], cam1: [0,1,2]\n  → 6 associations" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── Relationships ──
+
+  tri_node -> mvt: "owns\nsetup + Triangulate()" {
+    style.stroke: "#333"
+  }
+  mvt -> camera: "manages\ncameras_[] vector" {
+    style.stroke: "#333"
+  }
+  camera -> detection: "contains\ndetections_[] vector" {
+    style.stroke: "#333"
+  }
+  detection -> ray: "contains\nbearing ray" {
+    style.stroke: "#333"
+  }
+  mvt -> reproj: "creates\nCeres residual blocks" {
+    style.stroke: "#333"
+  }
+  mvt -> cov_prop: "calls\npropagateCovariance()" {
+    style.stroke: "#333"
+  }
+  mvt -> cartesian: "calls\nassociateDetections()" {
+    style.stroke: "#333"
+  }
+}
+
+# ═══════════════════════════════════════════════════════════
+# External inputs / outputs
+# ═══════════════════════════════════════════════════════════
+
+cam_input: "Per-Camera Topics" {
+  style: {
+    fill: "#999"
+    stroke: "#6b6b6b"
+    font-color: "#fff"
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "yolo_result_vision\ncamera/color/camera_info\ncamera/zoom_level\ncommon_frame/odom\ngimbal_state_rpy_deg" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+peer_rays: "Peer TargetRayArray" {
+  style: {
+    fill: "#d4edda"
+    stroke: "#6abf69"
+    font-color: "#333"
+    border-radius: 8
+    font-size: 24
+    multiple: true
+  }
+  desc: "Precomputed bearing rays\nfrom peer mas_multiview\ninstances" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+output: "Output Topics" {
+  style: {
+    fill: "#999"
+    stroke: "#6b6b6b"
+    font-color: "#fff"
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "triangulated_points\n  (TriangulatedPointArray)\n{cam}/target_rays_w\n  (TargetRayArray per camera)\nvisualization markers" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+cam_input -> mas_multiview.tri_node: "subscriptions\n(per camera)" {
+  style.stroke: "#707070"
+}
+peer_rays -> mas_multiview.tri_node: "precomputed\nrays" {
+  style.stroke: "#2d6a2d"
+  style.stroke-dash: 3
+}
+mas_multiview.tri_node -> output: "publish" {
+  style.stroke: "#707070"
+}

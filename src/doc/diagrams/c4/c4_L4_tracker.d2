@@ -1,0 +1,196 @@
+# MAS C4 Level 4 — Code: mas_tracker
+# Render: d2 c4_L4_tracker.d2 c4_L4_tracker.svg --layout=elk
+
+direction: right
+
+title: {
+  label: "MAS — mas_tracker Code Diagram (C4 Level 4)"
+  near: top-center
+  shape: text
+  style: {
+    font-size: 24
+    bold: true
+  }
+}
+
+# ═══════════════════════════════════════════════════════════
+# mas_tracker package boundary
+# ═══════════════════════════════════════════════════════════
+
+mas_tracker: mas_tracker {
+  style: {
+    fill: "#e8f0fe"
+    stroke: "#438dd5"
+    stroke-width: 2
+    font-size: 24
+  }
+
+  # ── Sort3DNode ──
+
+  sort3d_node: Sort3DNode {
+    style: {
+      fill: "#85bbf0"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Class: rclcpp::Node]\nsort3d_node.cpp\n\ndetCallback(TriangulatedPointArray):\n  1. triPoints2dets() → Detection3DArray\n  2. Distribute by class\n  3. sort_instances_[i].update(dets)\n  4. pubChosenTarget()\n\npubChosenTarget():\n  - Check target alive\n  - Auto-pick if needed (pickTarget)\n  - Publish chosen_target_pose\n  - Ray selection: ID-based or angular\n  - Publish chosen_target_ray_w\n\nodomCallback(), autoPickCallback()\nsetTargetPositionCallback()" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── Sort3D ──
+
+  sort3d: Sort3D {
+    style: {
+      fill: "#85bbf0"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Class]\nsort3d.cpp\n\nupdate(vector<Detection3D>)\n  → vector<Detection3D> (valid tracks)\n\n  1. Predict all active trackers\n  2. Build cost matrix (Euclidean dist)\n  3. hungarian.Solve() → assignments\n  4. Update matched trackers\n  5. Create new for unmatched dets\n  6. Remove dead (age > max_age)\n  7. Return valid tracks\n\nisTrackAlive(target_id)\ncalculateDistance(tracker, det)" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── Tracker3D ──
+
+  tracker3d: Tracker3D {
+    style: {
+      fill: "#85bbf0"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Class]\nsort3d.cpp\n\nState: cx, cy, cz, sx, sy, sz\nm_id_ (unique, auto-increment)\nm_time_since_update_ (age)\nm_hits_, m_hit_streak_\nis_valid_ (after min_hits)\n\npredict() → KF predict\nupdate(BoundingBox3D) → KF update\ngetAsDetection3D()\ngetStateVector() → 12D Eigen\nupdateHistory() → deque(100)" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── KF (Kalman Filter) ──
+
+  kf: KF {
+    style: {
+      fill: "#c5e1a5"
+      stroke: "#7cb342"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Class] (header-only)\nkalman_filter.h\n\n12 states: [x,y,z, sx,sy,sz,\n  vx,vy,vz, vsx,vsy,vsz]\n6 measurements: [x,y,z, sx,sy,sz]\n\npredict():\n  x̂ = F × x, P = F×P×Fᵀ + Q\n\nupdate(z):\n  K = P×Hᵀ×(H×P×Hᵀ + R)⁻¹\n  x = x + K×(z - H×x)\n  P = (I - K×H)×P" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── HungarianAlgorithm ──
+
+  hungarian: HungarianAlgorithm {
+    style: {
+      fill: "#fff9c4"
+      stroke: "#f9a825"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Class]\nhungarian.cpp\n\nSolve(DistMatrix, Assignment)\n  → total cost\n\nInput: NxM cost matrix\n  (rows=trackers, cols=detections)\nOutput: Assignment[row] = col\n  (-1 if unassigned)\n\nMunkres algorithm (O(n³))" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── Relationships ──
+
+  sort3d_node -> sort3d: "owns (one per class)\nsort_instances_[i].update()" {
+    style.stroke: "#333"
+  }
+  sort3d -> tracker3d: "manages lifecycle\nactive_trackers_[]" {
+    style.stroke: "#333"
+  }
+  sort3d -> hungarian: "calls\nSolve(cost_matrix)" {
+    style.stroke: "#333"
+  }
+  tracker3d -> kf: "owns (embedded)\npredict(), update()" {
+    style.stroke: "#333"
+  }
+}
+
+# ═══════════════════════════════════════════════════════════
+# External inputs / outputs
+# ═══════════════════════════════════════════════════════════
+
+tri_input: "TriangulatedPointArray" {
+  style: {
+    fill: "#999"
+    stroke: "#6b6b6b"
+    font-color: "#fff"
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "From mas_multiview\n\npos (3), cov (3×3)\ndetection_ids[] per camera" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+rays_input: "TargetRayArray" {
+  style: {
+    fill: "#999"
+    stroke: "#6b6b6b"
+    font-color: "#fff"
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "Per-camera bearing rays\nfrom mas_multiview\n\nray origin, direction\ndetection_id linkage" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+operator: Operator {
+  style: {
+    fill: "#08427b"
+    stroke: "#073b6f"
+    font-color: "#fff"
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "set_target_position\nset_auto_pick_mode" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+out_tracks: "Output Topics" {
+  style: {
+    fill: "#999"
+    stroke: "#6b6b6b"
+    font-color: "#fff"
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "tracked_objects/class_{i}\nchosen_target_pose\nchosen_target_ray_w\ntarget_region" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+tri_input -> mas_tracker.sort3d_node: "detCallback" {
+  style.stroke: "#707070"
+}
+rays_input -> mas_tracker.sort3d_node: "raysCallback\nper_camera_rays_[]" {
+  style.stroke: "#707070"
+}
+operator -> mas_tracker.sort3d_node: "target override" {
+  style.stroke: "#d9a74a"
+  style.stroke-width: 2
+}
+mas_tracker.sort3d_node -> out_tracks: "publish" {
+  style.stroke: "#707070"
+}

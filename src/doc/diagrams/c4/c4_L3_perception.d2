@@ -1,0 +1,312 @@
+# MAS C4 Level 3 — Component: Perception Pipeline
+# Render: d2 c4_L3_perception.d2 c4_L3_perception.svg --layout=elk
+
+direction: right
+
+title: {
+  label: "MAS — Perception Pipeline Components (C4 Level 3)"
+  near: top-center
+  shape: text
+  style: {
+    font-size: 24
+    bold: true
+  }
+}
+
+# ═══════════════════════════════════════════════════════════
+# ultralytics_ros Container
+# ═══════════════════════════════════════════════════════════
+
+ultralytics_ros: "ultralytics_ros" {
+  style: {
+    fill: "#e8f0fe"
+    stroke: "#438dd5"
+    stroke-width: 2
+    font-size: 24
+  }
+
+  tracker_node: tracker_node {
+    style: {
+      fill: "#85bbf0"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Component: Python]\n\nRuns YOLOv8 inference\non each camera frame.\nOutputs 2D bounding boxes\nwith tracker IDs." {
+      shape: text
+      style.font-size: 13
+    }
+  }
+}
+
+# ═══════════════════════════════════════════════════════════
+# mas_multiview Container
+# ═══════════════════════════════════════════════════════════
+
+mas_multiview: "mas_multiview" {
+  style: {
+    fill: "#e8f0fe"
+    stroke: "#438dd5"
+    stroke-width: 2
+    font-size: 24
+  }
+
+  ray_computer: "Ray Computer" {
+    style: {
+      fill: "#85bbf0"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Component: C++]\n\nProjects 2D bbox centers\ninto 3D bearing rays using\ncamera intrinsics, gimbal\nangles, and drone pose." {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  triangulator: Triangulator {
+    style: {
+      fill: "#85bbf0"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Component: C++ / Ceres]\n\nIntersects bearing rays from\nmultiple cameras to estimate\n3D target positions with\ncovariance." {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  ray_computer -> triangulator: "ego target_rays_w"
+}
+
+# ═══════════════════════════════════════════════════════════
+# mas_tracker Container
+# ═══════════════════════════════════════════════════════════
+
+mas_tracker: "mas_tracker" {
+  style: {
+    fill: "#e8f0fe"
+    stroke: "#438dd5"
+    stroke-width: 2
+    font-size: 24
+  }
+
+  sort3d: sort3d_tracking_node {
+    style: {
+      fill: "#85bbf0"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Component: C++]\n\n3D Kalman-filter SORT.\nAssociates triangulated\ndetections across frames.\nMaintains track IDs." {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  target_selector: "Target Selector" {
+    style: {
+      fill: "#85bbf0"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Component: C++]\n\nSelects chosen_target from\ntracked objects. Supports\nauto-pick and operator-\noverride modes." {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  ray_selector: "Ray Selector" {
+    style: {
+      fill: "#85bbf0"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Component: C++]\n\nSelects ego camera's ray\nfor the chosen target using\nself_camera_index and\ndetection_ids linkage." {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  sort3d -> target_selector: "tracked objects\n(Detection3DArray)"
+  target_selector -> ray_selector: "chosen target ID"
+}
+
+# ═══════════════════════════════════════════════════════════
+# External inputs (left side)
+# ═══════════════════════════════════════════════════════════
+
+camera: Camera {
+  shape: rectangle
+  style: {
+    fill: "#999"
+    stroke: "#6b6b6b"
+    font-color: "#fff"
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "[External]" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+gimbal: Gimbal {
+  shape: rectangle
+  style: {
+    fill: "#999"
+    stroke: "#6b6b6b"
+    font-color: "#fff"
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "[External]" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+common_frame: mas_common_frame {
+  shape: rectangle
+  style: {
+    fill: "#438dd5"
+    stroke: "#3c7fc0"
+    font-color: "#fff"
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "[Container]" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+peer_multiview: "Peer mas_multiview" {
+  shape: rectangle
+  style: {
+    fill: "#d4edda"
+    stroke: "#6abf69"
+    font-color: "#333"
+    border-radius: 8
+    multiple: true
+    font-size: 24
+  }
+  desc: "[Container]" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+# ═══════════════════════════════════════════════════════════
+# Downstream consumers (right side)
+# ═══════════════════════════════════════════════════════════
+
+mas_policy: mas_policy {
+  shape: rectangle
+  style: {
+    fill: "#438dd5"
+    stroke: "#3c7fc0"
+    font-color: "#fff"
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "[Container]" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+gimbal_controller: gimbal_controller {
+  shape: rectangle
+  style: {
+    fill: "#438dd5"
+    stroke: "#3c7fc0"
+    font-color: "#fff"
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "[Container]" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+operator: Operator {
+  shape: oval
+  style: {
+    fill: "#08427b"
+    stroke: "#073b6f"
+    font-color: "#fff"
+    stroke-width: 2
+    font-size: 24
+  }
+  desc: "[Person]" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+# ═══════════════════════════════════════════════════════════
+# Input edges
+# ═══════════════════════════════════════════════════════════
+
+camera -> ultralytics_ros.tracker_node: "image_raw" {
+  style.stroke: "#707070"
+}
+camera -> mas_multiview.ray_computer: "CameraInfo\nzoom_level" {
+  style.stroke: "#707070"
+}
+gimbal -> mas_multiview.ray_computer: "gimbal_state_rpy_deg" {
+  style.stroke: "#707070"
+}
+common_frame -> mas_multiview.ray_computer: "common_frame/odom" {
+  style.stroke: "#707070"
+}
+
+ultralytics_ros.tracker_node -> mas_multiview.ray_computer: "yolo_result_vision\n(Detection2DArray)" {
+  style.stroke: "#1168bd"
+}
+
+peer_multiview -> mas_multiview.triangulator: "target_rays_w\n(peer bearing rays)" {
+  style.stroke: "#2d6a2d"
+  style.stroke-dash: 3
+}
+
+mas_multiview.triangulator -> mas_tracker.sort3d: "TriangulatedPointArray\n(pos, cov, detection_ids)" {
+  style.stroke: "#1168bd"
+}
+mas_multiview.ray_computer -> mas_tracker.ray_selector: "target_rays_w\n(ego bearing rays)" {
+  style.stroke: "#1168bd"
+}
+
+# ═══════════════════════════════════════════════════════════
+# Output edges
+# ═══════════════════════════════════════════════════════════
+
+mas_tracker.target_selector -> mas_policy: "chosen_target_pose\n(PoseWithCovarianceStamped)" {
+  style.stroke: "#1168bd"
+}
+mas_tracker.ray_selector -> mas_policy: "chosen_target_ray_w\n(Vector3Stamped)" {
+  style.stroke: "#1168bd"
+}
+mas_tracker.target_selector -> gimbal_controller: "target_region\n(PointStamped)" {
+  style.stroke: "#1168bd"
+}
+mas_tracker.sort3d -> operator: "tracked_objects/class_{i}\n(Detection3DArray)" {
+  style.stroke: "#d9a74a"
+}
+
+# Operator target override
+operator -> mas_tracker.target_selector: "set_target_position\nset_auto_pick_mode" {
+  style.stroke: "#d9a74a"
+  style.stroke-width: 2
+}

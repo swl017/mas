@@ -1,0 +1,361 @@
+# MAS C4 Level 3 — Component: Decision & Control
+# Render: d2 c4_L3_decision_control.d2 c4_L3_decision_control.svg --layout=elk
+
+direction: right
+
+title: {
+  label: "MAS — Decision & Control Components (C4 Level 3)"
+  near: top-center
+  shape: text
+  style: {
+    font-size: 24
+    bold: true
+  }
+}
+
+# ═══════════════════════════════════════════════════════════
+# mas_policy Container
+# ═══════════════════════════════════════════════════════════
+
+mas_policy: "mas_policy" {
+  style: {
+    fill: "#e8f0fe"
+    stroke: "#438dd5"
+    stroke-width: 2
+    font-size: 24
+  }
+
+  observation_assembler: ObservationAssembler {
+    style: {
+      fill: "#85bbf0"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Component: Python]\n\nCollects ego + peer state\ninto observation tensor.\nHandles frame transforms\nand normalization." {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  policy_loader: PolicyLoader {
+    style: {
+      fill: "#85bbf0"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Component: Python / PyTorch]\n\nLoads SKRL checkpoint.\nSupports MAPPO-RNN and\nother architectures." {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  action_publisher: ActionPublisher {
+    style: {
+      fill: "#85bbf0"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Component: Python]\n\nConverts policy output to\ncmd_vel, gimbal LOS rate,\nand zoom rate commands." {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  cbf_filter: "CBF Safety Filter" {
+    style: {
+      fill: "#f8d7da"
+      stroke: "#d9534f"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Component: Python]\n\nControl barrier function\nfor inter-agent collision\navoidance." {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  observation_assembler -> policy_loader: "obs tensor"
+  policy_loader -> cbf_filter: "raw actions"
+  cbf_filter -> action_publisher: "safe actions"
+}
+
+# ═══════════════════════════════════════════════════════════
+# mas_mission Container
+# ═══════════════════════════════════════════════════════════
+
+mas_mission: "mas_mission" {
+  style: {
+    fill: "#e8f0fe"
+    stroke: "#438dd5"
+    stroke-width: 2
+    font-size: 24
+  }
+
+  state_machine: "State Machine" {
+    style: {
+      fill: "#85bbf0"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Component: Python]\n\nIDLE → TRACKING → MISSION\ntransitions. Owns mode\nstate and publishes it." {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  command_router: "Command Router" {
+    style: {
+      fill: "#85bbf0"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Component: Python]\n\nTRACKING: forwards gimbal\nRPY + zoom from point_to_region.\nMISSION: forwards policy\ncmd_vel + LOS rate + zoom." {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  state_machine -> command_router: "current mode"
+}
+
+# ═══════════════════════════════════════════════════════════
+# mas_offboard Container
+# ═══════════════════════════════════════════════════════════
+
+mas_offboard: "mas_offboard" {
+  style: {
+    fill: "#e8f0fe"
+    stroke: "#438dd5"
+    stroke-width: 2
+    font-size: 24
+  }
+
+  offboard_control: offboard_control {
+    style: {
+      fill: "#85bbf0"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Component: Python]\n\nPX4 state machine:\nINIT→ARM→TAKEOFF→HOVER→POLICY.\nSends velocity/position\nsetpoints to MAVROS." {
+      shape: text
+      style.font-size: 13
+    }
+  }
+}
+
+# ═══════════════════════════════════════════════════════════
+# gimbal_controller Container
+# ═══════════════════════════════════════════════════════════
+
+gimbal_controller: "gimbal_controller" {
+  style: {
+    fill: "#e8f0fe"
+    stroke: "#438dd5"
+    stroke-width: 2
+    font-size: 24
+  }
+
+  point_to_region: point_to_region_node {
+    style: {
+      fill: "#85bbf0"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Component: Python]\n\nComputes gimbal angles\nto point at target region.\nActive in TRACKING mode." {
+      shape: text
+      style.font-size: 13
+    }
+  }
+}
+
+# ═══════════════════════════════════════════════════════════
+# External / upstream inputs
+# ═══════════════════════════════════════════════════════════
+
+common_frame: mas_common_frame {
+  shape: rectangle
+  style: {
+    fill: "#438dd5"
+    stroke: "#3c7fc0"
+    font-color: "#fff"
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "[Container]" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+tracker: mas_tracker {
+  shape: rectangle
+  style: {
+    fill: "#438dd5"
+    stroke: "#3c7fc0"
+    font-color: "#fff"
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "[Container]" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+yolo: ultralytics_ros {
+  shape: rectangle
+  style: {
+    fill: "#438dd5"
+    stroke: "#3c7fc0"
+    font-color: "#fff"
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "[Container]" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+mavros_node: MAVROS {
+  shape: rectangle
+  style: {
+    fill: "#999"
+    stroke: "#6b6b6b"
+    font-color: "#fff"
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "[External]" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+peer: "Peer Agents" {
+  shape: rectangle
+  style: {
+    fill: "#d4edda"
+    stroke: "#6abf69"
+    font-color: "#333"
+    border-radius: 8
+    multiple: true
+    font-size: 24
+  }
+  desc: "[Software System]" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+operator: Operator {
+  shape: oval
+  style: {
+    fill: "#08427b"
+    stroke: "#073b6f"
+    font-color: "#fff"
+    stroke-width: 2
+    font-size: 24
+  }
+  desc: "[Person]" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+gimbal_hw: "Gimbal HW / Sim" {
+  shape: rectangle
+  style: {
+    fill: "#999"
+    stroke: "#6b6b6b"
+    font-color: "#fff"
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "[External]" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+# ═══════════════════════════════════════════════════════════
+# Input edges
+# ═══════════════════════════════════════════════════════════
+
+# Ego observations
+common_frame -> mas_policy.observation_assembler: "ego pose, vel" {
+  style.stroke: "#707070"
+}
+tracker -> mas_policy.observation_assembler: "chosen_target_pose\nchosen_target_ray_w" {
+  style.stroke: "#707070"
+}
+yolo -> mas_policy.observation_assembler: "ego detections" {
+  style.stroke: "#707070"
+}
+mavros_node -> mas_policy.observation_assembler: "IMU data" {
+  style.stroke: "#707070"
+}
+
+# Peer observations
+peer -> mas_policy.observation_assembler: "peer pose, vel, ang_vel,\nzoom, target_ray, bbox_empty" {
+  style.stroke: "#2d6a2d"
+  style.stroke-dash: 3
+}
+peer -> mas_policy.cbf_filter: "peer positions\n(for collision avoidance)" {
+  style.stroke: "#2d6a2d"
+  style.stroke-dash: 3
+}
+
+# Gimbal controller inputs
+tracker -> gimbal_controller.point_to_region: "target_region" {
+  style.stroke: "#707070"
+}
+
+# Operator
+operator -> mas_mission.state_machine: "mission_state_cmd" {
+  style.stroke: "#d9a74a"
+  style.stroke-width: 2
+}
+
+# ═══════════════════════════════════════════════════════════
+# Internal flow: policy & gimbal → mission → offboard
+# ═══════════════════════════════════════════════════════════
+
+mas_policy.action_publisher -> mas_mission.command_router: "policy/cmd_vel\npolicy/gimbal_cmd_los_rate\npolicy/zoom_rate_cmd" {
+  style.stroke: "#1168bd"
+}
+
+gimbal_controller.point_to_region -> mas_mission.command_router: "gimbal_command_los_world_deg" {
+  style.stroke: "#1168bd"
+}
+
+mas_mission.command_router -> mas_offboard.offboard_control: "cmd_vel" {
+  style.stroke: "#1168bd"
+}
+
+mas_mission.command_router -> gimbal_hw: "gimbal_cmd_los_world_deg\ngimbal_cmd_los_rate\nzoom_rate_cmd" {
+  style.stroke: "#1168bd"
+}
+
+mas_offboard.offboard_control -> mavros_node: "setpoint_velocity\nsetpoint_position" {
+  style.stroke: "#707070"
+}
+
+mas_mission.state_machine -> mas_offboard.offboard_control: "mission_state" {
+  style.stroke: "#1168bd"
+}

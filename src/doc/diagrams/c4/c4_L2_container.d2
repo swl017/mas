@@ -1,0 +1,304 @@
+# MAS C4 Level 2 — Container Diagram
+# Render: d2 c4_L2_container.d2 c4_L2_container.svg --layout=elk
+
+direction: right
+
+title: {
+  label: "MAS — Container Diagram (C4 Level 2)"
+  near: top-center
+  shape: text
+  style: {
+    font-size: 24
+    bold: true
+  }
+}
+
+# ═══════════════════════════════════════════════════════════
+# External Actors
+# ═══════════════════════════════════════════════════════════
+
+operator: Operator {
+  shape: oval
+  style: {
+    fill: "#08427b"
+    stroke: "#073b6f"
+    font-color: "#fff"
+    stroke-width: 2
+    font-size: 24
+  }
+  desc: "[Person]" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+# ═══════════════════════════════════════════════════════════
+# MAS System Boundary — Per-Vehicle Instance
+# ═══════════════════════════════════════════════════════════
+
+mas: "MAS Per-Vehicle Instance  /{veh}/" {
+  style: {
+    fill: "#e8f0fe"
+    stroke: "#1168bd"
+    stroke-width: 2
+    font-size: 24
+  }
+
+  # ── Perception Pipeline ──
+
+  ultralytics_ros: ultralytics_ros {
+    style: {
+      fill: "#438dd5"
+      stroke: "#3c7fc0"
+      font-color: "#fff"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Container: C++ / Python]\n\n2D YOLO object detection\non camera images" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  mas_multiview: mas_multiview {
+    style: {
+      fill: "#438dd5"
+      stroke: "#3c7fc0"
+      font-color: "#fff"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Container: C++ / Ceres]\n\nMulti-view triangulation\nfrom bearing rays" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  mas_tracker: mas_tracker {
+    style: {
+      fill: "#438dd5"
+      stroke: "#3c7fc0"
+      font-color: "#fff"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Container: C++]\n\n3D multi-object tracking\n(SORT) + target selection" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── State Estimation ──
+
+  mas_common_frame: mas_common_frame {
+    style: {
+      fill: "#438dd5"
+      stroke: "#3c7fc0"
+      font-color: "#fff"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Container: Python]\n\nGPS → common mission\nframe transforms" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── Decision & Control ──
+
+  mas_policy: mas_policy {
+    style: {
+      fill: "#438dd5"
+      stroke: "#3c7fc0"
+      font-color: "#fff"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Container: Python / PyTorch]\n\nMARL policy inference\n+ CBF safety filter" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  mas_mission: mas_mission {
+    style: {
+      fill: "#438dd5"
+      stroke: "#3c7fc0"
+      font-color: "#fff"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Container: Python]\n\nMission state machine\n(IDLE→TRACKING→MISSION)\ncommand routing" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── Actuation ──
+
+  gimbal_controller: gimbal_controller {
+    style: {
+      fill: "#438dd5"
+      stroke: "#3c7fc0"
+      font-color: "#fff"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Container: Python]\n\nGimbal pointing\n(point_to_region_node)" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  mas_offboard: mas_offboard {
+    style: {
+      fill: "#438dd5"
+      stroke: "#3c7fc0"
+      font-color: "#fff"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Container: Python]\n\nPX4 offboard flight\ncontroller" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── Perception flow ──
+  ultralytics_ros -> mas_multiview: "Detection2DArray\n(bbox, tracker_id)"
+  mas_multiview -> mas_tracker: "TriangulatedPointArray\nTargetRayArray"
+  ultralytics_ros -> mas_policy: "Detection2DArray\n(ego bbox)"
+
+  # ── State estimation ──
+  mas_common_frame -> mas_policy: "Odometry\n(pose, vel)"
+  mas_common_frame -> mas_multiview: "Odometry\n(pose)"
+
+  # ── Tracking → decision ──
+  mas_tracker -> mas_policy: "chosen_target_pose\nchosen_target_ray_w"
+  mas_tracker -> gimbal_controller: "target_region"
+
+  # ── Command flow ──
+  mas_policy -> mas_mission: "cmd_vel, gimbal LOS rate,\nzoom rate (MISSION mode)"
+  gimbal_controller -> mas_mission: "gimbal RPY deg,\nzoom (TRACKING mode)"
+  mas_mission -> mas_offboard: "cmd_vel"
+}
+
+# ═══════════════════════════════════════════════════════════
+# Peer Agent
+# ═══════════════════════════════════════════════════════════
+
+peer: "Peer Agent" {
+  shape: rectangle
+  style: {
+    fill: "#d4edda"
+    stroke: "#6abf69"
+    font-color: "#333"
+    stroke-width: 2
+    border-radius: 8
+    multiple: true
+    font-size: 24
+  }
+  desc: "(identical MAS instance)\n[Software System]" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+# ═══════════════════════════════════════════════════════════
+# External Systems
+# ═══════════════════════════════════════════════════════════
+
+mavros: MAVROS {
+  shape: rectangle
+  style: {
+    fill: "#999"
+    stroke: "#6b6b6b"
+    font-color: "#fff"
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "[External]\n\nMAVLink↔ROS2 bridge" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+camera: Camera {
+  shape: rectangle
+  style: {
+    fill: "#999"
+    stroke: "#6b6b6b"
+    font-color: "#fff"
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "[External]\n\nImage + intrinsics" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+gimbal_hw: "Gimbal HW / Sim" {
+  shape: rectangle
+  style: {
+    fill: "#999"
+    stroke: "#6b6b6b"
+    font-color: "#fff"
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "[External]" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+# ═══════════════════════════════════════════════════════════
+# External Relationships
+# ═══════════════════════════════════════════════════════════
+
+operator -> mas.mas_mission: "mission_state_cmd" {
+  style.stroke: "#d9a74a"
+  style.stroke-width: 2
+}
+operator -> mas.mas_tracker: "set_target_position\nset_auto_pick_mode" {
+  style.stroke: "#d9a74a"
+  style.stroke-width: 2
+}
+
+mavros -> mas.mas_common_frame: "local pose, odom" {
+  style.stroke: "#707070"
+}
+mavros -> mas.mas_policy: "IMU data" {
+  style.stroke: "#707070"
+}
+mas.mas_offboard -> mavros: "velocity/position\nsetpoints" {
+  style.stroke: "#707070"
+}
+
+camera -> mas.ultralytics_ros: "Image, CameraInfo" {
+  style.stroke: "#707070"
+}
+camera -> mas.mas_multiview: "CameraInfo, zoom" {
+  style.stroke: "#707070"
+}
+
+gimbal_hw -> mas.mas_multiview: "gimbal angles, zoom" {
+  style.stroke: "#707070"
+}
+gimbal_hw -> mas.gimbal_controller: "gimbal angles" {
+  style.stroke: "#707070"
+}
+mas.mas_mission -> gimbal_hw: "gimbal cmd, zoom cmd" {
+  style.stroke: "#707070"
+}
+
+# ── Cross-agent data ──
+peer -> mas.mas_multiview: "target_rays_w" {
+  style.stroke: "#2d6a2d"
+  style.stroke-dash: 3
+}
+peer -> mas.mas_policy: "peer pose, vel,\nang_vel, zoom,\nchosen_target_ray_w,\nbbox_empty" {
+  style.stroke: "#2d6a2d"
+  style.stroke-dash: 3
+}

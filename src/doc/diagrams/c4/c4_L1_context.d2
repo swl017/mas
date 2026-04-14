@@ -1,0 +1,172 @@
+# MAS C4 Level 1 — System Context
+# Render: d2 c4_L1_context.d2 c4_L1_context.svg --layout=elk
+
+direction: down
+
+title: {
+  label: "MAS — System Context (C4 Level 1)"
+  near: top-center
+  shape: text
+  style: {
+    font-size: 24
+    bold: true
+  }
+}
+
+# ═══════════════════════════════════════════════════════════
+# People / External Actors
+# ═══════════════════════════════════════════════════════════
+
+operator: Operator {
+  shape: oval
+  style: {
+    fill: "#08427b"
+    stroke: "#073b6f"
+    font-color: "#fff"
+    stroke-width: 2
+    font-size: 24
+  }
+  desc: "[Person]" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+# ═══════════════════════════════════════════════════════════
+# MAS System
+# ═══════════════════════════════════════════════════════════
+
+mas: MAS {
+  shape: rectangle
+  style: {
+    fill: "#1168bd"
+    stroke: "#0b4884"
+    font-color: "#fff"
+    stroke-width: 2
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "(Multi-Agent C-UAS System)\n[Software System]" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+# ═══════════════════════════════════════════════════════════
+# External Systems
+# ═══════════════════════════════════════════════════════════
+
+px4: "PX4 Autopilot" {
+  shape: rectangle
+  style: {
+    fill: "#999"
+    stroke: "#6b6b6b"
+    font-color: "#fff"
+    stroke-width: 2
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "[External System]" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+camera: "Camera System" {
+  shape: rectangle
+  style: {
+    fill: "#999"
+    stroke: "#6b6b6b"
+    font-color: "#fff"
+    stroke-width: 2
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "[External System]" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+gimbal: "Gimbal Hardware" {
+  shape: rectangle
+  style: {
+    fill: "#999"
+    stroke: "#6b6b6b"
+    font-color: "#fff"
+    stroke-width: 2
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "[External System]" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+sim: "Isaac Sim +\nPegasusSimulator" {
+  shape: rectangle
+  style: {
+    fill: "#999"
+    stroke: "#6b6b6b"
+    font-color: "#fff"
+    stroke-width: 2
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "[External System]" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+rviz: RViz {
+  shape: rectangle
+  style: {
+    fill: "#999"
+    stroke: "#6b6b6b"
+    font-color: "#fff"
+    stroke-width: 2
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "[Visualization]" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+# ═══════════════════════════════════════════════════════════
+# Relationships
+# ═══════════════════════════════════════════════════════════
+
+operator -> mas: "Sends mission commands,\nselects targets,\nmonitors mission state" {
+  style.stroke: "#707070"
+}
+
+mas -> px4: "Sends velocity/position\nsetpoints via MAVLink" {
+  style.stroke: "#707070"
+}
+px4 -> mas: "Vehicle state, IMU,\nlocal position" {
+  style.stroke: "#707070"
+}
+
+camera -> mas: "Image feed,\ncamera intrinsics" {
+  style.stroke: "#707070"
+}
+
+mas -> gimbal: "Gimbal angle/rate\ncommands, zoom" {
+  style.stroke: "#707070"
+}
+gimbal -> mas: "Joint angles,\nzoom level" {
+  style.stroke: "#707070"
+}
+
+sim -> mas: "Simulated camera, MAVLink,\ngimbal state (replaces\nreal hardware)" {
+  style.stroke: "#d97a4a"
+  style.stroke-dash: 3
+}
+
+mas -> rviz: "Markers, tracked\nobjects visualization" {
+  style.stroke: "#707070"
+}

@@ -1,0 +1,320 @@
+# MAS C4 Level 4 — Code: mas_policy
+# Render: d2 c4_L4_policy.d2 c4_L4_policy.svg --layout=elk
+
+direction: right
+
+title: {
+  label: "MAS — mas_policy Code Diagram (C4 Level 4)"
+  near: top-center
+  shape: text
+  style: {
+    font-size: 24
+    bold: true
+  }
+}
+
+# ═══════════════════════════════════════════════════════════
+# mas_policy package boundary
+# ═══════════════════════════════════════════════════════════
+
+mas_policy: mas_policy {
+  style: {
+    fill: "#e8f0fe"
+    stroke: "#438dd5"
+    stroke-width: 2
+    font-size: 24
+  }
+
+  # ── PolicyDeployNode ──
+
+  policy_node: PolicyDeployNode {
+    style: {
+      fill: "#85bbf0"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Class: rclpy Node]\npolicy_node.py\n\n_control_loop() @ 25 Hz:\n  1. assembler.assemble() → obs\n  2. scaler.normalize(obs)\n  3. policy(obs_norm, hidden) → action\n  4. cbf_filter.filter(v_nom) → v_safe\n  5. action_pub.publish(action)\n\n_reset_hidden_callback()\n_peer_obs_callback()" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── ObservationAssembler ──
+
+  assembler: ObservationAssembler {
+    style: {
+      fill: "#85bbf0"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Class]\nobservation_assembler.py\n\nassemble() → np.ndarray (62/68D)\n\nEgo (30D): pos, vel, euler, ang_vel,\n  lin_acc, gimbal(yaw,pitch), ray_dir,\n  combined_ang_vel, bbox_aoi, zoom,\n  bbox_xywh, bbox_empty\n\nPer-peer (16D): pos, vel, ray_dir,\n  combined_ang_vel, zoom, bbox_empty,\n  data_age, bbox_age\n\nOptional tri tail (6D): pos, std_dev" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── VehicleState ──
+
+  vehicle_state: VehicleState {
+    style: {
+      fill: "#d4e8fc"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Dataclass]\n\nposition_w, velocity_w (3)\norientation_w (4, wxyz)\nangular_velocity_b (3)\nlinear_acceleration_b (3)\ngimbal_yaw/pitch_body\nbbox_xywh (4), bbox_empty\nzoom_level\ncombined_ang_vel_w (3)\nchosen_target_ray_w (3)\nmotion/gimbal/detection timestamps" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── ActionPublisher ──
+
+  action_pub: ActionPublisher {
+    style: {
+      fill: "#85bbf0"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Class]\naction_publisher.py\n\npublish(action: 7D np.ndarray)\npublish_zero()\n\nDenormalize [-1,1] → physical:\n  [0-2] × max_lin_vel → cmd_vel.linear\n  [3] × max_yaw_rate → cmd_vel.angular.z\n  [4-5] × max_gimbal_rate → gimbal LOS rate\n  [6] × max_zoom_rate → zoom rate" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── PolicyNetRNN ──
+
+  policy_rnn: PolicyNetRNN {
+    style: {
+      fill: "#c5e1a5"
+      stroke: "#7cb342"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[nn.Module]\npolicy_loader.py\n\nLinear→ReLU→Linear→ReLU\n→GRU→Linear(action_dim)\n\nforward(obs, hidden)\n  → (action, new_hidden)\ninit_hidden(device) → zeros" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── PolicyNetMLP ──
+
+  policy_mlp: PolicyNetMLP {
+    style: {
+      fill: "#c5e1a5"
+      stroke: "#7cb342"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[nn.Module]\npolicy_loader.py\n\nLinear→ELU→Linear→ELU\n→Linear(action_dim)\n\nforward(obs) → action" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── ValueNetRNN ──
+
+  value_rnn: ValueNetRNN {
+    style: {
+      fill: "#c5e1a5"
+      stroke: "#7cb342"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[nn.Module]\npolicy_loader.py\n\nSame arch as PolicyNetRNN\n→ Linear(1)\n\nforward(shared_obs, hidden)\n  → (value, new_hidden)\n\nInput: concat(ego_obs, peer_obs...)" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── ScalerState ──
+
+  scaler: ScalerState {
+    style: {
+      fill: "#d4e8fc"
+      stroke: "#5d99c6"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Dataclass]\npolicy_loader.py\n\nrunning_mean (obs_dim,)\nrunning_var (obs_dim,)\n\nnormalize(obs)\n  → (obs - mean) / sqrt(var + ε)" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── DeploymentCBFFilter ──
+
+  cbf: DeploymentCBFFilter {
+    style: {
+      fill: "#f8d7da"
+      stroke: "#d9534f"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Class]\ncbf_filter.py\n\nfilter(v_nom, positions, velocities)\n  → (v_safe, info)\n\nGauss-Seidel projection:\n  For each agent pair (i,j):\n    h = ||p_i - p_j||² - D_deploy²\n    Project v_i onto halfspace\n\nD_deploy = D_s + v_max(τ_delay + τ_px4)" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── Utils ──
+
+  utils: utils {
+    style: {
+      fill: "#fff9c4"
+      stroke: "#f9a825"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Module]\nutils.py\n\neuler_xyz_from_quat(wxyz)\nquat_rotate(q, v)\ngimbal_ray_direction_world()\nwrap_to_pi()\nned_to_enu_position/velocity()\nfrd_to_flu_angular_velocity()\nquat_ned_frd_to_enu_flu()" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── load_checkpoint ──
+
+  load_ckpt: load_checkpoint() {
+    style: {
+      fill: "#fff9c4"
+      stroke: "#f9a825"
+      font-color: "#000"
+      border-radius: 8
+      font-size: 24
+    }
+    desc: "[Function]\npolicy_loader.py\n\nLoad SKRL .pt checkpoint\n→ (PolicyNet, ScalerState,\n   ValueNet, SharedScaler)\n\nHandles agent_id extraction,\nprefix stripping, architecture\nselection" {
+      shape: text
+      style.font-size: 13
+    }
+  }
+
+  # ── Relationships ──
+
+  policy_node -> assembler: "owns\nassemble() → obs" {
+    style.stroke: "#333"
+  }
+  policy_node -> action_pub: "owns\npublish(action)" {
+    style.stroke: "#333"
+  }
+  policy_node -> cbf: "owns\nfilter(v_nom)" {
+    style.stroke: "#333"
+  }
+  policy_node -> policy_rnn: "uses\nforward(obs, hidden)" {
+    style.stroke: "#333"
+    style.stroke-dash: 3
+  }
+  policy_node -> policy_mlp: "uses (alt)\nforward(obs)" {
+    style.stroke: "#333"
+    style.stroke-dash: 3
+  }
+  policy_node -> value_rnn: "uses (optional)\nforward(shared_obs)" {
+    style.stroke: "#333"
+    style.stroke-dash: 3
+  }
+  policy_node -> scaler: "uses\nnormalize(obs)" {
+    style.stroke: "#333"
+  }
+  assembler -> vehicle_state: "caches\nper-vehicle state" {
+    style.stroke: "#333"
+  }
+  assembler -> utils: "calls\neuler, quat_rotate,\ngimbal_ray_direction" {
+    style.stroke: "#999"
+    style.stroke-dash: 3
+  }
+  load_ckpt -> policy_rnn: "creates" {
+    style.stroke: "#7cb342"
+  }
+  load_ckpt -> policy_mlp: "creates" {
+    style.stroke: "#7cb342"
+  }
+  load_ckpt -> value_rnn: "creates" {
+    style.stroke: "#7cb342"
+  }
+  load_ckpt -> scaler: "creates" {
+    style.stroke: "#7cb342"
+  }
+}
+
+# ═══════════════════════════════════════════════════════════
+# External inputs / outputs
+# ═══════════════════════════════════════════════════════════
+
+ros_ego: "Ego ROS2 Topics" {
+  style: {
+    fill: "#999"
+    stroke: "#6b6b6b"
+    font-color: "#fff"
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "common_frame/odom\nmavros/imu/data\ngimbal_state_rpy_deg\nyolo_result_vision\ncamera/zoom_level\nchosen_target_ray_w" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+ros_peer: "Peer ROS2 Topics" {
+  style: {
+    fill: "#d4edda"
+    stroke: "#6abf69"
+    font-color: "#333"
+    border-radius: 8
+    font-size: 24
+    multiple: true
+  }
+  desc: "/{peer}/common_frame/odom\n/{peer}/combined_ang_vel_w\n/{peer}/yolo_result_active\n/{peer}/camera/zoom_level\n/{peer}/chosen_target_ray_w\n/{peer}/policy/observation" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+ros_out: "Output Topics" {
+  style: {
+    fill: "#999"
+    stroke: "#6b6b6b"
+    font-color: "#fff"
+    border-radius: 8
+    font-size: 24
+  }
+  desc: "policy/cmd_vel\npolicy/gimbal_cmd_los_rate\npolicy/zoom_rate_cmd\npolicy/value\npolicy/observation" {
+    shape: text
+    style.font-size: 13
+  }
+}
+
+checkpoint: "SKRL Checkpoint\n(.pt file)" {
+  style: {
+    fill: "#999"
+    stroke: "#6b6b6b"
+    font-color: "#fff"
+    border-radius: 8
+    font-size: 24
+  }
+}
+
+ros_ego -> mas_policy.assembler: "subscriptions" {
+  style.stroke: "#707070"
+}
+ros_peer -> mas_policy.assembler: "subscriptions" {
+  style.stroke: "#2d6a2d"
+  style.stroke-dash: 3
+}
+mas_policy.action_pub -> ros_out: "publish" {
+  style.stroke: "#707070"
+}
+checkpoint -> mas_policy.load_ckpt: "load at init" {
+  style.stroke: "#707070"
+}
