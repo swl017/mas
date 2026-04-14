@@ -126,7 +126,7 @@ Only pitch is vulnerable to centrifugal drift, and pitch centrifugal drift is sm
 
 **Next steps:**
 1. Characterize pitch drift under sustained rotation (bench test)
-2. Implement body-frame pitch derivation: `pitch_joint = 0x0D_pitch - aircraft_pitch`
+2. Implement joint-frame pitch derivation: `pitch_joint = 0x0D_pitch - aircraft_pitch`
 3. Send 0x3E (GPS/velocity) to gimbal like ArduPilot does (future work)
 4. Verify `point_to_region` closed-loop with derived joint angles
 5. Verify `mas_multiview` triangulation reprojection error

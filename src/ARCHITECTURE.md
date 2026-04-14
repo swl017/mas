@@ -9,7 +9,7 @@ See `src/doc/diagrams/mas_architecture_semantic.d2`.
 ### Mission Phases
 
 - **Before mission:** `point_to_region_node` computes gimbal angles from tracked target → `siyi_gimbal_node` actuates. `offboard_control` runs state machine (INIT→ARM→TAKEOFF→HOVER).
-- **After mission start:** `offboard_control` enters POLICY state. `mas_policy` takes over: publishes `cmd_vel`, `gimbal_cmd_los_rate`, `zoom_cmd`.
+- **After mission start:** `offboard_control` enters POLICY state. `mas_policy` takes over: publishes `cmd_vel`, `gimbal_cmd_los_rate`, `zoom_rate_cmd`.
 
 ## Topic/Service Interface
 
@@ -23,9 +23,11 @@ All topics below are per-vehicle, resolved within `/{veh}/` namespace unless not
 | `yolo_result_active` | std_msgs/Bool | ultralytics_ros | mas_policy (peers) | BEST_EFFORT |
 | `common_frame/odom` | nav_msgs/Odometry | mas_common_frame | mas_multiview, mas_policy, siyi_gimbal_node (0x22 + velocity) | BEST_EFFORT |
 | `common_frame/pose` | geometry_msgs/PoseStamped | mas_common_frame | point_to_region_node | BEST_EFFORT |
-| `gimbal_state_rpy_deg` | geometry_msgs/Vector3 | siyi_gimbal_node (derived joint angles) | mas_multiview, point_to_region_node, mas_policy (ego) | BEST_EFFORT |
-| `gimbal_imu_rpy_deg` | geometry_msgs/Vector3 | siyi_gimbal_node (0x0D heading-frame) | — (secondary, available if needed) | default |
-| `camera/zoom` | std_msgs/Float64 | — | mas_multiview | default |
+| `gimbal_state_rpy_deg` | geometry_msgs/Vector3 | siyi_gimbal_node (encoder 0x26) | mas_multiview, point_to_region_node, mas_policy (ego) | BEST_EFFORT |
+| `gimbal_imu_rpy_deg` | geometry_msgs/Vector3 | siyi_gimbal_node (IMU 0x0D heading-frame) | — (secondary, available if needed) | default |
+| `camera/zoom`(CONFLICT) | std_msgs/Float64 | — | mas_multiview | default |
+| `camera/zoom_level`(CONFLICT) | std_msgs/Float64 | los_rate_controller / siyi_gimbal_node | mas_multiview, mas_policy (ego + peers) | BEST_EFFORT |
+| `camera/zoom_level_cmd` | std_msgs/Float64 | los_rate_controller | PegasusSimulator | default |
 | `camera_pose` | geometry_msgs/PoseStamped | — | mas_multiview | default |
 | `triangulated_points` | mas_msgs/TriangulatedPointArray | mas_multiview | mas_tracker, mas_operator | default |
 | `{cam}/target_rays_w` | mas_msgs/TargetRayArray | mas_multiview | mas_tracker, mas_multiview (peers) | default |
@@ -33,22 +35,21 @@ All topics below are per-vehicle, resolved within `/{veh}/` namespace unless not
 | `chosen_target_pose` | geometry_msgs/PoseWithCovarianceStamped | mas_tracker | mas_policy, mas_operator | default |
 | `chosen_target_ray_w` | geometry_msgs/Vector3Stamped | mas_tracker | mas_policy | default |
 | `target_region` | geometry_msgs/PointStamped | mas_tracker | point_to_region_node | default |
-| `gimbal_command_rpy_deg` | geometry_msgs/Vector3 | point_to_region_node | mas_mission (tracking input) | default |
+| `gimbal_command_los_world_deg` | geometry_msgs/Vector3 | point_to_region_node | mas_mission (tracking input) | default |
 | `combined_ang_vel_w` | geometry_msgs/Vector3Stamped | los_rate_controller / siyi_gimbal_node | mas_policy (peers) | BEST_EFFORT |
-| `zoom_level` | std_msgs/Float32 | los_rate_controller / siyi_gimbal_node | mas_policy (ego + peers) | BEST_EFFORT |
 | `/mission_state_cmd` | std_msgs/Int8 | mas_operator | mas_mission (all agents) | RELIABLE, transient local |
 | `mission_state` | std_msgs/Int8 | mas_mission | offboard_control, mas_operator | RELIABLE, transient local |
 | `/operator/markers` | visualization_msgs/MarkerArray | mas_operator | RViz | RELIABLE |
 | `set_auto_pick_mode` | std_msgs/Int8 | mas_operator | mas_tracker | RELIABLE |
 | `set_target_position` | geometry_msgs/PointStamped | mas_operator | mas_tracker | RELIABLE |
 | `cmd_vel` | geometry_msgs/TwistStamped | mas_mission | offboard_control | BEST_EFFORT |
-| `gimbal_cmd_rpy_deg` | geometry_msgs/Vector3 | mas_mission | siyi_gimbal_node | default |
+| `gimbal_cmd_los_world_deg` | geometry_msgs/Vector3 | mas_mission | los_rate_controller / siyi_gimbal_node | default |
 | `gimbal_cmd_los_rate` | geometry_msgs/Vector3 | mas_mission | los_rate_controller | default |
-| `zoom_cmd` | std_msgs/Float32 | mas_mission | siyi_gimbal_node | default |
+| `zoom_rate_cmd` | std_msgs/Float32 | mas_mission | los_rate_controller / siyi_gimbal_node | default |
 | `policy/value` | std_msgs/Float32 | mas_policy | mas_operator | default |
 | `policy/cmd_vel` | geometry_msgs/TwistStamped | mas_policy | mas_mission | BEST_EFFORT |
 | `policy/gimbal_cmd_los_rate` | geometry_msgs/Vector3 | mas_policy | mas_mission | default |
-| `policy/zoom_cmd` | std_msgs/Float32 | mas_policy | mas_mission | default |
+| `policy/zoom_rate_cmd` | std_msgs/Float32 | mas_policy | mas_mission | default |
 | `mavros/state` | mavros_msgs/State | MAVROS | offboard_control | RELIABLE |
 | `mavros/local_position/pose` | geometry_msgs/PoseStamped | MAVROS | offboard_control | RELIABLE |
 | `mavros/local_position/odom` | nav_msgs/Odometry | MAVROS | offboard_control | RELIABLE |
