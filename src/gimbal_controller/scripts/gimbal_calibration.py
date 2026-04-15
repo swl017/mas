@@ -39,7 +39,7 @@ Prereqs:
   ros2 run gimbal_controller siyi_ros_node   (in another terminal)
 
 Usage:
-  python3 gimbal_calibration.py --phase all --output-dir /tmp/cal_$(date +%s)
+  python3 gimbal_calibration.py --phase all --output-dir gimbal_cal_$(date +%s)
   python3 gimbal_calibration.py --phase verify
   python3 gimbal_calibration.py --phase sweep --yaw-step 5 --pitch-step 5
   python3 gimbal_calibration.py --phase checkerboard --checkerboard 9x6 --square-size 0.025
@@ -544,24 +544,34 @@ def _fit_rate_step_metrics(axis: str, u_cmd: float, trace: list,
 
     rate_idx = 5 if axis == "yaw" else 4  # rate.z or rate.y
     w = [r[rate_idx] for r in trace]
+    sign = 1.0 if u_cmd > 0 else -1.0
 
     # Steady state: mean of last 25% of samples
     tail_n = max(5, len(w) // 4)
     w_ss = sum(w[-tail_n:]) / tail_n
-    sign = 1.0 if u_cmd > 0 else -1.0
 
     # Peak rate in the commanded direction
     w_peak = max((sign * v for v in w), default=0.0) * sign
 
-    # First-motion latency: first sample where |rate| exceeds 5 deg/s
+    # First-motion latency: first sample where |rate| exceeds 2 deg/s
+    # (tighter threshold than 5 deg/s so the acceleration-to-threshold
+    # term doesn't dominate pipeline latency for low-u steps).
     latency = nan
     for r in trace:
-        if abs(r[rate_idx]) >= 5.0:
+        if abs(r[rate_idx]) >= 2.0:
             latency = r[0] - t_cmd_ros
             break
 
     # 10-90% rise of rate toward w_ss
     if abs(w_ss) < 5.0:
+        return dict(axis=axis, u_cmd=u_cmd, n=len(trace),
+                    w_ss=w_ss, w_peak=w_peak, rise_time_s=nan,
+                    latency_s=latency)
+
+    # Reject traces where the very first sample is already past the 10%
+    # threshold — the gimbal hadn't stopped before the step started, so
+    # rise/peak metrics would be spurious (collapses to 0).
+    if sign * (w[0] - 0.1 * w_ss) >= 0:
         return dict(axis=axis, u_cmd=u_cmd, n=len(trace),
                     w_ss=w_ss, w_peak=w_peak, rise_time_s=nan,
                     latency_s=latency)
@@ -625,24 +635,34 @@ def phase_rate_step_response(node: CalibrationNode,
                     else:
                         node.send_command(0.0, start)
                     node.hold_and_sample(pre_settle)
-                    # Also stop any residual rate before starting the step
+                    # Stop any residual rate before starting the step. A short
+                    # wait here used to leave the gimbal still coasting, so the
+                    # trace started mid-motion and rise/peak metrics collapsed
+                    # to 0. 0.7 s is enough to let the inner loop settle.
                     node.send_rate_command(0.0, 0.0)
-                    node.hold_and_sample(0.2)
-                    if node._state is None:
+                    node.hold_and_sample(0.7)
+                    if node._state is None or node._state_rate is None:
                         continue
                     s0 = (node._state.x, node._state.y, node._state.z)
 
                     node.start_rate_step_log()
                     t_cmd_ros = node.get_clock().now().nanoseconds / 1e9
                     t_cmd_wall = time.time()
-                    if axis == "yaw":
-                        node.send_rate_command(u_cmd, 0.0)
-                    else:
-                        node.send_rate_command(0.0, u_cmd)
-
-                    deadline = time.monotonic() + duration
+                    # SIYI 0x07 has a short watchdog — a single publish yields
+                    # a transient pulse (or nothing if the UDP packet drops).
+                    # Stream the rate command at 50 Hz throughout the step.
+                    rate_pub_period = 1.0 / 50.0
+                    next_pub = time.monotonic()
+                    deadline = next_pub + duration
                     railed = False
                     while time.monotonic() < deadline:
+                        now = time.monotonic()
+                        if now >= next_pub:
+                            if axis == "yaw":
+                                node.send_rate_command(u_cmd, 0.0)
+                            else:
+                                node.send_rate_command(0.0, u_cmd)
+                            next_pub = now + rate_pub_period
                         rclpy.spin_once(node, timeout_sec=0.005)
                         if node._state is None:
                             continue
@@ -1066,8 +1086,10 @@ def main():
                     default=[0.1, 0.25, 0.5, 0.75, 1.0],
                     help="normalized rate magnitudes |u| in [0,1]; each is "
                          "applied in both signs on yaw and pitch")
-    ap.add_argument("--rate-duration", type=float, default=1.0,
-                    help="seconds to hold each rate step before stopping")
+    ap.add_argument("--rate-duration", type=float, default=3.0,
+                    help="seconds to hold each rate step before stopping. "
+                         "Needs to be long enough for the gimbal to reach "
+                         "steady state (peak/ss ratio and K fit depend on it)")
     ap.add_argument("--output-dir", type=str,
                     default=f"/tmp/gimbal_calibration_{int(time.time())}")
     ap.add_argument("--record-bag", action="store_true",

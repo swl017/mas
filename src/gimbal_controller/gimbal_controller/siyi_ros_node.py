@@ -24,9 +24,17 @@ class SiyiGimbalNode(Node):
         self.declare_parameter('server_ip', '192.168.144.26') # Default IP
         self.declare_parameter('server_port', 37260)        # Default Port
         self.declare_parameter('publish_rate_hz', 100.0)     # Publish rate
-        # Yaw/Pitch direction multipliers can also be parameters if needed
+        # Yaw/Pitch direction multipliers can also be parameters if needed.
+        # These align MAS <-> SDK 0x0D attitude sign conventions.
         self.declare_parameter('yaw_direction', 1.0)
         self.declare_parameter('pitch_direction', -1.0)
+        # 0x07 GimbalSpeed on A8 mini uses the OPPOSITE yaw sign from the
+        # 0x0D attitude rate (empirically verified via rate_step calibration:
+        # u_cmd=+0.10 produced state_rate ~= -7 deg/s). These per-axis
+        # parameters cover the 0x07/0x0D sign mismatch and let other
+        # hardware override it without changing yaw/pitch_direction.
+        self.declare_parameter('yaw_rate_cmd_sign', -1.0)
+        self.declare_parameter('pitch_rate_cmd_sign', 1.0)
         # Encoder & aircraft attitude parameters
         self.declare_parameter('enable_encoder_stream', True)
         self.declare_parameter('enable_aircraft_attitude', True)
@@ -37,6 +45,8 @@ class SiyiGimbalNode(Node):
         publish_rate = self.get_parameter('publish_rate_hz').get_parameter_value().double_value
         self.yaw_direction = self.get_parameter('yaw_direction').get_parameter_value().double_value
         self.pitch_direction = self.get_parameter('pitch_direction').get_parameter_value().double_value
+        self.yaw_rate_cmd_sign = self.get_parameter('yaw_rate_cmd_sign').get_parameter_value().double_value
+        self.pitch_rate_cmd_sign = self.get_parameter('pitch_rate_cmd_sign').get_parameter_value().double_value
         self.enable_encoder_stream = self.get_parameter('enable_encoder_stream').get_parameter_value().bool_value
         self.enable_aircraft_attitude = self.get_parameter('enable_aircraft_attitude').get_parameter_value().bool_value
         encoder_stream_freq = self.get_parameter('encoder_stream_freq').get_parameter_value().integer_value
@@ -211,14 +221,23 @@ class SiyiGimbalNode(Node):
 
     def rate_callback(self, msg: Vector3):
         """Heading-frame LOS rate command via 0x07.
-        Input: x=yaw_rate, y=pitch_rate (normalized -1..1).
-        0x07 is heading-frame: gimbal internally handles joint actuation + stabilization.
-        Positive yaw=pan left, positive pitch=tilt down. Send 0 to stop.
+        Input: x=yaw_rate, y=pitch_rate (normalized -1..1), MAS convention.
+        0x07 is heading-frame: gimbal internally handles joint actuation +
+        stabilization. Positive yaw=pan left, positive pitch=tilt down.
+
+        Sign handling (must match state_rate publisher so cmd and feedback
+        agree): multiply by the axis direction (same as state_rate/state
+        angle publishers), then by the per-axis rate_cmd_sign quirk that
+        captures any 0x07 vs 0x0D polarity mismatch on the hardware.
         """
         try:
+            u_yaw = (msg.x * self.yaw_direction
+                     * self.yaw_rate_cmd_sign)
+            u_pitch = (msg.y * self.pitch_direction
+                       * self.pitch_rate_cmd_sign)
             # Scale from [-1,1] to [-100,100] int8, clamp
-            yaw_speed = max(-100, min(100, int(msg.x * 100)))
-            pitch_speed = max(-100, min(100, int(msg.y * 100)))
+            yaw_speed = max(-100, min(100, int(u_yaw * 100)))
+            pitch_speed = max(-100, min(100, int(u_pitch * 100)))
             self.cam.requestGimbalSpeed(yaw_speed, pitch_speed)
             # Echo the received command on a side topic for rosbag-based
             # identification (keeps cmd/response timing aligned in the bag).

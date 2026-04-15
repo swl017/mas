@@ -142,11 +142,11 @@
     },
     {
       "id": "gimbal-calibration",
-      "name": "Gimbal encoder verification + calibration sweep (ticket #026)",
+      "name": "Gimbal encoder verification + calibration sweep + step-response dynamics (ticket #026)",
       "status": "in_progress",
       "spec": "doc/active/tickets/026-gimbal-calibration/ticket.md",
-      "notes": "gimbal_calibration.py implemented: verify (sign + stream), sweep (yaw/pitch fwd+bwd at 5° for hysteresis), optional checkerboard PnP zero-offset. Outputs calibration.csv + summary.csv + optional rosbag. Uses siyi_ros_node command/encoder topics. Bench test blocked on hardware availability. (2026-04-14)",
-      "last_updated": "2026-04-14"
+      "notes": "gimbal_calibration.py implemented: verify (sign + stream), sweep (yaw/pitch fwd+bwd at 2° for hysteresis), step response (±{2,10,30,60}° with rise/settle/overshoot/τ fit), rate-step phase with continuous 50 Hz streaming of 0x07 commands, optional checkerboard PnP zero-offset. Per-axis MAS-convention bounds prevent silent clamping. Rate-step produces bag_rate_step/, rate_step_trace.csv, rate_step_index.csv, rate_step_summary.csv, rate_model.json. Rate-step run 1776262353: yaw K=73.42 deg/s per u, τ=0.101 s; pitch K=73.56, τ=0.094 s. Linear, symmetric, no deadband. Minimal no-ROS model at gimbal_controller/gimbal_model.py (AxisParams+GimbalAxis+Gimbal) carries these defaults for sim/controller use. Sine-sweep phase still pending. In-flight aerodynamic dynamics remain on ticket-023. (2026-04-15)",
+      "last_updated": "2026-04-15"
     },
     {
       "id": "camera-intrinsic-calibration",

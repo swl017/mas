@@ -5,6 +5,46 @@ Append to this file at the end of each session.
 Format: date, what was done, what's next.
 
 ----------------------------------------
+2026-04-15 — Rate-step calibration fix + gimbal model
+----------------------------------------
+Done:
+- Diagnosed rate-step calibration failure: 0x07 GimbalSpeed needs continuous
+  streaming (single publish = transient pulse / dropped packet on A8 mini).
+  Fixed `phase_rate_step_response` to stream at 50 Hz for the whole step.
+- Found sign mismatch between rate command and rate state: rate_callback
+  didn't apply direction multipliers (state_rate did), and 0x07 yaw polarity
+  on A8 mini is opposite to 0x0D attitude rate. Added `yaw_rate_cmd_sign`
+  (default -1.0) and `pitch_rate_cmd_sign` (default +1.0) parameters and
+  applied direction multipliers symmetrically with state_rate.
+- Robustness fixes in calibration: default --rate-duration 1.0→3.0 s (reach
+  steady state), inter-step brake wait 0.2→0.7 s (kill residual motion),
+  latency threshold 5→2 deg/s (less acceleration-phase contamination),
+  _fit_rate_step_metrics rejects traces starting past the 10% threshold.
+- Analysis script: split rate_step_trajectories by axis × sign of u,
+  overlay w_ss + first-order fit per trace; new rate_step_metrics plot
+  (rise, latency, K_eff, w_peak/w_ss vs |u|); rate_k_curve fits +u and -u
+  branches separately with deadband markers; main() now treats angle-step
+  and rate-step phases as independent optional sections.
+- Clean calibration run 1776262353: yaw K=73.42 deg/s per u, τ=0.101 s;
+  pitch K=73.56 deg/s per u, τ=0.094 s. Linear and symmetric across
+  |u|∈[0.1, 1.0], no measurable deadband, no overshoot.
+- Added `gimbal_controller/gimbal_model.py`: pure-Python (no ROS) first-order
+  rate-loop model with yaw/pitch defaults from the bench run. API:
+  AxisParams, GimbalAxis.step(u, dt), rate_to_cmd(w), Gimbal wrapper.
+  Validated against analytical first-order response.
+
+Next:
+- Run a sine-sweep phase (continuous sinusoidal u at several frequencies)
+  to obtain a Bode plot — exposes higher-order dynamics, phase lag, and
+  any structural resonance not visible in a step response.
+- Verify `yaw_rate_cmd_sign` default of -1.0 on a second A8 mini unit (it
+  may be the hardware-unit-specific 0x07 polarity).
+- Consider widening pitch safety envelope or shortening --rate-duration for
+  pitch so the max-|u| sweep doesn't rail (pitch envelope -18..83 is tight
+  at 74 deg/s for 3 s).
+- Use gimbal_model.py in sim regression tests / feed-forward control path.
+
+----------------------------------------
 2026-04-15 — Ticket #026 start: gimbal calibration
 ----------------------------------------
 Done:
@@ -522,3 +562,49 @@ Done:
 
 Next:
 - Use the documented artifacts to run the bench calibration session when hardware and `mrcal` are available
+
+----------------------------------------
+2026-04-15 — Ticket #026: Add step-response dynamics phase
+----------------------------------------
+Done:
+- Extended gimbal_calibration.py with `step` phase:
+  - Matrix: 2 axes × N magnitudes (default [10°, 30°, 60°]) × 2 signs = 12 steps
+  - Homes to 0, logs 100 Hz state+encoder trace for --step-duration (default 2.5s) after each step command
+  - Per-step fit: 10-90% rise time, 2% settling time, overshoot %, 63.2% time constant τ
+  - Output: step_trace.csv (per-sample, ~3k rows at defaults) + step_summary.csv (one row per step)
+- Fixed prior sweep issues:
+  - Pitch sweep bounds corrected to MAS command convention [-20°, +85°] (prev [-80°, +20°] was hitting the +25° SDK clamp for ~60% of samples)
+  - Default step size 5° → 2° (denser by 2.5×)
+  - Added --pre-settle (default 2.5s) before first sample of each sweep direction (fixes mid-slew first sample)
+  - Summary offset metric now uses state (same convention as cmd) instead of encoder (opposite sign for pitch) — fixes spurious 44° std
+- Exposed new CLI args: --step-magnitudes, --step-duration, --pre-settle, --yaw-min/max, --pitch-min/max
+- Updated ticket 026 boundary: dynamics bench tests now in scope (was DO NOT); flight-load dynamics deferred to ticket-023
+
+Next:
+- Run on real A8 mini: validate pitch sweep completes full range without clamping; sanity-check step metrics
+- Feed step_summary.csv into iris_ma6 randomization ranges (stiffness/damping from τ and overshoot per axis)
+- Consider adding rate-command probe (0x07 at ±1.0) to measure saturation rate if needed
+
+----------------------------------------
+2026-04-15 — Ticket #026: Switch step-phase trace to rosbag
+----------------------------------------
+Done:
+- Replaced step_trace.csv with a scoped `bag_step/` rosbag as the authoritative step-phase trace
+  - Auto-starts at step-phase entry, stops on exit — no --record-bag flag needed
+  - Topics: state_rpy_deg, encoder_rpy_deg, command_rpy_deg, gimbal_cmd_los_rate, combined_ang_vel_w, camera/zoom_level, mavros/imu/data
+  - Captures IMU at its native rate (250 Hz) — can separate body motion from gimbal motion in post
+- Added step_index.csv: step_id → (axis, cmd_to, t_cmd_ros, t_end_ros, t_cmd_wall, s0) for per-step bag slicing offline
+- Added per-axis MAS-convention bounds: pitch step commands outside [-20°, +85°] now skipped with warning (previously -60° pitch silently clamped to -25°, giving bogus sf/τ in initial results)
+- Default step_magnitudes now [2°, 10°, 30°, 60°] — small magnitude added to probe linear regime before rate saturation
+- `--record-bag` still recognized for a separate whole-session bag (bag/) if needed
+- Dry-run on dev box (no gimbal) validates argparse + syntax; metric fits unchanged from previous run
+
+Empirical finding from 2026-04-15 initial run (still in-script CSV):
+- A8 mini τ scales roughly linearly with step magnitude (0.27s @ 2°, 0.47s @ 10°, 0.77s @ 30°, 1.06s @ 60° for yaw)
+- Indicates rate-limited actuator, not linear 2nd-order. Sim randomization should fit linear (ωn, ζ) from small-step data and use large-step data to bound saturation rate
+- Pitch cmd_to=-60° hit SDK rail (sf=-24.9°) — bounds check now prevents this
+
+Next:
+- Run on real A8 mini; confirm step_index.csv + bag_step/ slicing pipeline
+- Write a small offline script that reads bag_step/ + step_index.csv and emits per-step 2nd-order (ωn, ζ, K_rate) fits
+- Feed fitted parameters into iris_ma6 randomization config

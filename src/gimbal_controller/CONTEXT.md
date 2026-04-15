@@ -29,8 +29,10 @@ Gimbal hardware interface (SIYI SDK) and camera pointing control for target trac
 - `server_ip` (`string`, default: `"192.168.144.26"`) — SIYI gimbal IP
 - `server_port` (`int`, default: `37260`) — SIYI gimbal port
 - `publish_rate_hz` (`double`, default: `100.0`) — state publish rate
-- `yaw_direction` (`double`, default: `1.0`) — yaw sign multiplier (left=positive)
-- `pitch_direction` (`double`, default: `-1.0`) — pitch sign multiplier (down=positive after negation)
+- `yaw_direction` (`double`, default: `1.0`) — yaw sign multiplier (left=positive) applied to 0x0D state, 0x0B angle command, and 0x07 rate command
+- `pitch_direction` (`double`, default: `-1.0`) — pitch sign multiplier (down=positive after negation) applied to 0x0D state, 0x0B angle command, and 0x07 rate command
+- `yaw_rate_cmd_sign` (`double`, default: `-1.0`) — per-axis hardware quirk: 0x07 GimbalSpeed yaw polarity is opposite to 0x0D attitude rate on A8 mini. Verified by rate-step calibration (run 1776262353). Override per unit if needed.
+- `pitch_rate_cmd_sign` (`double`, default: `1.0`) — per-axis 0x07 pitch polarity. A8 mini: no extra flip beyond pitch_direction.
 - `enable_aircraft_attitude` (`bool`, default: `true`) — enable 0x22 attitude injection (from IMU at 100 Hz) and 0x3E GPS injection
 
 ---
@@ -81,10 +83,29 @@ Gimbal hardware interface (SIYI SDK) and camera pointing control for target trac
 - `scripts/init_gimbal_calibration_session.py` — pre-creates the dataset layout and manifest
 - `scripts/summarize_gimbal_calibration.py` — rebuilds summary JSON from `samples.csv`
 
+---
+
+### gimbal_model (library)
+**File:** `gimbal_controller/gimbal_model.py`
+**Pattern:** Pure-Python model (no ROS dependencies)
+
+#### Purpose
+- Minimal first-order rate-loop model of the SIYI A8 mini (yaw + pitch)
+- Defaults fitted from rate-step calibration run 1776262353: K≈73.5 deg/s per u, τ≈0.1 s, zero deadband, symmetric
+- For sim regression tests, feed-forward controllers, and offline analysis
+
+#### API
+- `AxisParams` dataclass (K, tau, latency, w_max, u_deadband, angle_min/max)
+- `GimbalAxis.step(u, dt) -> (theta, w)` — semi-implicit Euler + integer-step delay + rail clamp
+- `GimbalAxis.rate_to_cmd(w)` / `cmd_to_rate_ss(u)` — static map inverse / forward
+- `Gimbal` wraps yaw + pitch with the same API
+- `YAW_DEFAULT`, `PITCH_DEFAULT` carry the calibrated parameters
+
 ## Key Files
 - `gimbal_controller/siyi_ros_node.py` — Hardware interface node
 - `gimbal_controller/point_to_region_node.py` — Pointing control node
 - `gimbal_controller/point_to_region.py` — Core pointing computation logic
+- `gimbal_controller/gimbal_model.py` — No-ROS first-order rate-loop model
 - `gimbal_controller/gimbal_calibration.py` — Bench calibration runner
 - `gimbal_controller/siyi_sdk.py` — SIYI gimbal SDK wrapper
 - `launch/` — Launch files

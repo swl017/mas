@@ -121,10 +121,39 @@ def read_rate_step_summary(path: Path):
     return rows
 
 
+def _fit_first_order(t_rel, w, w_ss):
+    """Fit τ, latency to w(t) = w_ss * (1 - exp(-(t-t0)/τ)) via 63.2% crossing.
+    Returns (t0, tau) or (nan, nan) if signal too small.
+    """
+    if abs(w_ss) < 5.0 or len(t_rel) < 5:
+        return float("nan"), float("nan")
+    sign = 1.0 if w_ss > 0 else -1.0
+    # First-motion latency: first sample where |w| exceeds 5 deg/s
+    t0 = float("nan")
+    for i, v in enumerate(w):
+        if abs(v) >= 5.0:
+            t0 = t_rel[i]
+            break
+    # 63.2% crossing → τ
+    thr = 0.632 * w_ss
+    tau = float("nan")
+    for i, v in enumerate(w):
+        if sign * (v - thr) >= 0 and not math.isnan(t0):
+            tau = t_rel[i] - t0
+            break
+    return t0, tau
+
+
 def plot_rate_step_trajectories(steps, rate_t, rate_y, rate_z,
-                                out_path: Path):
-    """Rate response trajectories from state_rate_rpy_deg."""
-    fig, axes = plt.subplots(1, 2, figsize=(13, 5), sharex=True)
+                                summary_by_id, out_path: Path,
+                                show_fit: bool = True):
+    """Rate response trajectories from state_rate_rpy_deg.
+
+    Split by axis (cols) × sign (rows) so the positive/negative branches don't
+    overplot. Each trace is colored by |u_cmd|. Steady-state (w_ss) and a
+    first-order fit (dotted) are overlaid per trace when show_fit is True.
+    """
+    fig, axes = plt.subplots(2, 2, figsize=(13, 8.5), sharex=True)
     fig.suptitle("Rate-step response (A8 mini, bench)")
 
     mags = sorted({abs(s["u_cmd"]) for s in steps})
@@ -132,29 +161,118 @@ def plot_rate_step_trajectories(steps, rate_t, rate_y, rate_z,
     color_of = {m: cmap(i / max(1, len(mags) - 1)) for i, m in enumerate(mags)}
 
     for col, axis in enumerate(("yaw", "pitch")):
-        ax = axes[col]
-        for s in steps:
-            if s["axis"] != axis:
+        for row, sign_label in enumerate(("positive u", "negative u")):
+            ax = axes[row, col]
+            want_positive = (row == 0)
+            for s in steps:
+                if s["axis"] != axis:
+                    continue
+                if (s["u_cmd"] > 0) != want_positive:
+                    continue
+                arr = rate_z if axis == "yaw" else rate_y
+                t_rel, w = slice_window(rate_t, arr,
+                                        s["t_cmd"], s["t_end"])
+                if len(t_rel) < 4:
+                    continue
+                color = color_of[abs(s["u_cmd"])]
+                ax.plot(t_rel, w, color=color, linewidth=1.2,
+                        label=f"u={s['u_cmd']:+.2f}")
+                # Overlay w_ss + first-order fit from summary
+                m = summary_by_id.get(s["step_id"])
+                if m is None or math.isnan(m["w_ss"]):
+                    continue
+                ax.axhline(m["w_ss"], color=color, linestyle=":",
+                           linewidth=0.6, alpha=0.5)
+                if show_fit:
+                    t0, tau = _fit_first_order(t_rel, w, m["w_ss"])
+                    if not (math.isnan(t0) or math.isnan(tau)) and tau > 0:
+                        tt = np.linspace(t0, t_rel[-1], 60)
+                        ww = m["w_ss"] * (1 - np.exp(-(tt - t0) / tau))
+                        ax.plot(tt, ww, color=color, linestyle="--",
+                                linewidth=0.9, alpha=0.7)
+            ax.set_title(f"{axis.upper()} — {sign_label}")
+            if col == 0:
+                ax.set_ylabel("rate [deg/s]")
+            if row == 1:
+                ax.set_xlabel("t since cmd [s]")
+            ax.grid(True, alpha=0.3)
+            ax.axhline(0, color="k", linewidth=0.4)
+            ax.axvline(0, color="k", linewidth=0.4, alpha=0.4)
+            handles, labels = ax.get_legend_handles_labels()
+            seen = {}
+            for h, l in zip(handles, labels):
+                seen.setdefault(l, h)
+            if seen:
+                ax.legend(seen.values(), seen.keys(), fontsize=7, ncol=2,
+                          loc="best")
+
+    # Legend hint for overlays
+    fig.text(0.5, 0.015,
+             "dotted horizontal = w_ss;  dashed = first-order fit "
+             "w_ss·(1 − e^−(t−t₀)/τ)",
+             ha="center", fontsize=8, style="italic")
+    fig.tight_layout(rect=(0, 0.03, 1, 0.94))
+    fig.savefig(out_path, dpi=140)
+    plt.close(fig)
+
+
+def plot_rate_step_metrics(summary, out_path: Path):
+    """Rise time, latency, effective gain, and peak/ss vs |u_cmd|.
+
+    K_eff = w_ss / u_cmd is the local gain; a horizontal line means linear.
+    w_peak / w_ss tracks overshoot (>1 means overshoot).
+    """
+    fig, axes = plt.subplots(2, 2, figsize=(11, 7.5))
+    fig.suptitle("Rate-step metrics vs |u_cmd|")
+
+    # axis → list of rows; colors for axes, markers for sign of u_cmd
+    by_axis = defaultdict(list)
+    for r in summary:
+        if r.get("railed"):
+            continue
+        by_axis[r["axis"]].append(r)
+
+    for axis, color in (("yaw", "tab:blue"), ("pitch", "tab:orange")):
+        for sign_val, marker, sign_label in (
+                (+1.0, "o", "+u"), (-1.0, "s", "−u")):
+            rows = [r for r in by_axis.get(axis, [])
+                    if (r["u_cmd"] > 0) == (sign_val > 0)]
+            rows = sorted(rows, key=lambda r: abs(r["u_cmd"]))
+            if not rows:
                 continue
-            arr = rate_z if axis == "yaw" else rate_y
-            t_rel, w = slice_window(rate_t, arr, s["t_cmd"], s["t_end"])
-            if len(t_rel) < 4:
-                continue
-            color = color_of[abs(s["u_cmd"])]
-            ls = "-" if s["u_cmd"] > 0 else "--"
-            ax.plot(t_rel, w, color=color, linestyle=ls, linewidth=1.2,
-                    label=f"u={s['u_cmd']:+.2f}")
-        ax.set_title(f"{axis.upper()} — rate (SDK 0x0D)")
-        ax.set_xlabel("t since cmd [s]")
-        ax.set_ylabel("rate [deg/s]")
+            umag = np.array([abs(r["u_cmd"]) for r in rows])
+            rise = np.array([r["rise"] for r in rows])
+            latency = np.array([r["latency"] for r in rows])
+            w_ss = np.array([r["w_ss"] for r in rows])
+            w_peak = np.array([r["w_peak"] for r in rows])
+            u = np.array([r["u_cmd"] for r in rows])
+            with np.errstate(divide="ignore", invalid="ignore"):
+                k_eff = np.where(np.abs(u) > 1e-6, w_ss / u, np.nan)
+                peak_ratio = np.where(
+                    np.abs(w_ss) > 5.0, w_peak / w_ss, np.nan)
+            label = f"{axis} {sign_label}"
+            axes[0, 0].plot(umag, rise, marker=marker, linestyle="-",
+                            color=color, label=label)
+            axes[0, 1].plot(umag, latency, marker=marker, linestyle="-",
+                            color=color, label=label)
+            axes[1, 0].plot(umag, k_eff, marker=marker, linestyle="-",
+                            color=color, label=label)
+            axes[1, 1].plot(umag, peak_ratio, marker=marker, linestyle="-",
+                            color=color, label=label)
+
+    axes[0, 0].set_title("10–90% rise time")
+    axes[0, 0].set_ylabel("rise [s]")
+    axes[0, 1].set_title("First-motion latency")
+    axes[0, 1].set_ylabel("latency [s]")
+    axes[1, 0].set_title("Effective gain K = w_ss / u_cmd")
+    axes[1, 0].set_ylabel("K [deg/s per u]")
+    axes[1, 1].set_title("Peak / steady-state ratio (overshoot proxy)")
+    axes[1, 1].set_ylabel("w_peak / w_ss")
+    axes[1, 1].axhline(1.0, color="k", linestyle=":", linewidth=0.6)
+    for ax in axes.flat:
+        ax.set_xlabel("|u_cmd|")
         ax.grid(True, alpha=0.3)
-        ax.axhline(0, color="k", linewidth=0.4)
-        handles, labels = ax.get_legend_handles_labels()
-        seen = {}
-        for h, l in zip(handles, labels):
-            seen.setdefault(l, h)
-        ax.legend(seen.values(), seen.keys(), fontsize=8, ncol=2,
-                  loc="best")
+        ax.legend(fontsize=8)
 
     fig.tight_layout(rect=(0, 0, 1, 0.94))
     fig.savefig(out_path, dpi=140)
@@ -162,8 +280,10 @@ def plot_rate_step_trajectories(steps, rate_t, rate_y, rate_z,
 
 
 def plot_rate_k_curve(summary, out_path: Path):
-    """Steady-state rate vs normalized command — the 0x07 calibration curve."""
-    fig, ax = plt.subplots(figsize=(8, 6))
+    """Steady-state rate vs normalized command — the 0x07 calibration curve.
+    Fits positive and negative branches separately so asymmetry is visible.
+    """
+    fig, ax = plt.subplots(figsize=(8.5, 6))
     fig.suptitle("Rate calibration: w_ss vs u_cmd")
 
     by_axis = defaultdict(list)
@@ -179,21 +299,35 @@ def plot_rate_k_curve(summary, out_path: Path):
         u = np.array([r["u_cmd"] for r in rows])
         w = np.array([r["w_ss"] for r in rows])
         ax.plot(u, w, "o", color=color, label=f"{axis}")
-        # Linear fit on the non-deadband live points
-        live = np.abs(w) >= 5.0
-        if live.sum() >= 2:
-            k, b = np.polyfit(u[live], w[live], 1)
-            xs = np.linspace(u.min(), u.max(), 50)
-            ax.plot(xs, k * xs + b, "-", color=color, linewidth=1,
-                    alpha=0.7,
-                    label=f"{axis} fit: k={k:.1f}°/s per u")
+
+        # Separate linear fits for u>0 and u<0 to reveal asymmetry
+        for sign_val, style in ((+1.0, "-"), (-1.0, "--")):
+            branch = (u * sign_val > 0) & (np.abs(w) >= 5.0)
+            if branch.sum() < 2:
+                continue
+            k, b = np.polyfit(u[branch], w[branch], 1)
+            xs = np.linspace(u[branch].min(), u[branch].max(), 30)
+            sign_label = "+u" if sign_val > 0 else "−u"
+            ax.plot(xs, k * xs + b, style, color=color, linewidth=1.1,
+                    alpha=0.8,
+                    label=f"{axis} {sign_label}: k={k:.1f}, b={b:.1f}")
+
+        # Deadband markers: smallest |u| where |w_ss| >= 5 (per sign)
+        for sign_val in (+1.0, -1.0):
+            branch_rows = [(abs(r["u_cmd"]), r["w_ss"]) for r in rows
+                           if r["u_cmd"] * sign_val > 0
+                           and abs(r["w_ss"]) >= 5.0]
+            if branch_rows:
+                u_min = min(branch_rows)[0] * sign_val
+                ax.axvline(u_min, color=color, linestyle=":",
+                           linewidth=0.6, alpha=0.5)
 
     ax.set_xlabel("u_cmd (normalized)")
     ax.set_ylabel("w_ss [deg/s]")
     ax.axhline(0, color="k", linewidth=0.4)
     ax.axvline(0, color="k", linewidth=0.4)
     ax.grid(True, alpha=0.3)
-    ax.legend(fontsize=9)
+    ax.legend(fontsize=8, loc="best")
 
     fig.tight_layout(rect=(0, 0, 1, 0.94))
     fig.savefig(out_path, dpi=140)
@@ -436,55 +570,55 @@ def main():
     plots_dir = args.out_dir or (run_dir / "plots")
     plots_dir.mkdir(parents=True, exist_ok=True)
 
-    bag_dir = run_dir / "bag_step"
-    step_index_path = run_dir / "step_index.csv"
-    step_summary_path = run_dir / "step_summary.csv"
     sweep_path = run_dir / "calibration.csv"
 
-    if not bag_dir.exists():
-        print(f"ERROR: {bag_dir} does not exist", file=sys.stderr)
-        return 1
+    # Angle-step phase (optional): bag_step/ + step_index.csv
+    angle_bag_dir = run_dir / "bag_step"
+    angle_index_path = run_dir / "step_index.csv"
+    angle_summary_path = run_dir / "step_summary.csv"
+    summary = []
+    if angle_bag_dir.exists() and angle_index_path.exists():
+        print(f"Reading angle-step bag: {angle_bag_dir}")
+        topics, _ = read_bag(angle_bag_dir)
+        print("  topics:", list(topics.keys()))
+        print(f"  total msgs: {sum(len(v) for v in topics.values())}")
 
-    print(f"Reading bag: {bag_dir}")
-    topics, _ = read_bag(bag_dir)
-    print("  topics:", list(topics.keys()))
-    print(f"  total msgs: {sum(len(v) for v in topics.values())}")
+        state = topics.get("/siyi_gimbal_angles/state_rpy_deg", [])
+        enc = topics.get("/siyi_gimbal_angles/encoder_rpy_deg", [])
+        if not state:
+            print("WARN: no state_rpy_deg in angle-step bag", file=sys.stderr)
+        else:
+            state_t, state_x, state_y, state_z = as_arrays(state)
+            enc_t = enc_x = enc_y = enc_z = None
+            if enc:
+                enc_t, enc_x, enc_y, enc_z = as_arrays(enc)
 
-    state = topics.get("/siyi_gimbal_angles/state_rpy_deg", [])
-    enc = topics.get("/siyi_gimbal_angles/encoder_rpy_deg", [])
-    if not state:
-        print("ERROR: no state_rpy_deg in bag", file=sys.stderr)
-        return 1
+            steps = read_step_index(angle_index_path)
+            summary = (read_step_summary(angle_summary_path)
+                       if angle_summary_path.exists() else [])
+            print(f"  steps: {len(steps)}")
 
-    state_t, state_x, state_y, state_z = as_arrays(state)
-    enc_t = enc_x = enc_y = enc_z = None
-    if enc:
-        enc_t, enc_x, enc_y, enc_z = as_arrays(enc)
+            p1 = plots_dir / "step_trajectories.png"
+            plot_step_trajectories(
+                steps, state_t, state_y, state_z,
+                enc_t, enc_y, enc_z, p1)
+            print(f"  wrote {p1}")
 
-    steps = read_step_index(step_index_path)
-    summary = read_step_summary(step_summary_path)
-    print(f"  steps: {len(steps)}")
+            if summary:
+                p2 = plots_dir / "step_metrics.png"
+                plot_dynamics_metrics(summary, p2)
+                print(f"  wrote {p2}")
+    else:
+        print(f"(no angle-step data at {angle_bag_dir} — skipping)")
 
-    # Plot 1: trajectories (position + velocity) per step
-    p1 = plots_dir / "step_trajectories.png"
-    plot_step_trajectories(
-        steps, state_t, state_y, state_z,
-        enc_t, enc_y, enc_z, p1)
-    print(f"  wrote {p1}")
-
-    # Plot 2: metrics vs magnitude
-    p2 = plots_dir / "step_metrics.png"
-    plot_dynamics_metrics(summary, p2)
-    print(f"  wrote {p2}")
-
-    # Plot 3: sweep linearity + hysteresis
+    # Sweep plot
     p3 = plots_dir / "sweep.png"
     if plot_sweep(sweep_path, p3):
         print(f"  wrote {p3}")
     else:
         print(f"  (no sweep data at {sweep_path})")
 
-    # Plot 4+5: rate-step trajectories + k-curve (if rate phase was run)
+    # Rate-step phase (optional): bag_rate_step/ + rate_step_index.csv
     rate_bag_dir = run_dir / "bag_rate_step"
     rate_index_path = run_dir / "rate_step_index.csv"
     rate_summary_path = run_dir / "rate_step_summary.csv"
@@ -496,20 +630,29 @@ def main():
         if state_rate:
             rt_t, rt_x, rt_y, rt_z = as_arrays(state_rate)
             rsteps = read_rate_step_index(rate_index_path)
+            rsummary = (read_rate_step_summary(rate_summary_path)
+                        if rate_summary_path.exists() else [])
+            summary_by_id = {m["step_id"]: m for m in rsummary}
+
             p4 = plots_dir / "rate_step_trajectories.png"
-            plot_rate_step_trajectories(rsteps, rt_t, rt_y, rt_z, p4)
+            plot_rate_step_trajectories(rsteps, rt_t, rt_y, rt_z,
+                                        summary_by_id, p4)
             print(f"  wrote {p4}")
 
-            if rate_summary_path.exists():
-                rsummary = read_rate_step_summary(rate_summary_path)
+            if rsummary:
                 p5 = plots_dir / "rate_k_curve.png"
                 plot_rate_k_curve(rsummary, p5)
                 print(f"  wrote {p5}")
+                p6 = plots_dir / "rate_step_metrics.png"
+                plot_rate_step_metrics(rsummary, p6)
+                print(f"  wrote {p6}")
         else:
             print("  (no state_rate_rpy_deg in rate bag — is the SIYI node "
                   "publishing it?)")
 
-    # Print short analysis summary to stdout
+    # Print short analysis summary to stdout (angle-step only)
+    if not summary:
+        return 0
     print("\n=== Analysis summary ===")
     by_axis = defaultdict(list)
     for r in summary:

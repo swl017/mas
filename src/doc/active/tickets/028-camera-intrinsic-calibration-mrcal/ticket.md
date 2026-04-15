@@ -72,10 +72,10 @@ reproducible bench workflow and artifact-generation path for D1:
 
 ## Artifacts
 
-- Workflow guide: [README.md](/home/usrg/mas/src/scripts/calibration/README.md)
-- Session initializer: [init_camera_calibration_session.py](/home/usrg/mas/src/scripts/calibration/init_camera_calibration_session.py)
-- Calibration runner: [run_mrcal_intrinsics.sh](/home/usrg/mas/src/scripts/calibration/run_mrcal_intrinsics.sh)
-- Summary generator: [summarize_mrcal_intrinsics.py](/home/usrg/mas/src/scripts/calibration/summarize_mrcal_intrinsics.py)
+- Workflow guide: [README.md](/home/usrg/mas/src/scripts/camera_calibration/README.md)
+- Session initializer: [init_camera_calibration_session.py](/home/usrg/mas/src/scripts/camera_calibration/init_camera_calibration_session.py)
+- Calibration runner: [run_mrcal_intrinsics.sh](/home/usrg/mas/src/scripts/camera_calibration/run_mrcal_intrinsics.sh)
+- Summary generator: [summarize_mrcal_intrinsics.py](/home/usrg/mas/src/scripts/camera_calibration/summarize_mrcal_intrinsics.py)
 - Dataset root for bench outputs: `datasets/camera_calibration/<date>/`
 
 ## Notes
