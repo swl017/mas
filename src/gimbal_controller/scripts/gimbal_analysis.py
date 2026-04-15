@@ -82,6 +82,124 @@ def read_step_index(path: Path):
     return rows
 
 
+def read_rate_step_index(path: Path):
+    rows = []
+    with path.open() as f:
+        for row in csv.DictReader(f):
+            rows.append(dict(
+                step_id=int(row["step_id"]),
+                axis=row["axis"],
+                u_cmd=float(row["u_cmd"]),
+                t_cmd=float(row["t_cmd_ros_s"]),
+                t_end=float(row["t_end_ros_s"]),
+                s0_yaw=float(row["s0_yaw"]),
+                s0_pitch=float(row["s0_pitch"]),
+                railed=bool(int(row.get("railed", 0))),
+            ))
+    return rows
+
+
+def read_rate_step_summary(path: Path):
+    rows = []
+    with path.open() as f:
+        for row in csv.DictReader(f):
+            def flt(v):
+                try:
+                    return float(v)
+                except ValueError:
+                    return float("nan")
+            rows.append(dict(
+                step_id=int(row["step_id"]),
+                axis=row["axis"],
+                u_cmd=flt(row["u_cmd"]),
+                w_ss=flt(row["w_ss_deg_s"]),
+                w_peak=flt(row["w_peak_deg_s"]),
+                rise=flt(row["rise_time_s"]),
+                latency=flt(row["latency_s"]),
+                railed=bool(int(row.get("railed", "0"))),
+            ))
+    return rows
+
+
+def plot_rate_step_trajectories(steps, rate_t, rate_y, rate_z,
+                                out_path: Path):
+    """Rate response trajectories from state_rate_rpy_deg."""
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5), sharex=True)
+    fig.suptitle("Rate-step response (A8 mini, bench)")
+
+    mags = sorted({abs(s["u_cmd"]) for s in steps})
+    cmap = plt.get_cmap("viridis")
+    color_of = {m: cmap(i / max(1, len(mags) - 1)) for i, m in enumerate(mags)}
+
+    for col, axis in enumerate(("yaw", "pitch")):
+        ax = axes[col]
+        for s in steps:
+            if s["axis"] != axis:
+                continue
+            arr = rate_z if axis == "yaw" else rate_y
+            t_rel, w = slice_window(rate_t, arr, s["t_cmd"], s["t_end"])
+            if len(t_rel) < 4:
+                continue
+            color = color_of[abs(s["u_cmd"])]
+            ls = "-" if s["u_cmd"] > 0 else "--"
+            ax.plot(t_rel, w, color=color, linestyle=ls, linewidth=1.2,
+                    label=f"u={s['u_cmd']:+.2f}")
+        ax.set_title(f"{axis.upper()} — rate (SDK 0x0D)")
+        ax.set_xlabel("t since cmd [s]")
+        ax.set_ylabel("rate [deg/s]")
+        ax.grid(True, alpha=0.3)
+        ax.axhline(0, color="k", linewidth=0.4)
+        handles, labels = ax.get_legend_handles_labels()
+        seen = {}
+        for h, l in zip(handles, labels):
+            seen.setdefault(l, h)
+        ax.legend(seen.values(), seen.keys(), fontsize=8, ncol=2,
+                  loc="best")
+
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    fig.savefig(out_path, dpi=140)
+    plt.close(fig)
+
+
+def plot_rate_k_curve(summary, out_path: Path):
+    """Steady-state rate vs normalized command — the 0x07 calibration curve."""
+    fig, ax = plt.subplots(figsize=(8, 6))
+    fig.suptitle("Rate calibration: w_ss vs u_cmd")
+
+    by_axis = defaultdict(list)
+    for r in summary:
+        if r.get("railed"):
+            continue
+        by_axis[r["axis"]].append(r)
+
+    for axis, color in (("yaw", "tab:blue"), ("pitch", "tab:orange")):
+        rows = sorted(by_axis.get(axis, []), key=lambda r: r["u_cmd"])
+        if not rows:
+            continue
+        u = np.array([r["u_cmd"] for r in rows])
+        w = np.array([r["w_ss"] for r in rows])
+        ax.plot(u, w, "o", color=color, label=f"{axis}")
+        # Linear fit on the non-deadband live points
+        live = np.abs(w) >= 5.0
+        if live.sum() >= 2:
+            k, b = np.polyfit(u[live], w[live], 1)
+            xs = np.linspace(u.min(), u.max(), 50)
+            ax.plot(xs, k * xs + b, "-", color=color, linewidth=1,
+                    alpha=0.7,
+                    label=f"{axis} fit: k={k:.1f}°/s per u")
+
+    ax.set_xlabel("u_cmd (normalized)")
+    ax.set_ylabel("w_ss [deg/s]")
+    ax.axhline(0, color="k", linewidth=0.4)
+    ax.axvline(0, color="k", linewidth=0.4)
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=9)
+
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    fig.savefig(out_path, dpi=140)
+    plt.close(fig)
+
+
 def read_step_summary(path: Path):
     rows = []
     with path.open() as f:
@@ -365,6 +483,31 @@ def main():
         print(f"  wrote {p3}")
     else:
         print(f"  (no sweep data at {sweep_path})")
+
+    # Plot 4+5: rate-step trajectories + k-curve (if rate phase was run)
+    rate_bag_dir = run_dir / "bag_rate_step"
+    rate_index_path = run_dir / "rate_step_index.csv"
+    rate_summary_path = run_dir / "rate_step_summary.csv"
+    if rate_bag_dir.exists() and rate_index_path.exists():
+        print(f"\nReading rate bag: {rate_bag_dir}")
+        rate_topics, _ = read_bag(rate_bag_dir)
+        state_rate = rate_topics.get("/siyi_gimbal_angles/state_rate_rpy_deg",
+                                     [])
+        if state_rate:
+            rt_t, rt_x, rt_y, rt_z = as_arrays(state_rate)
+            rsteps = read_rate_step_index(rate_index_path)
+            p4 = plots_dir / "rate_step_trajectories.png"
+            plot_rate_step_trajectories(rsteps, rt_t, rt_y, rt_z, p4)
+            print(f"  wrote {p4}")
+
+            if rate_summary_path.exists():
+                rsummary = read_rate_step_summary(rate_summary_path)
+                p5 = plots_dir / "rate_k_curve.png"
+                plot_rate_k_curve(rsummary, p5)
+                print(f"  wrote {p5}")
+        else:
+            print("  (no state_rate_rpy_deg in rate bag — is the SIYI node "
+                  "publishing it?)")
 
     # Print short analysis summary to stdout
     print("\n=== Analysis summary ===")

@@ -16,7 +16,13 @@ Phases:
      Computes per-step rise time (10-90%), settling time (2% band),
      overshoot, and 63% time constant τ — feeds a 2nd-order actuation model
      (stiffness/damping) for sim randomization ranges.
-  4. Zero offset (optional, --checkerboard): capture camera images while
+  4. Rate step response (ticket 030): normalized rate commands (0x07) in
+     ±magnitudes, parked opposite to cmd direction so the gimbal has
+     headroom. Streams state_rate_rpy_deg + state angle into
+     rate_step_trace.csv; computes steady-state deg/s, rise time, and
+     first-motion latency. Fits per-axis k (deg/s per unit), τ_rate, and
+     deadband into rate_model.json.
+  5. Zero offset (optional, --checkerboard): capture camera images while
      pointing at a checkerboard, estimate camera pose via PnP, compare with
      commanded/encoder angles.
 
@@ -97,22 +103,36 @@ class CalibrationNode(Node):
 
         self.cmd_pub = self.create_publisher(
             Vector3, 'siyi_gimbal_angles/command_rpy_deg', qos)
+        self.rate_cmd_pub = self.create_publisher(
+            Vector3, 'gimbal_cmd_los_rate', qos)
 
         self._state = None
         self._encoder = None
+        self._state_rate = None
         self._state_count = 0
         self._enc_count = 0
+        self._state_rate_count = 0
         self.create_subscription(
             Vector3, 'siyi_gimbal_angles/state_rpy_deg',
             self._state_cb, qos)
         self.create_subscription(
             Vector3, 'siyi_gimbal_angles/encoder_rpy_deg',
             self._encoder_cb, qos)
+        self.create_subscription(
+            Vector3, 'siyi_gimbal_angles/state_rate_rpy_deg',
+            self._state_rate_cb, qos)
 
         # Step-response recorder: append every state callback when enabled.
         # Rows: (t_ros, state_x, state_y, state_z, enc_x, enc_y, enc_z).
         self._step_logging = False
         self._step_trace: list = []
+
+        # Rate-step recorder: driven by state_rate_cb (SDK 0x0D, ~100 Hz).
+        # Rows: (t_ros, u_yaw, u_pitch, rate_x, rate_y, rate_z,
+        #        state_x, state_y, state_z).
+        self._rate_step_logging = False
+        self._rate_step_trace: list = []
+        self._last_rate_cmd = (0.0, 0.0)  # (u_yaw, u_pitch) normalized
 
         self._latest_image = None
         self._camera_info = None
@@ -139,6 +159,17 @@ class CalibrationNode(Node):
         self._encoder = msg
         self._enc_count += 1
 
+    def _state_rate_cb(self, msg):
+        self._state_rate = msg
+        self._state_rate_count += 1
+        if self._rate_step_logging and self._state is not None:
+            t = self.get_clock().now().nanoseconds / 1e9
+            u_yaw, u_pitch = self._last_rate_cmd
+            st = self._state
+            self._rate_step_trace.append(
+                (t, u_yaw, u_pitch, msg.x, msg.y, msg.z,
+                 st.x, st.y, st.z))
+
     def start_step_log(self):
         self._step_trace = []
         self._step_logging = True
@@ -146,6 +177,14 @@ class CalibrationNode(Node):
     def stop_step_log(self) -> list:
         self._step_logging = False
         return self._step_trace
+
+    def start_rate_step_log(self):
+        self._rate_step_trace = []
+        self._rate_step_logging = True
+
+    def stop_rate_step_log(self) -> list:
+        self._rate_step_logging = False
+        return self._rate_step_trace
 
     def _image_cb(self, msg):
         self._latest_image = msg
@@ -160,6 +199,17 @@ class CalibrationNode(Node):
         msg.y = float(pitch_deg)
         msg.z = float(yaw_deg)
         self.cmd_pub.publish(msg)
+
+    def send_rate_command(self, u_yaw: float, u_pitch: float):
+        """Publish normalized rate command to gimbal_cmd_los_rate.
+        u in [-1, 1]; subscriber scales to [-100, 100] int8 for SDK 0x07.
+        """
+        msg = Vector3()
+        msg.x = float(u_yaw)
+        msg.y = float(u_pitch)
+        msg.z = 0.0
+        self.rate_cmd_pub.publish(msg)
+        self._last_rate_cmd = (float(u_yaw), float(u_pitch))
 
     def wait_for_topics(self, timeout=5.0):
         """Wait until both state and encoder topics are producing."""
@@ -354,6 +404,33 @@ STEP_BAG_TOPICS = [
     "mavros/imu/data",
 ]
 
+RATE_STEP_BAG_TOPICS = [
+    "siyi_gimbal_angles/state_rpy_deg",
+    "siyi_gimbal_angles/encoder_rpy_deg",
+    "siyi_gimbal_angles/state_rate_rpy_deg",
+    "siyi_gimbal_angles/cmd_rate_rpy_norm",
+    "siyi_gimbal_angles/command_rpy_deg",
+    "gimbal_cmd_los_rate",
+    "combined_ang_vel_w",
+    "mavros/imu/data",
+]
+
+# Per-axis start angle offset for the rate-step phase, in MAS command frame.
+# For a positive-u step the gimbal is parked at -offset so it has headroom to
+# move in the +u direction; for a negative-u step it is parked at +offset.
+# Pitch rail is [-20, +85] MAS, so the offset has to stay well inside that.
+_RATE_AXIS_START_OFFSET = {
+    "yaw":   100.0,
+    "pitch":  30.0,
+}
+
+# Safety envelope per axis (MAS command frame). Abort a rate step if the state
+# leaves this window — gimbal is about to rail.
+_RATE_AXIS_SAFETY = {
+    "yaw":   (-125.0, 125.0),
+    "pitch":  (-18.0,  83.0),
+}
+
 
 def _start_scoped_bag(bag_dir: Path, topics: list) -> subprocess.Popen:
     cmd = ["ros2", "bag", "record", "-o", str(bag_dir)] + topics
@@ -447,6 +524,269 @@ def phase_step_response(node: CalibrationNode,
         node.send_command(0.0, 0.0)
         node.hold_and_sample(pre_settle)
         _stop_bag(bag_proc)
+
+
+def _fit_rate_step_metrics(axis: str, u_cmd: float, trace: list,
+                           t_cmd_ros: float) -> dict:
+    """Steady-state rate, 10-90% rise, first-motion latency, peak rate.
+
+    Trace rows: (t, u_yaw, u_pitch, rate_x, rate_y, rate_z,
+                 state_x, state_y, state_z).
+    Measured rate comes from state_rate_rpy_deg (SDK 0x0D), which is in the
+    same MAS sign convention as the angle state (direction multipliers
+    applied in siyi_ros_node).
+    """
+    nan = float("nan")
+    if len(trace) < 5:
+        return dict(axis=axis, u_cmd=u_cmd, n=len(trace),
+                    w_ss=nan, w_peak=nan, rise_time_s=nan,
+                    latency_s=nan)
+
+    rate_idx = 5 if axis == "yaw" else 4  # rate.z or rate.y
+    w = [r[rate_idx] for r in trace]
+
+    # Steady state: mean of last 25% of samples
+    tail_n = max(5, len(w) // 4)
+    w_ss = sum(w[-tail_n:]) / tail_n
+    sign = 1.0 if u_cmd > 0 else -1.0
+
+    # Peak rate in the commanded direction
+    w_peak = max((sign * v for v in w), default=0.0) * sign
+
+    # First-motion latency: first sample where |rate| exceeds 5 deg/s
+    latency = nan
+    for r in trace:
+        if abs(r[rate_idx]) >= 5.0:
+            latency = r[0] - t_cmd_ros
+            break
+
+    # 10-90% rise of rate toward w_ss
+    if abs(w_ss) < 5.0:
+        return dict(axis=axis, u_cmd=u_cmd, n=len(trace),
+                    w_ss=w_ss, w_peak=w_peak, rise_time_s=nan,
+                    latency_s=latency)
+
+    thr_10 = 0.1 * w_ss
+    thr_90 = 0.9 * w_ss
+    t_10 = t_90 = None
+    for r in trace:
+        v = r[rate_idx]
+        t = r[0] - t_cmd_ros
+        if t_10 is None and sign * (v - thr_10) >= 0:
+            t_10 = t
+        if t_90 is None and sign * (v - thr_90) >= 0:
+            t_90 = t
+            break
+    rise = (t_90 - t_10) if (t_10 is not None and t_90 is not None) else nan
+
+    return dict(axis=axis, u_cmd=u_cmd, n=len(trace),
+                w_ss=w_ss, w_peak=w_peak, rise_time_s=rise,
+                latency_s=latency)
+
+
+def phase_rate_step_response(node: CalibrationNode,
+                             rate_metrics: list, rate_index: list,
+                             rate_trace_rows: list,
+                             magnitudes: list, duration: float,
+                             pre_settle: float, out_dir: Path):
+    """Rate-command step response — sweep normalized rate magnitudes per axis.
+
+    For each (axis, |u|, sign): park the gimbal at ∓offset via angle command,
+    wait for full settle, start rate log, publish the rate command, hold for
+    `duration`, then stop the gimbal (u=0). Per-step metrics feed the
+    rate-loop model fit (see write_rate_model_json).
+    """
+    print("\n=== Phase: Rate-step response ===")
+    if node._state_rate is None:
+        print("  ERROR: no state_rate_rpy_deg received — is the SIYI node "
+              "publishing it? (check ticket 030 Part 1)")
+        return
+    bag_dir = out_dir / "bag_rate_step"
+    bag_proc = _start_scoped_bag(bag_dir, RATE_STEP_BAG_TOPICS)
+    time.sleep(1.0)
+    print(f"  rosbag: {bag_dir}  topics={len(RATE_STEP_BAG_TOPICS)}")
+
+    step_id = 0
+    try:
+        for axis in ("yaw", "pitch"):
+            start_offset = _RATE_AXIS_START_OFFSET[axis]
+            safety_lo, safety_hi = _RATE_AXIS_SAFETY[axis]
+            for mag in magnitudes:
+                for sign in (+1.0, -1.0):
+                    u_cmd = sign * mag
+                    if abs(u_cmd) < 1e-6 or abs(u_cmd) > 1.0 + 1e-6:
+                        continue
+                    # Park opposite to the commanded direction so the gimbal
+                    # has room to move. Clip to safety envelope.
+                    start = -sign * start_offset
+                    start = max(safety_lo, min(safety_hi, start))
+                    if axis == "yaw":
+                        node.send_command(start, 0.0)
+                    else:
+                        node.send_command(0.0, start)
+                    node.hold_and_sample(pre_settle)
+                    # Also stop any residual rate before starting the step
+                    node.send_rate_command(0.0, 0.0)
+                    node.hold_and_sample(0.2)
+                    if node._state is None:
+                        continue
+                    s0 = (node._state.x, node._state.y, node._state.z)
+
+                    node.start_rate_step_log()
+                    t_cmd_ros = node.get_clock().now().nanoseconds / 1e9
+                    t_cmd_wall = time.time()
+                    if axis == "yaw":
+                        node.send_rate_command(u_cmd, 0.0)
+                    else:
+                        node.send_rate_command(0.0, u_cmd)
+
+                    deadline = time.monotonic() + duration
+                    railed = False
+                    while time.monotonic() < deadline:
+                        rclpy.spin_once(node, timeout_sec=0.005)
+                        if node._state is None:
+                            continue
+                        v = (node._state.z if axis == "yaw"
+                             else node._state.y)
+                        if v < safety_lo or v > safety_hi:
+                            railed = True
+                            break
+                    # Stop motion
+                    node.send_rate_command(0.0, 0.0)
+                    trace = node.stop_rate_step_log()
+                    t_end_ros = node.get_clock().now().nanoseconds / 1e9
+
+                    metrics = _fit_rate_step_metrics(
+                        axis, u_cmd, trace, t_cmd_ros)
+                    metrics["step_id"] = step_id
+                    metrics["railed"] = railed
+                    rate_metrics.append(metrics)
+                    rate_index.append(dict(
+                        step_id=step_id, axis=axis, u_cmd=u_cmd,
+                        t_cmd_ros=t_cmd_ros, t_end_ros=t_end_ros,
+                        t_cmd_wall=t_cmd_wall,
+                        s0_roll=s0[0], s0_pitch=s0[1], s0_yaw=s0[2],
+                        railed=railed,
+                    ))
+                    # Keep the full trace for CSV dump
+                    for row in trace:
+                        rate_trace_rows.append((step_id, axis, u_cmd) + row)
+
+                    flag = "  RAILED" if railed else ""
+                    print(f"  rstep#{step_id:02d}  {axis} u={u_cmd:+.2f}  "
+                          f"n={metrics['n']:4d}  "
+                          f"w_ss={metrics['w_ss']:+7.1f}°/s  "
+                          f"w_pk={metrics['w_peak']:+7.1f}°/s  "
+                          f"rise={metrics['rise_time_s']:.3f}s  "
+                          f"lat={metrics['latency_s']:.3f}s{flag}")
+                    step_id += 1
+
+                    # Settle back near neutral between steps so the next park
+                    # command doesn't have to travel across the full rail.
+                    node.send_command(0.0, 0.0)
+                    node.hold_and_sample(pre_settle * 0.5)
+    finally:
+        node.send_rate_command(0.0, 0.0)
+        node.send_command(0.0, 0.0)
+        node.hold_and_sample(pre_settle)
+        _stop_bag(bag_proc)
+
+
+def write_rate_step_csvs(out_dir: Path, metrics: list, index: list,
+                         trace_rows: list):
+    summary_path = out_dir / "rate_step_summary.csv"
+    with summary_path.open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow([
+            "step_id", "axis", "u_cmd", "n_samples",
+            "w_ss_deg_s", "w_peak_deg_s", "rise_time_s", "latency_s",
+            "railed",
+        ])
+        for m in metrics:
+            w.writerow([
+                m["step_id"], m["axis"], m["u_cmd"], m["n"],
+                m["w_ss"], m["w_peak"],
+                m["rise_time_s"], m["latency_s"],
+                int(bool(m.get("railed", False))),
+            ])
+
+    index_path = out_dir / "rate_step_index.csv"
+    with index_path.open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow([
+            "step_id", "axis", "u_cmd",
+            "t_cmd_ros_s", "t_end_ros_s", "t_cmd_wall_s",
+            "s0_roll", "s0_pitch", "s0_yaw", "railed",
+        ])
+        for r in index:
+            w.writerow([
+                r["step_id"], r["axis"], r["u_cmd"],
+                r["t_cmd_ros"], r["t_end_ros"], r["t_cmd_wall"],
+                r["s0_roll"], r["s0_pitch"], r["s0_yaw"],
+                int(bool(r.get("railed", False))),
+            ])
+
+    trace_path = out_dir / "rate_step_trace.csv"
+    with trace_path.open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow([
+            "step_id", "axis", "u_cmd", "t_ros_s",
+            "u_yaw", "u_pitch",
+            "rate_roll", "rate_pitch", "rate_yaw",
+            "state_roll", "state_pitch", "state_yaw",
+        ])
+        for row in trace_rows:
+            w.writerow(row)
+
+
+def write_rate_model_json(out_dir: Path, metrics: list):
+    """Fit per-axis rate model from rate_step metrics.
+
+    Model: dω/dt = (k·u − ω)/τ_rate, with a symmetric deadband
+    |u| < u_dead below which ω_ss is effectively zero.
+
+    `k`       — steady-state gain (deg/s per unit command), fit as the slope of
+                 w_ss vs u_cmd over non-railed, non-deadband points.
+    `τ_rate`  — mean rise-time / 2.2 (converting 10-90% to τ for first-order)
+                 over the same points.
+    `u_dead`  — largest |u| at which |w_ss| < 5 deg/s.
+    """
+    try:
+        import json
+        import numpy as np
+    except ImportError:
+        print("  numpy not available — skipping rate_model.json")
+        return
+
+    by_axis: dict = {}
+    for m in metrics:
+        by_axis.setdefault(m["axis"], []).append(m)
+
+    out = {}
+    for axis, rows in by_axis.items():
+        good = [r for r in rows if not r.get("railed", False)]
+        u = np.array([r["u_cmd"] for r in good], dtype=float)
+        w_ss = np.array([r["w_ss"] for r in good], dtype=float)
+        rise = np.array([r["rise_time_s"] for r in good], dtype=float)
+        mask_dead = np.abs(w_ss) < 5.0
+        u_dead = float(np.max(np.abs(u[mask_dead]))) if mask_dead.any() else 0.0
+        mask_live = ~mask_dead & np.isfinite(w_ss) & np.isfinite(u)
+        if mask_live.sum() >= 2:
+            k, _ = np.polyfit(u[mask_live], w_ss[mask_live], 1)
+        else:
+            k = float("nan")
+        rise_live = rise[mask_live & np.isfinite(rise)]
+        tau_rate = float(np.mean(rise_live) / 2.2) if rise_live.size else float("nan")
+        out[axis] = dict(
+            k_deg_s_per_u=float(k),
+            tau_rate_s=tau_rate,
+            u_deadband=u_dead,
+            n_points=int(mask_live.sum()),
+            n_railed=int(sum(1 for r in rows if r.get("railed", False))),
+        )
+
+    with (out_dir / "rate_model.json").open("w") as f:
+        json.dump(out, f, indent=2)
 
 
 def write_step_csvs(out_dir: Path, metrics: list, index: list):
@@ -684,7 +1024,11 @@ def parse_checkerboard(s: str) -> tuple:
     return int(cols), int(rows)
 
 
-SESSION_BAG_TOPICS = STEP_BAG_TOPICS + ["camera/color/camera_info"]
+SESSION_BAG_TOPICS = list(dict.fromkeys(
+    STEP_BAG_TOPICS
+    + RATE_STEP_BAG_TOPICS
+    + ["camera/color/camera_info"]
+))
 
 
 def start_rosbag(bag_dir: Path) -> subprocess.Popen:
@@ -697,7 +1041,8 @@ def start_rosbag(bag_dir: Path) -> subprocess.Popen:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--phase",
-                    choices=["verify", "sweep", "step", "checkerboard", "all"],
+                    choices=["verify", "sweep", "step", "rate_step",
+                             "checkerboard", "all"],
                     default="all")
     ap.add_argument("--yaw-step", type=float, default=2.0)
     ap.add_argument("--pitch-step", type=float, default=2.0)
@@ -717,6 +1062,12 @@ def main():
                          "directions for yaw and pitch")
     ap.add_argument("--step-duration", type=float, default=2.5,
                     help="seconds to log trace after each step command")
+    ap.add_argument("--rate-magnitudes", type=float, nargs="+",
+                    default=[0.1, 0.25, 0.5, 0.75, 1.0],
+                    help="normalized rate magnitudes |u| in [0,1]; each is "
+                         "applied in both signs on yaw and pitch")
+    ap.add_argument("--rate-duration", type=float, default=1.0,
+                    help="seconds to hold each rate step before stopping")
     ap.add_argument("--output-dir", type=str,
                     default=f"/tmp/gimbal_calibration_{int(time.time())}")
     ap.add_argument("--record-bag", action="store_true",
@@ -767,6 +1118,9 @@ def main():
     samples = []
     step_metrics = []
     step_index = []
+    rate_metrics: list = []
+    rate_index: list = []
+    rate_trace_rows: list = []
 
     # Always start by homing to neutral
     node.send_command(0.0, 0.0)
@@ -789,6 +1143,13 @@ def main():
                                 duration=args.step_duration,
                                 pre_settle=args.pre_settle,
                                 out_dir=out_dir)
+        if args.phase in ("rate_step", "all"):
+            phase_rate_step_response(node, rate_metrics, rate_index,
+                                     rate_trace_rows,
+                                     magnitudes=args.rate_magnitudes,
+                                     duration=args.rate_duration,
+                                     pre_settle=args.pre_settle,
+                                     out_dir=out_dir)
         if args.phase in ("checkerboard", "all"):
             phase_checkerboard(node, samples,
                                checkerboard=args.checkerboard,
@@ -808,6 +1169,17 @@ def main():
                   f"{out_dir / 'step_summary.csv'}")
             print(f"Wrote {len(step_index)} step windows to "
                   f"{out_dir / 'step_index.csv'}  (bag: {out_dir / 'bag_step'})")
+
+        if rate_metrics or rate_index:
+            write_rate_step_csvs(out_dir, rate_metrics, rate_index,
+                                 rate_trace_rows)
+            write_rate_model_json(out_dir, rate_metrics)
+            print(f"Wrote {len(rate_metrics)} rate-step metrics to "
+                  f"{out_dir / 'rate_step_summary.csv'}")
+            print(f"Wrote {len(rate_index)} rate-step windows to "
+                  f"{out_dir / 'rate_step_index.csv'}  "
+                  f"(bag: {out_dir / 'bag_rate_step'})")
+            print(f"Wrote rate model to {out_dir / 'rate_model.json'}")
 
         _shutdown()
     return 0

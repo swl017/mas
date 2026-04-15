@@ -78,6 +78,22 @@ class SiyiGimbalNode(Node):
             'siyi_gimbal_angles/state_rpy_deg',
             qos_profile)
 
+        # Angular rate state from SDK 0x0D attitude message (getAttitudeSpeed).
+        # Published in MAS sign convention (direction multipliers applied),
+        # so signs match angle state and rate-command signs.
+        self.state_rate_pub = self.create_publisher(
+            Vector3,
+            'siyi_gimbal_angles/state_rate_rpy_deg',
+            qos_profile)
+
+        # Echo of the most recent rate command (raw, as received on
+        # gimbal_cmd_los_rate). Exists so bag-based identification can align
+        # command and response without needing a separate subscriber snapshot.
+        self.cmd_rate_echo_pub = self.create_publisher(
+            Vector3,
+            'siyi_gimbal_angles/cmd_rate_rpy_norm',
+            qos_profile)
+
         self.angle_sub = self.create_subscription(
             Vector3,
             'siyi_gimbal_angles/command_rpy_deg',
@@ -204,6 +220,13 @@ class SiyiGimbalNode(Node):
             yaw_speed = max(-100, min(100, int(msg.x * 100)))
             pitch_speed = max(-100, min(100, int(msg.y * 100)))
             self.cam.requestGimbalSpeed(yaw_speed, pitch_speed)
+            # Echo the received command on a side topic for rosbag-based
+            # identification (keeps cmd/response timing aligned in the bag).
+            echo = Vector3()
+            echo.x = float(msg.x)
+            echo.y = float(msg.y)
+            echo.z = float(msg.z)
+            self.cmd_rate_echo_pub.publish(echo)
         except Exception as e:
             self.get_logger().error(f"Failed to send rate command: {e}")
 
@@ -240,6 +263,19 @@ class SiyiGimbalNode(Node):
             # Publish the message
             self.angle_pub.publish(angles_msg)
             self.get_logger().debug(f"Published angles: {angles_msg.x}, {angles_msg.y}, {angles_msg.z}")
+
+            # Angular rate from SDK (0x0D fields yaw_speed/pitch_speed/roll_speed,
+            # deg/s, SDK convention). Apply direction multipliers so signs match
+            # the MAS-frame angle state.
+            try:
+                yaw_rate_sdk, pitch_rate_sdk, roll_rate_sdk = self.cam.getAttitudeSpeed()
+                rate_msg = Vector3()
+                rate_msg.x = float(roll_rate_sdk)
+                rate_msg.y = float(pitch_rate_sdk * self.pitch_direction)
+                rate_msg.z = float(yaw_rate_sdk * self.yaw_direction)
+                self.state_rate_pub.publish(rate_msg)
+            except Exception as e:
+                self.get_logger().debug(f"state_rate publish skipped: {e}")
 
             # Publish joint-frame angles (derived from 0x0D + aircraft attitude)
             # 0x0D: yaw=joint(encoder), pitch/roll=heading(world)

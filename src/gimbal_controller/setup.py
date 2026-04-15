@@ -13,7 +13,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', glob('launch/*')),
         ('share/' + package_name + '/usb_cam_config', glob('usb_cam_config/*')),
-        ('share/' + package_name + '/scripts', glob('scripts/*')),
+        # ('share/' + package_name + '/scripts', glob('scripts/*')),
         ('share/' + package_name, ['README_calibration.md']),
     ],
     install_requires=['setuptools'],

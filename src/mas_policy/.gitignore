@@ -2,3 +2,4 @@
 **/.pytest_cache/
 models/
 test/data/
+resource/iris_ma6/

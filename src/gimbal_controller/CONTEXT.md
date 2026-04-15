@@ -20,6 +20,8 @@ Gimbal hardware interface (SIYI SDK) and camera pointing control for target trac
 #### Publishers
 - `siyi_gimbal_angles/state_rpy_deg` (`geometry_msgs/Vector3`) — **primary gimbal state**: 0x0D angles at 100 Hz. Remapped to `gimbal_state_rpy_deg` in launch. Yaw=joint(encoder), pitch/roll=heading(IMU). Direction multipliers applied.
 - `siyi_gimbal_angles/encoder_rpy_deg` (`geometry_msgs/Vector3`) — derived joint-frame angles at 100 Hz. Yaw from 0x0D (encoder), pitch/roll from `0x0D_heading - aircraft_attitude_ENU` rotated by yaw joint angle. Requires `mavros/imu/data` for pitch/roll derivation.
+- `siyi_gimbal_angles/state_rate_rpy_deg` (`geometry_msgs/Vector3`) — gimbal angular rate from SDK 0x0D (`getAttitudeSpeed`) at 100 Hz, deg/s, MAS convention (direction multipliers applied). Primary rate-state source for rate-command model fitting (ticket 030).
+- `siyi_gimbal_angles/cmd_rate_rpy_norm` (`geometry_msgs/Vector3`) — echo of the most recent normalized rate command as received on `gimbal_cmd_los_rate`. Published from inside `rate_callback` for bag-based cmd/response alignment.
 - `combined_ang_vel_w` (`geometry_msgs/Vector3Stamped`) — gimbal angular velocity in world frame (finite-difference of joint angles)
 - `camera/zoom_level` (`std_msgs/Float64`) — current zoom level from SDK `getZoomLevel()`
 
@@ -73,6 +75,7 @@ Gimbal hardware interface (SIYI SDK) and camera pointing control for target trac
 - `datasets/gimbal_calibration/<session_name>/summary.json`
 - `datasets/gimbal_calibration/<session_name>/bag/` via internal `ros2 bag record`
 - `datasets/gimbal_calibration/<session_name>/notes.md`
+- Rate-step phase (ticket 030): `bag_rate_step/`, `rate_step_trace.csv`, `rate_step_index.csv`, `rate_step_summary.csv`, `rate_model.json`
 
 #### Helper scripts
 - `scripts/init_gimbal_calibration_session.py` — pre-creates the dataset layout and manifest
