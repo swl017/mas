@@ -3,7 +3,9 @@
 #include <opencv2/opencv.hpp>
 
 #include <rclcpp/rclcpp.hpp>
+#include <rclcpp/qos.hpp>
 #include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/msg/compressed_image.hpp>
 #include <cv_bridge/cv_bridge.h>
 
 #include <atomic>
@@ -19,11 +21,32 @@ public:
         this->declare_parameter<std::string>("rtsp_url", "rtsp://192.168.144.25:8554/main.264");
         this->declare_parameter<int>("width", 1280);
         this->declare_parameter<int>("height", 720);
-        this->declare_parameter<int>("latency_ms", 10);
-        this->declare_parameter<bool>("drop_on_latency", true);
+        // latency_ms sets rtspsrc's jitter-buffer ceiling; it is NOT the
+        // playback delay when the downstream sink (our appsink here) has
+        // sync=false, so the jitter buffer only matters for reordering
+        // tolerance. Benched side-by-side (2026-04-16): going from 10 ms
+        // drop-on-latency=true to 200 ms drop-on-latency=false cost ≤1 ms
+        // median header-age / ≤2 ms p95 at steady state, while avoiding
+        // single-packet drops on any link jitter. Keeping the knobs
+        // exposed in case a link with drastically different characteristics
+        // wants tighter or looser behaviour.
+        this->declare_parameter<int>("latency_ms", 200);
+        this->declare_parameter<bool>("drop_on_latency", false);
         this->declare_parameter<bool>("use_tcp", false);
         this->declare_parameter<bool>("do_retransmission", false);
-        this->declare_parameter<std::string>("decoder", "avdec_h264");
+        // SIYI A8 mini's main stream is H.265 (verified via rtspsrc caps
+        // dump — encoding-name=H265). The ZR10 / older firmwares expose
+        // H.264. Override `codec` to swap depay/parse/decoder as a set.
+        this->declare_parameter<std::string>("codec", "h265");
+        this->declare_parameter<std::string>("decoder", "");
+        // Downstream choice: raw BGR, JPEG compressed, or both. Each
+        // output is gated on subscriber_count>0 so benchmarks that only
+        // consume one topic don't pay for the other (no BGR memcpy, no
+        // cv::imencode). With both off the node still runs the pipeline
+        // for debug/stream liveness but does not publish.
+        this->declare_parameter<bool>("publish_raw", true);
+        this->declare_parameter<bool>("publish_compressed", true);
+        this->declare_parameter<int>("jpeg_quality", 80);
 
         this->get_parameter("camera_name", camera_name_);
         this->get_parameter("rtsp_url", rtsp_url_);
@@ -33,13 +56,30 @@ public:
         this->get_parameter("drop_on_latency", drop_on_latency_);
         this->get_parameter("use_tcp", use_tcp_);
         this->get_parameter("do_retransmission", do_retransmission_);
+        this->get_parameter("codec", codec_);
         this->get_parameter("decoder", decoder_name_);
+        this->get_parameter("publish_raw", publish_raw_);
+        this->get_parameter("publish_compressed", publish_compressed_);
+        this->get_parameter("jpeg_quality", jpeg_quality_);
+        if (decoder_name_.empty()) {
+            decoder_name_ = std::string("avdec_") + codec_;
+        }
+        depay_name_ = std::string("rtp") + codec_ + "depay";
+        parse_name_ = codec_ + "parse";
 
-        image_pub_ = this->create_publisher<sensor_msgs::msg::Image>(camera_name_ + "/image_raw", 10);
+        // Sensor-stream QoS (BEST_EFFORT, KEEP_LAST, depth=5). Reliable
+        // with depth=10 lets a lagging subscriber block the GStreamer
+        // streaming thread once the publisher queue fills, which showed
+        // up as 500+ ms hitches against the A8's 40 ms frame period.
+        auto qos = rclcpp::SensorDataQoS();
+        image_pub_ = this->create_publisher<sensor_msgs::msg::Image>(camera_name_ + "/image_raw", qos);
+        compressed_pub_ = this->create_publisher<sensor_msgs::msg::CompressedImage>(camera_name_ + "/image_raw/compressed", qos);
 
         RCLCPP_INFO(this->get_logger(),
-                    "Starting RTSP camera: url=%s decoder=%s latency=%d ms drop=%d tcp=%d",
-                    rtsp_url_.c_str(), decoder_name_.c_str(), latency_ms_,
+                    "Starting RTSP camera: url=%s codec=%s depay=%s parse=%s decoder=%s latency=%d ms drop=%d tcp=%d",
+                    rtsp_url_.c_str(), codec_.c_str(),
+                    depay_name_.c_str(), parse_name_.c_str(),
+                    decoder_name_.c_str(), latency_ms_,
                     static_cast<int>(drop_on_latency_), static_cast<int>(use_tcp_));
 
         gst_init(nullptr, nullptr);
@@ -69,17 +109,29 @@ private:
     {
         pipeline_ = gst_pipeline_new("rtsp-pipeline");
         src_ = gst_element_factory_make("rtspsrc", "source");
-        depay_ = gst_element_factory_make("rtph264depay", "depay");
-        h264parse_ = gst_element_factory_make("h264parse", "h264parse");
+        depay_ = gst_element_factory_make(depay_name_.c_str(), "depay");
+        parse_ = gst_element_factory_make(parse_name_.c_str(), "parse");
         decoder_ = gst_element_factory_make(decoder_name_.c_str(), "decoder");
         videoconvert_ = gst_element_factory_make("videoconvert", "videoconvert");
         queue_ = gst_element_factory_make("queue", "leaky_queue");
         appsink_ = gst_element_factory_make("appsink", "appsink");
 
-        if (!pipeline_ || !src_ || !depay_ || !h264parse_ || !decoder_ || !videoconvert_ || !queue_ || !appsink_) {
+        // Jetson's `nvv4l2decoder` emits NVMM DMA buffers; they have to be
+        // pulled into host memory via `nvvidconv` before the CPU-side
+        // `videoconvert` can turn them into BGR. Detect that by decoder
+        // name prefix and splice `nvvidconv` in.
+        const bool nvmm_path = decoder_name_.rfind("nv", 0) == 0;
+        if (nvmm_path) {
+            nvvidconv_ = gst_element_factory_make("nvvidconv", "nvvidconv");
+        }
+
+        if (!pipeline_ || !src_ || !depay_ || !parse_ || !decoder_ || !videoconvert_ || !queue_ || !appsink_ ||
+            (nvmm_path && !nvvidconv_)) {
             RCLCPP_ERROR(this->get_logger(),
-                         "Failed to create GStreamer elements (decoder=%s available?)",
-                         decoder_name_.c_str());
+                         "Failed to create GStreamer elements (codec=%s depay=%s parse=%s decoder=%s nvvidconv=%d available?)",
+                         codec_.c_str(), depay_name_.c_str(),
+                         parse_name_.c_str(), decoder_name_.c_str(),
+                         static_cast<int>(nvmm_path));
             return;
         }
 
@@ -94,8 +146,27 @@ private:
             g_object_set(G_OBJECT(src_), "protocols", 0x04, NULL);
         }
 
-        // Keep SPS/PPS in-band so the decoder can resync on the next IDR.
-        g_object_set(G_OBJECT(h264parse_), "config-interval", -1, NULL);
+        // Keep SPS/PPS (or VPS/SPS/PPS for H.265) in-band so the decoder
+        // can resync on the next IDR.
+        g_object_set(G_OBJECT(parse_), "config-interval", -1, NULL);
+
+        // nvv4l2decoder default behavior holds reference frames in the
+        // Decoded Picture Buffer, which adds visible latency vs. the
+        // software avdec_h264 pipeline even though the header.stamp age
+        // stays low (the buffering happens before we stamp). `disable-dpb`
+        // is the documented low-latency switch; `enable-max-performance`
+        // relaxes throughput-vs-latency throttling in the v4l2 driver.
+        // Not all `nv*` decoders expose these, so guard with a property
+        // lookup.
+        if (nvmm_path) {
+            GObjectClass* cls = G_OBJECT_GET_CLASS(decoder_);
+            if (g_object_class_find_property(cls, "disable-dpb")) {
+                g_object_set(G_OBJECT(decoder_), "disable-dpb", TRUE, NULL);
+            }
+            if (g_object_class_find_property(cls, "enable-max-performance")) {
+                g_object_set(G_OBJECT(decoder_), "enable-max-performance", TRUE, NULL);
+            }
+        }
 
         // Drop the oldest frame if the consumer is slow.
         g_object_set(G_OBJECT(queue_),
@@ -116,9 +187,15 @@ private:
         gst_app_sink_set_caps(GST_APP_SINK(appsink_), caps);
         gst_caps_unref(caps);
 
-        gst_bin_add_many(GST_BIN(pipeline_), src_, depay_, h264parse_, decoder_, videoconvert_, queue_, appsink_, NULL);
+        gst_bin_add_many(GST_BIN(pipeline_), src_, depay_, parse_, decoder_, videoconvert_, queue_, appsink_, NULL);
+        if (nvvidconv_) {
+            gst_bin_add(GST_BIN(pipeline_), nvvidconv_);
+        }
 
-        if (!gst_element_link_many(depay_, h264parse_, decoder_, videoconvert_, queue_, appsink_, NULL)) {
+        const bool linked = nvvidconv_
+            ? gst_element_link_many(depay_, parse_, decoder_, nvvidconv_, videoconvert_, queue_, appsink_, NULL)
+            : gst_element_link_many(depay_, parse_, decoder_, videoconvert_, queue_, appsink_, NULL);
+        if (!linked) {
             RCLCPP_ERROR(this->get_logger(), "Failed to link elements.");
             gst_object_unref(pipeline_);
             pipeline_ = nullptr;
@@ -206,31 +283,50 @@ private:
             return;
         }
 
-        auto msg = std::make_unique<sensor_msgs::msg::Image>();
-        msg->header.stamp = this->get_clock()->now();
-        msg->header.frame_id = camera_name_;
-        msg->encoding = "bgr8";
-        msg->is_bigendian = false;
-
+        const rclcpp::Time stamp = this->get_clock()->now();
         const bool needs_resize = (stream_w != width_ || stream_h != height_);
-        if (!needs_resize) {
-            msg->width = stream_w;
-            msg->height = stream_h;
-            msg->step = 3 * stream_w;
-            msg->data.resize(msg->step * msg->height);
-            std::memcpy(msg->data.data(), map.data, msg->data.size());
-        } else {
-            cv::Mat frame(cv::Size(stream_w, stream_h), CV_8UC3, map.data, cv::Mat::AUTO_STEP);
-            cv::Mat resized;
-            cv::resize(frame, resized, cv::Size(width_, height_));
-            msg->width = resized.cols;
-            msg->height = resized.rows;
-            msg->step = 3 * resized.cols;
-            msg->data.resize(msg->step * msg->height);
-            std::memcpy(msg->data.data(), resized.data, msg->data.size());
+
+        // Compute (out_ptr, out_w, out_h) once; resize lazily into
+        // `resized_` scratch only if requested dims differ from stream.
+        int out_w = stream_w;
+        int out_h = stream_h;
+        const uint8_t* out_ptr = map.data;
+        if (needs_resize) {
+            cv::Mat src(cv::Size(stream_w, stream_h), CV_8UC3, map.data, cv::Mat::AUTO_STEP);
+            cv::resize(src, resized_, cv::Size(width_, height_));
+            out_w = resized_.cols;
+            out_h = resized_.rows;
+            out_ptr = resized_.data;
         }
 
-        image_pub_->publish(std::move(msg));
+        const bool have_raw_sub = publish_raw_ && image_pub_->get_subscription_count() > 0;
+        const bool have_cmp_sub = publish_compressed_ && compressed_pub_->get_subscription_count() > 0;
+
+        if (have_raw_sub) {
+            auto msg = std::make_unique<sensor_msgs::msg::Image>();
+            msg->header.stamp = stamp;
+            msg->header.frame_id = camera_name_;
+            msg->encoding = "bgr8";
+            msg->is_bigendian = false;
+            msg->width = out_w;
+            msg->height = out_h;
+            msg->step = 3 * out_w;
+            msg->data.resize(msg->step * msg->height);
+            std::memcpy(msg->data.data(), out_ptr, msg->data.size());
+            image_pub_->publish(std::move(msg));
+        }
+
+        if (have_cmp_sub) {
+            auto cmsg = std::make_unique<sensor_msgs::msg::CompressedImage>();
+            cmsg->header.stamp = stamp;
+            cmsg->header.frame_id = camera_name_;
+            cmsg->format = "jpeg";
+            cv::Mat bgr(out_h, out_w, CV_8UC3, const_cast<uint8_t*>(out_ptr));
+            const std::vector<int> enc_params = {cv::IMWRITE_JPEG_QUALITY, jpeg_quality_};
+            cv::imencode(".jpg", bgr, cmsg->data, enc_params);
+            compressed_pub_->publish(std::move(cmsg));
+        }
+
         gst_buffer_unmap(buffer, &map);
     }
 
@@ -242,15 +338,24 @@ private:
     bool drop_on_latency_;
     bool use_tcp_;
     bool do_retransmission_;
+    std::string codec_;
     std::string decoder_name_;
+    std::string depay_name_;
+    std::string parse_name_;
+    bool publish_raw_ = true;
+    bool publish_compressed_ = true;
+    int jpeg_quality_ = 80;
+    cv::Mat resized_;
 
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_pub_;
+    rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr compressed_pub_;
 
     GstElement* pipeline_ = nullptr;
     GstElement* src_ = nullptr;
     GstElement* depay_ = nullptr;
-    GstElement* h264parse_ = nullptr;
+    GstElement* parse_ = nullptr;
     GstElement* decoder_ = nullptr;
+    GstElement* nvvidconv_ = nullptr;
     GstElement* videoconvert_ = nullptr;
     GstElement* queue_ = nullptr;
     GstElement* appsink_ = nullptr;

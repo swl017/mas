@@ -1,0 +1,80 @@
+session_name: rtsp_a8
+
+environment:
+  ROS2_INSTALL_PATH: /opt/ros/humble
+  ROS2_WORKSPACE: /home/usrg/mas
+
+options:
+  default-command: /bin/bash
+
+# Ticket 031 — SIYI A8 mini low-latency RTSP validation.
+# Window layout: 0=rtsp_camera (node), 1=view (rviz2 on compressed), 2=rate.
+# Point the gimbal at a phone millisecond stopwatch, photograph the stopwatch
+# next to the rviz2 window to read glass-to-topic latency.
+# Baseline: run without `--ros-args -p` overrides on an unpatched build
+# for reference.
+
+windows:
+
+- window_name: rtsp_camera
+  focus: true
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - |
+      ros2 run rtsp_camera rtsp_camera_node --ros-args \
+        -p rtsp_url:=rtsp://192.168.144.26:8554/main.264 \
+        -p camera_name:=a8 \
+        -p width:=960 \
+        -p height:=540 \
+        -p latency_ms:=200 \
+        -p drop_on_latency:=false \
+        -p use_tcp:=false \
+        -p do_retransmission:=false \
+        -p codec:=h264 \
+        -p decoder:=avdec_h264
+        # A/B tested 2026-04-16 on Jetson Orin + A8 H.264 1080p25:
+        # - nvv4l2decoder @ 1920x1080  → age ~30 ms, visible gap vs gst.
+        # - nvv4l2decoder @ 960x540    → age ~15 ms, visible gap unchanged.
+        #     (The gap is the driver's minimum capture-buffer pool in
+        #     the nv_v4l2_dec driver; disable-dpb + num-extra-surfaces
+        #     can't shrink below the floor of ~3-6 NVMM surfaces, and
+        #     that floor is set by stream profile, not picture size.)
+        # - avdec_h264    @ 1920x1080  → no visible gap, ~90-110% of one core.
+        # - avdec_h264    @ 960x540    → no visible gap, same decode cost
+        #     (libav still decodes at the stream's 1080p), but DDS bw
+        #     and downstream cv::resize / cv::imencode shrink ~4x.
+        # Chosen default here: avdec_h264 + 960x540 — fresh frames, one
+        # core of headroom on the Jetson, less wire load than 1080p.
+        # Flip back to 1920x1080 if YOLO needs the extra pixels.
+
+- window_name: view
+  focus: false
+  layout: even-horizontal
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+    - export DISPLAY=${DISPLAY:-:0}
+  panes:
+    # Pane 0 — rviz2, compressed transport, Best Effort, Depth=1 / Filter=1.
+    - rviz2 -d ${ROS2_WORKSPACE}/src/rtsp_camera/config/rviz/a8_compressed.rviz
+    # Pane 1 — cv2.imshow-based Python viewer on the compressed topic.
+    # One-frame display buffer, no Qt/Ogre queue, overlays header-stamp
+    # age in the frame so accumulating latency is obvious. Prints rate
+    # every 2s to the terminal.
+    - python3 ${ROS2_WORKSPACE}/src/scripts/view_compressed.py /a8/image_raw/compressed
+    # Pane 2 — out-of-ROS baseline: gst-launch straight off the camera.
+    # Confirms the A8/network/display stack can do low-latency by itself.
+    # If this is fast but panes 0/1 are laggy, latency is inside the ROS
+    # pipeline; if this is also laggy, the A8 or network is the source.
+    - gst-launch-1.0 rtspsrc location=rtsp://192.168.144.26:8554/main.264 latency=200 ! rtph264depay ! h264parse ! avdec_h264 ! autovideosink sync=false
+
+- window_name: rate
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 topic hz /a8/image_raw
+    - ros2 topic bw /a8/image_raw
+    - ros2 param list /rtsp_camera_node

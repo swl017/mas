@@ -108,13 +108,19 @@ ros2 run rtsp_camera rtsp_camera_node --ros-args \
 
 #### Low-latency tuning
 
-- `latency_ms` (integer): `rtspsrc latency` property in milliseconds (GStreamer default is 2000). Default is `10`. Short low-loss links tolerate 5–20 ms; raise it only if you see packet loss.
-- `drop_on_latency` (bool): `rtspsrc drop-on-latency`. When `true`, packets that arrive after the latency deadline are dropped instead of being buffered. Default is `true`.
+- `latency_ms` (integer): `rtspsrc` jitter-buffer ceiling in milliseconds. Default is `200`. This is **not** end-to-end playback delay — with `appsink sync=false` below, frames leave the sink the instant they arrive; `latency_ms` only bounds how long the jitter buffer waits for reordered/late packets. Benched against `10 ms` and the glass-to-topic hop shifted by ≤1 ms (p50); going the other way (200 ms with `drop_on_latency:=false`) avoided single-packet drops under link jitter.
+- `drop_on_latency` (bool): `rtspsrc drop-on-latency`. When `true`, packets that arrive after the latency deadline are dropped instead of being buffered. Default is `false` — the jitter buffer is drained immediately by the `sync=false` appsink, so buffering late packets costs no steady-state latency and keeps the stream smoother. Flip to `true` only if you need to reject reordered packets deterministically.
 - `use_tcp` (bool): Force RTP interleaved over the RTSP TCP connection. Default is `false` (UDP). Switch to TCP only when NAT/firewall drops UDP.
 - `do_retransmission` (bool): `rtspsrc do-retransmission`. Trades a frame of latency for occasional packet recovery. Default is `false`.
-- `decoder` (string): Name of the GStreamer decoder element to use. Default is `avdec_h264`. Replace with `nvh264dec` (NVIDIA), `vaapih264dec` (Intel/AMD VAAPI), or `v4l2h264dec` (embedded V4L2) for hardware decode.
+- `codec` (string): `h264` or `h265`. Selects the depay (`rtp{codec}depay`) and parse (`{codec}parse`) elements together. Default is `h265` (matches the SIYI A8 mini's factory main stream). Switch to `h264` if the camera is reconfigured, or for ZR10/older firmwares.
+- `decoder` (string): GStreamer decoder element. Empty default → `avdec_{codec}` (software). For the Jetson NVDEC path use `nvv4l2decoder` — the node detects `nv*` decoders and splices an `nvvidconv` before `videoconvert` to pull NVMM buffers into host memory. On x86 with NVIDIA, `nvh264dec`/`nvh265dec` also work.
+- `publish_raw` (bool, default `true`): publish `sensor_msgs/Image` on `<camera_name>/image_raw`. Skipped per-frame when the subscriber count is zero — no BGR memcpy is done.
+- `publish_compressed` (bool, default `true`): publish `sensor_msgs/CompressedImage` on `<camera_name>/image_raw/compressed` (JPEG). Skipped per-frame when the subscriber count is zero — no `cv::imencode` is done.
+- `jpeg_quality` (int, default `80`): JPEG quality passed to `cv::imencode` when publishing the compressed topic.
 
-The pipeline also hardcodes: `queue max-size-buffers=1 leaky=downstream` before the sink to drop the oldest frame when a consumer stalls; `appsink sync=false async=false max-buffers=1 drop=true`; `h264parse config-interval=-1` for inline SPS/PPS; and a `new-sample` signal callback in place of the previous polling loop.
+Both publishers use `rclcpp::SensorDataQoS` (BEST_EFFORT, KEEP_LAST, depth=5). Subscribers must match.
+
+The pipeline also hardcodes: `queue max-size-buffers=1 leaky=downstream` before the sink to drop the oldest frame when a consumer stalls; `appsink sync=false async=false max-buffers=1 drop=true`; `{codec}parse config-interval=-1` for inline SPS/PPS (or VPS/SPS/PPS for H.265); and a `new-sample` signal callback in place of the previous polling loop.
 
 ### Using a YAML Parameters File
 

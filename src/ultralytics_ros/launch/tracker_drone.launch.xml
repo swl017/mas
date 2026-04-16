@@ -4,12 +4,12 @@
   <arg name="use_sim_time" default="false"/>
   <arg name="debug" default="false"/>
   <arg name="yolo_model" default="yolov11x-drone.pt"/>
-  <arg name="input_topic" default="camera/color/image_raw"/>
+  <arg name="input_topic" default="camera/color/image_raw/compressed"/>
   <arg name="result_topic" default="yolo_result"/>
   <arg name="result_image_topic" default="yolo_image"/>
   <arg name="conf_thres" default="0.25"/>
   <arg name="iou_thres" default="0.45"/>
-  <arg name="max_det" default="300"/>
+  <arg name="max_det" default="2"/>
   <arg name="tracker" default="bytetrack.yaml"/>
   <arg name="device" default=""/>
   <arg name="result_conf" default="true"/>
@@ -18,7 +18,6 @@
   <arg name="result_font" default="Arial.ttf"/>
   <arg name="result_labels" default="true"/>
   <arg name="result_boxes" default="true"/>
-  <arg name="use_compressed_input" default="true"/>
   <group>
     <push-ros-namespace namespace="$(var ns)"/>
 
@@ -39,7 +38,6 @@
       <param name="result_font" value="$(var result_font)"/>
       <param name="result_labels" value="$(var result_labels)"/>
       <param name="result_boxes" value="$(var result_boxes)"/>
-      <param name="use_compressed_input" value="$(var use_compressed_input)"/>
       <!--<param name="classes" value="0, 1, 2" value-sep=", "/>-->
       <param name="device" value="$(var device)"/>
     </node>

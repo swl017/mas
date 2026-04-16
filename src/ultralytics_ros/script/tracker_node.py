@@ -67,13 +67,13 @@ class TrackerNode(Node):
         result_image_topic = (
             self.get_parameter("result_image_topic").get_parameter_value().string_value
         )
-        self.use_compressed = input_topic.endswith("compressed") #self.get_parameter("use_compressed_input").get_parameter_value().bool_value
+        self.use_compressed = input_topic.endswith("compressed")
         if self.use_compressed:
             self.get_logger().info(f"Subscribing to compressed image topic: {input_topic}")
-            self.create_subscription(CompressedImage, input_topic, self.image_callback, 1)
+            self.create_subscription(CompressedImage, input_topic, self.image_callback, qos_profile_sensor_data)
         else:
             self.get_logger().info(f"Subscribing to raw image topic: {input_topic}")
-            self.create_subscription(Image, input_topic, self.image_callback, 1)
+            self.create_subscription(Image, input_topic, self.image_callback, qos_profile_sensor_data)
 
         self.results_pub = self.create_publisher(YoloResult, result_topic, qos_profile_sensor_data)
         self.results_vision_msg_pub = self.create_publisher(Detection2DArray, result_topic+"_vision", qos_profile_sensor_data)
@@ -108,13 +108,18 @@ class TrackerNode(Node):
 
         if results is not None:
             yolo_result_msg = YoloResult()
-            yolo_result_image_msg = Image()
-            yolo_result_msg.header = msg.header
-            yolo_result_image_msg.header = msg.header
             yolo_result_msg.detections = self.create_detections_array(results)
             yolo_result_image_msg = self.create_result_image(results)
             if self.use_segmentation:
                 yolo_result_msg.masks = self.create_segmentation_masks(results)
+            # Carry the input image's stamp + frame_id through to every
+            # downstream message so consumers can measure end-to-end age
+            # and TF-transform using the capture time rather than the
+            # publish time. create_result_image() and create_detections_array()
+            # both build fresh messages, so headers have to be assigned here.
+            yolo_result_msg.header = msg.header
+            yolo_result_msg.detections.header = msg.header
+            yolo_result_image_msg.header = msg.header
             self.results_pub.publish(yolo_result_msg)
             self.result_image_pub.publish(yolo_result_image_msg)
             self.results_vision_msg_pub.publish(yolo_result_msg.detections)

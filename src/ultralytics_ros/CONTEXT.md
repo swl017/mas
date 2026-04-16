@@ -10,7 +10,7 @@ YOLO-based 2D object detection with ByteTrack tracking. Optional 3D projection u
 **Pattern:** Coupled (subscriber receives image → runs YOLO inference → publishes detections immediately)
 
 #### Subscriptions
-- `image_raw` or `image_raw/compressed` (`sensor_msgs/Image` or `CompressedImage`) — camera input
+- `image_raw` or `image_raw/compressed` (`sensor_msgs/Image` or `CompressedImage`) — camera input. Subscription uses `qos_profile_sensor_data` (BEST_EFFORT, KEEP_LAST, depth=5) to match the standard sensor-stream QoS used by `rtsp_camera` and Isaac Sim's camera publisher. Whether the compressed or raw topic is used is decided by whether `input_topic` ends in `compressed`.
 
 #### Publishers
 - `yolo_result` (`ultralytics_ros/YoloResult`) — raw YOLO detections with tracker IDs
@@ -40,6 +40,8 @@ YOLO-based 2D object detection with ByteTrack tracking. Optional 3D projection u
 - `camera_info` (`sensor_msgs/CameraInfo`) — camera intrinsics
 - `points_raw` (`sensor_msgs/PointCloud2`) — LiDAR point cloud
 - `yolo_result` (`ultralytics_ros/YoloResult`) — 2D detections from tracker_node
+
+All three `message_filters::Subscriber` endpoints use `rmw_qos_profile_sensor_data` (BEST_EFFORT, KEEP_LAST, depth=5) so they match tracker_node's BEST_EFFORT publisher and typical camera-info / LiDAR-driver publishers. This path is not built when PCL is unavailable.
 
 #### Publishers
 - `yolo_3d_result` (`vision_msgs/Detection3DArray`) — 3D bounding boxes

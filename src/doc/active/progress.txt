@@ -608,3 +608,251 @@ Next:
 - Run on real A8 mini; confirm step_index.csv + bag_step/ slicing pipeline
 - Write a small offline script that reads bag_step/ + step_index.csv and emits per-step 2nd-order (ωn, ζ, K_rate) fits
 - Feed fitted parameters into iris_ma6 randomization config
+
+----------------------------------------
+2026-04-16 — Ticket #031: Low-latency RTSP → ROS2 for SIYI A8 mini
+----------------------------------------
+Done:
+- Verified the code-side changes in src/rtsp_camera/src/rtsp_camera_node.cpp
+  already cover Parts 1–3 of the ticket:
+  - Part 1 (rtspsrc tuning as ROS params): latency_ms=10, drop_on_latency=true,
+    use_tcp=false, do_retransmission=false, decoder=avdec_h264. Hardcoded
+    pipeline additions: buffer-mode=4 (GST_RTP_JITTER_BUFFER_MODE_SYNCED),
+    queue max-size-buffers=1 leaky=downstream before appsink,
+    appsink sync=false async=false max-buffers=1 drop=true,
+    h264parse config-interval=-1 for in-band SPS/PPS.
+  - Part 2 (new-sample callback): polling loop removed, new-sample signal on
+    appsink pulls inline; dedicated GMainLoop thread runs the callback +
+    gst_bus_add_watch error/EOS watch.
+  - Part 3 (zero extra copy): stream-dims-match path memcpys directly from
+    GstMapInfo into sensor_msgs/Image::data; cv::resize fallback retained.
+- Added src/tmux/rtsp_a8_latency.tmuxp.yaml (Part 4): rtsp_camera_node +
+  rqt_image_view /a8/image_raw + topic hz/bw/param list. Documented in
+  src/tmux/CONTEXT.md.
+- Updated ticket.md with an "Implementation status (2026-04-16)" section
+  listing the landed edits, build result, and hardware TODOs.
+- Added feature_list.json entry rtsp-a8-low-latency (in_progress).
+- Verified build: `colcon build --packages-select rtsp_camera` clean on
+  Jetson humble, 14.8 s.
+- Investigated full-workspace `colcon build` failure: src/image2rtsp
+  requires `gstreamer-rtsp-server-1.0` via pkg_check_modules. pkg-config
+  is missing (libgstrtspserver-1.0-dev not installed; apt candidate
+  1.20.1-1 available). image2rtsp is the ROS2→RTSP publisher direction
+  explicitly out of scope for ticket 031. Did not install system deps.
+
+Next:
+- On the bench: source the workspace, `tmuxp load src/tmux/rtsp_a8_latency.tmuxp.yaml`,
+  point the A8 at a phone ms stopwatch, photograph the stopwatch next to
+  `rqt_image_view` for baseline vs. patched latency. Target: ≤150 ms
+  software decode, ≤80 ms with decoder:=nvh264dec if NVDEC available.
+- Decide on image2rtsp: install libgstrtspserver-1.0-dev if we actually
+  need the publisher direction, otherwise gate it out of the default
+  `colcon build` (either COLCON_IGNORE or document --packages-skip).
+- If bench latency stays high, revisit: drop `-p width:=1280 -p height:=720`
+  (let native 1920x1080 through for zero-copy), try v4l2h264dec, raise
+  max-buffers=1 enforcement one more notch.
+
+----------------------------------------
+2026-04-16 (cont.) — Ticket #031: H.264 bring-up on A8 + compressed topic
+----------------------------------------
+Done:
+- First live test against A8 on 192.168.144.26 uncovered two things:
+  (a) the shipped main stream is H.265, not the H.264 assumed in the
+      ticket — pipeline couldn't link. Added `codec` param (h264/h265)
+      that swaps depay (`rtp{codec}depay`), parse (`{codec}parse`), and
+      decoder default (`avdec_{codec}`) together; camera codec toggle
+      can now be matched by restarting the node.
+  (b) Jetson's `nvv4l2decoder` emits NVMM buffers — downstream
+      `videoconvert` couldn't accept them. Added automatic NVMM-path
+      detect: when `decoder` starts with `nv`, splice `nvvidconv`
+      between decoder and videoconvert. Dropped node CPU from 93.8%
+      (avdec_h264) to 1.3% (nvv4l2decoder).
+- Operator flipped camera to H.264; first raw-only test still showed
+  ~10 Hz. Root cause was the default-QoS RELIABLE publisher + lagging
+  subscriber backpressuring the GStreamer streaming thread. Switched
+  both raw and compressed publishers to `rclcpp::SensorDataQoS()`
+  (BEST_EFFORT, depth=5).
+- Added CompressedImage JPEG publisher on `<name>/image_raw/compressed`
+  with `cv::imencode` and `jpeg_quality` param (default 80). Both raw
+  and compressed publishes are guarded by `get_subscription_count()>0`
+  so bench scenarios that only consume one topic don't pay for the
+  other (no BGR memcpy when raw unused, no cv::imencode when
+  compressed unused).
+- Bench on Jetson (A8 H.264 1080p25, nvv4l2decoder, latency_ms=10,
+  short low-loss datalink). Python BEST_EFFORT subscribers count
+  messages/bytes over 8 s windows. 3 scenarios:
+    A  compressed-only:        22.4 Hz,    4.1 MB/s,  179 KB/msg
+    B  raw-only:               13.9 Hz,     86 MB/s, 6075 KB/msg
+    C  raw + compressed both:  16.6 Hz raw + 22.0 Hz compressed
+  → compressed is within 12% of 25 fps native; raw caps at ~14–17 Hz
+    because 6 MB DDS transport per frame is the bottleneck. JPEG q=80
+    cuts wire cost ~34×.
+- README updated with 3 new params (`publish_raw`, `publish_compressed`,
+  `jpeg_quality`), SensorDataQoS note, bench scenario doc.
+- Ticket + feature_list.json updated with bench table and next-step
+  recommendation (subscribe ultralytics_ros tracker_node to the
+  compressed topic; libjpeg-turbo decode on the YOLO side is <10 ms).
+
+Next:
+- Wire `ultralytics_ros` tracker_node to `/a8/image_raw/compressed`
+  (it already supports `sensor_msgs/CompressedImage` via image_transport;
+  needs the remap + a confirmed BEST_EFFORT subscription QoS).
+- End-to-end timing: A8 shutter → JPEG publish → YOLO decode → infer →
+  Detection2DArray publish. Compare to raw-path baseline.
+- Glass-to-topic latency measurement without VNC in the loop (physical
+  monitor on the Jetson + phone ms stopwatch in frame).
+
+----------------------------------------
+2026-04-16 (cont.) — Ticket #031: Relax ticket defaults
+----------------------------------------
+Done:
+- Reviewed a known-good external gst-launch pipeline (default rtspsrc
+  latency=2000, no drop_on_latency, autovideosink sync=false). Key
+  insight: latency_ms is NOT playback delay when the sink is sync=false;
+  it only bounds how long the jitter buffer waits for reordered packets.
+  Aggressive 10 ms / drop-on-latency=true wasn't buying anything, only
+  dropping the occasional reordered packet.
+- Ran an A-vs-B bench (latency=10 drop=true  vs  latency=200 drop=false)
+  on the compressed topic. Steady rate identical (~23 Hz), age p50
+  shifted 15.3 → 16.0 ms, p95 23.4 → 25.6 ms. Config B has a ~1 s
+  cold-start penalty while the 200 ms jitterbuffer fills, but no
+  steady-state cost.
+- Flipped the node defaults to latency_ms=200, drop_on_latency=false.
+  Updated README, tmux/rtsp_a8_latency.tmuxp.yaml, ticket, feature_list.
+- Re-bench on the shipped defaults confirmed the same steady-state:
+  compressed ~22-23 Hz (+~199 KB mean, 3.7 MB/s, age p50 15-21 ms,
+  p95 24-27 ms); raw noisy 10-14 Hz, 63-80 MB/s, age p50 ~19 ms. Raw
+  path age > compressed path age — confirms DDS transport of 6 MB/frame
+  is the raw-path bottleneck, not encoder or rtspsrc.
+
+Next (unchanged):
+- Wire ultralytics_ros tracker_node to /a8/image_raw/compressed.
+- End-to-end A8 shutter → JPEG publish → YOLO detect timing.
+- Glass-to-topic latency measurement without VNC in the loop.
+
+----------------------------------------
+2026-04-16 (cont.) — Ticket #031: QoS match with ultralytics_ros
+----------------------------------------
+Done:
+- Audited QoS at the tracker_node boundary. Single blocking mismatch:
+  tracker_node.py image subscription used `create_subscription(...,
+  qos=1)` which in rclpy resolves to RELIABLE+KEEP_LAST(1); our
+  rtsp_camera publisher is SensorDataQoS (BEST_EFFORT). DDS refused
+  to match — exact "incompatible QoS, Last incompatible policy:
+  RELIABILITY_QOS_POLICY" warning we'd been seeing.
+- Fixed ultralytics_ros/script/tracker_node.py (both the raw and
+  compressed create_subscription calls): pass
+  `qos_profile_sensor_data` (already imported for this node's
+  publishers). Deleted the dead `#self.get_parameter(
+  "use_compressed_input")...` comment.
+- Deleted the dead `use_compressed_input` arg+param from
+  ultralytics_ros/launch/tracker_drone.launch.xml — the node picks
+  raw vs compressed based on input_topic.endswith("compressed"), the
+  parameter was never read.
+- Fixed tracker_with_cloud_node.cpp (LiDAR-fusion node, not in the
+  A8 pipeline but broken whenever PCL is available): its 3
+  `message_filters::Subscriber.subscribe(...)` calls now pass
+  `rmw_qos_profile_sensor_data` so camera_info / points_raw /
+  yolo_result subscriptions are BEST_EFFORT, matching tracker_node's
+  publisher and typical LiDAR drivers.
+- Updated ultralytics_ros/CONTEXT.md to document subscriber QoS.
+- First clean rebuild of ultralytics_ros needed: the install had a
+  zero-byte libultralytics_ros__rosidl_generator_py.so from a prior
+  interrupted incremental build, causing `UnsupportedTypeSupport:
+  Could not import 'rosidl_typesupport_c' for package
+  'ultralytics_ros'`. `rm -rf build/ install/` + colcon build --pkg
+  ultralytics_ros produced a proper 18 KB .so.
+- E2E verified against live A8: rtsp_camera_node on defaults,
+  tracker_node with input_topic=/a8/image_raw/compressed,
+  yolo_model=yolov11n-drone.pt, device=cuda. tracker subscribed
+  successfully, YOLO inference produced /yolo_result_vision at
+  ~12.6 Hz (half the 22 Hz frame rate, bounded by Jetson YOLO
+  inference time). No QoS warnings between our two nodes.
+- Residual "incompatible QoS on /a8/image_raw" warning is rviz on
+  another display subscribing with RELIABLE (rviz Image display
+  default). Rviz users set Reliability = Best Effort in the Image
+  display — not a code fix.
+
+Next:
+- Glass-to-topic latency without VNC in the loop.
+- Sort3D / mas_multiview wiring to /yolo_result_vision on the
+  Jetson path (the A8 is a single-vehicle test; multi-view is a
+  later step).
+
+----------------------------------------
+2026-04-16 (cont.) — tracker_node stamp carry-through
+----------------------------------------
+Done:
+- Fixed tracker_node.py image_callback so the input image's header
+  (stamp + frame_id) is carried through to EVERY downstream message:
+  YoloResult, the annotated Image (previously clobbered by the
+  `yolo_result_image_msg = self.create_result_image(results)`
+  reassignment), and crucially the nested Detection2DArray on
+  /yolo_result_vision (which was being created fresh by
+  create_detections_array() and never having its header set -> stamp
+  was zero, all downstream consumers saw age = wall_clock).
+- Re-ran A8 -> rtsp_camera -> tracker_node -> /yolo_result_vision
+  bench now that Detection2DArray.header.stamp reflects capture:
+  rate ~13 Hz, age_p50 ~297 ms, p95 ~318 ms.
+- Broke down the 297 ms age:
+  * ~15 ms image publish-to-YOLO-subscribe (measured earlier on
+    compressed topic)
+  * ~80 ms YOLO inference (matches 1/12.6 Hz cadence)
+  * ~200 ms queue-backlog: rtsp_camera publishes at ~22 Hz into
+    a BEST_EFFORT depth=5 subscription at tracker_node, but YOLO
+    only drains at ~13 Hz -> ~9 frames/s surplus fills the 5-frame
+    queue in steady state.
+  This is a real finding: YOLO is chewing on frames that are
+  ~300 ms old by the time detections publish. Not a bug in the
+  pipeline, but if fresh detections matter more than throughput
+  the right follow-up is to drop the tracker subscription depth
+  to 1 (always infer on the newest frame, drop the rest), or
+  rate-match the publisher to ~13 Hz.
+
+Next:
+- (If fresh detections matter) override tracker_node subscription
+  depth to 1 via QoS overrides, or throttle rtsp_camera publish to
+  YOLO rate.
+- Glass-to-topic latency without VNC in the loop.
+- Sort3D / mas_multiview wiring to /yolo_result_vision on the
+  Jetson path.
+
+----------------------------------------
+2026-04-16 (cont.) — Ticket #031: decoder latency A/B on direct HDMI
+----------------------------------------
+Done:
+- Operator wired a direct HDMI monitor from the Jetson. Rviz2 was
+  showing the raw /a8/image_raw at ~30 s accumulating lag;
+  /a8/image_raw/compressed also stacked up on RELIABLE+depth>1.
+- Added src/rtsp_camera/config/rviz/a8_compressed.rviz — Image display
+  bound to /a8/image_raw, Transport Hint=compressed, Reliability=Best
+  Effort, Depth=1, Filter size=1. rviz2 subscription stopped
+  accumulating the DDS-side queue, rate ~19 Hz (render-bound), age ~30
+  ms. But the rendered picture was STILL visually behind a parallel
+  `gst-launch rtspsrc ! ... ! autovideosink sync=false` pane.
+- rqt_image_view segfaulted on aarch64 Humble; `image_view` launched
+  but never showed a window. Wrote a tiny cv2.imshow viewer
+  (src/scripts/view_compressed.py) as a reliable A/B baseline: one-
+  frame window, in-frame age overlay, per-2 s rate log.
+- Since age was low (30-40 ms) but visual gap persisted, the lag must
+  be upstream of handle_sample's stamp. Wired disable-dpb=TRUE and
+  enable-max-performance=TRUE on nvv4l2decoder via
+  g_object_class_find_property + g_object_set (only when
+  decoder starts with "nv") — no measurable help: Tegra's
+  nv_v4l2_dec driver reserves a minimum capture-buffer pool of 3-6
+  NVMM surfaces regardless of DPB flag or picture size.
+- A/B matrix with the three-pane view (rviz2 / cv2.imshow / gst-launch):
+    nvv4l2decoder @ 1920x1080  age ~30 ms  visible gap     CPU ~1 %
+    nvv4l2decoder @ 960x540    age ~15 ms  still gap       CPU 0 %
+    avdec_h264    @ 1920x1080  age ~30 ms  NO gap          CPU ~90-110 %
+    avdec_h264    @ 960x540    age ~20 ms  NO gap          CPU ~90 %
+  Diagnosis: nvv4l2decoder's architectural in-pool buffering is a
+  floor (stream-profile-driven, not size-driven). avdec_h264 runs
+  with <= 2 frames in-flight — matches the known-good gst-launch.
+- Picked avdec_h264 + 960x540 as the tmuxp default:
+  src/tmux/rtsp_a8_latency.tmuxp.yaml. Comment block in the file
+  captures the A/B table so a future operator doesn't re-derive it.
+  Operator confirmed: CPU 110 % of one core, age 10-20 ms, no
+  visible gap vs the parallel gst-launch pane. Single-camera per
+  Jetson is the project scope, so no multi-stream concern.
+  Ticket #031 updated with the matrix and the mechanism.

@@ -35,6 +35,7 @@ Multi-vehicle nodes (offboard, policy, tracker) run **once** in simdrone1. They 
 
 ### Other
 - `zoom.tmux.yaml` — zoom/gimbal utilities
+- `rtsp_a8_latency.tmuxp.yaml` — SIYI A8 mini RTSP ingest + `rqt_image_view` + `topic hz`/`bw` for ticket 031 latency verification
 
 ## Inter-Session Contracts (Simulation)
 

@@ -1,6 +1,6 @@
 {
   "project": "mas",
-  "last_updated": "2026-04-15",
+  "last_updated": "2026-04-16",
   "features": [
     {
       "id": "multiview-triangulation",
@@ -155,6 +155,14 @@
       "spec": "doc/active/tickets/028-camera-intrinsic-calibration-mrcal/ticket.md",
       "notes": "Closed at the repo-tooling level. Delivered src/scripts/calibration/ workflow: session tree initializer, mrcal runner, dataset layout, and JSON/CSV summarizer. Ticket artifact references recorded in ticket #028. Bench execution remains an operator step using the delivered workflow. (2026-04-15)",
       "last_updated": "2026-04-15"
+    },
+    {
+      "id": "rtsp-a8-low-latency",
+      "name": "Low-latency RTSP \u2192 ROS2 ingest for SIYI A8 mini (ticket #031)",
+      "status": "in_progress",
+      "spec": "doc/active/tickets/031-rtsp-image-transport-low-latency/ticket.md",
+      "notes": "Code-side in src/rtsp_camera/src/rtsp_camera_node.cpp: 5 rtspsrc params (defaults latency_ms=200, drop_on_latency=false, use_tcp, do_retransmission, decoder); codec param swaps depay+parse+decoder default together (h264/h265); NVMM-path auto-detect splices nvvidconv when decoder name starts with nv; rtspsrc buffer-mode=4; appsink sync=false async=false max-buffers=1 drop=true; leaky queue max-size-buffers=1 before appsink; parse config-interval=-1; polling loop replaced with new-sample signal on a dedicated GMainLoop thread; zero-extra-copy raw path when stream dims match requested dims. Added CompressedImage JPEG publisher on <name>/image_raw/compressed, both raw and compressed gated on subscriber_count>0, publishers now use SensorDataQoS (BEST_EFFORT). README updated, src/tmux/rtsp_a8_latency.tmuxp.yaml added. Bench: compressed-only 22.4 Hz/4.1 MB/s mean 179 KB; raw-only 13.9 Hz/86 MB/s mean 6075 KB; concurrent 16.6 Hz raw + 22.0 Hz compressed. Side-by-side v1-strict (latency=10, drop=true) vs relaxed (latency=200, drop=false) identical steady-state; defaults flipped to relaxed. Wired to ultralytics_ros: tracker_node.py image create_subscription now passes qos_profile_sensor_data (BEST_EFFORT) to match; dead use_compressed_input arg/param removed from tracker_drone.launch.xml; tracker_with_cloud_node.cpp message_filters::Subscribers now pass rmw_qos_profile_sensor_data (lidar-path node, fixed in same pass). One-time install .so truncation required clean rebuild of ultralytics_ros. E2E on live A8: /a8/image_raw/compressed ~22 Hz → tracker_node yolov11n-drone.pt CUDA → /yolo_result_vision ~12.6 Hz (Jetson YOLO inference ceiling, not plumbing). Glass-to-topic latency measurement still pending. (2026-04-16)",
+      "last_updated": "2026-04-16"
     }
   ]
 }
