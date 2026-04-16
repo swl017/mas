@@ -17,7 +17,7 @@ import cv2
 import numpy as np
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 from sensor_msgs.msg import CompressedImage
 
 
@@ -27,10 +27,20 @@ class Viewer(Node):
         self.window = f"view_compressed {topic}"
         self.count = 0
         self.t_last_report = time.monotonic()
-        self.sub = self.create_subscription(
-            CompressedImage, topic, self._cb, qos_profile_sensor_data
+        # Depth=1 is intentional: if callback is slower than publisher
+        # the executor picks up the newest frame each time, not an old
+        # one from a depth=5 cache (which would make `age` grow by
+        # publisher_period × depth at steady state — a pure queueing
+        # artifact, not a real transport delay).
+        qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1,
         )
-        self.get_logger().info(f"subscribed to {topic}")
+        self.sub = self.create_subscription(
+            CompressedImage, topic, self._cb, qos
+        )
+        self.get_logger().info(f"subscribed to {topic} (BEST_EFFORT depth=1)")
 
     def _cb(self, msg: CompressedImage):
         arr = np.frombuffer(msg.data, dtype=np.uint8)

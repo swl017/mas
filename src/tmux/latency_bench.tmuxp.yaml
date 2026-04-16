@@ -1,0 +1,53 @@
+session_name: latency_bench
+
+environment:
+  ROS2_INSTALL_PATH: /opt/ros/humble
+  ROS2_WORKSPACE: /home/usrg/mas
+
+options:
+  default-command: /bin/bash
+
+# Glass-to-ROS2-topic latency benchmark for ticket 031.
+#
+# Setup:
+#   - Pane 0 runs latency_clock_display.py: a full-screen cv2 window
+#     showing a QR code encoded with int(time.time() * 1000) refreshed
+#     at the display's refresh rate.
+#   - Point the A8 at the screen so the QR code fills most of the image.
+#   - Pane 1 runs rtsp_camera_node with the chosen-default low-latency
+#     config (avdec_h264, 960×540).
+#   - Pane 2 runs latency_measurement.py: decodes each received
+#     CompressedImage, pulls the QR timestamp out, and prints the
+#     rolling distribution (N, p50/p95/p99, mean±std, min/max, decode
+#     drop %). On Ctrl-C it dumps the full raw sample list to
+#     /tmp/latency_samples.csv for offline histograms.
+#
+# Bias: the measurement includes one monitor refresh (~8–17 ms on 60 Hz
+# LCD). Subtract ~16 ms from p50 for a "true" glass-to-ROS2 number, or
+# quote both and note the bias. See ticket 031 for detail.
+
+windows:
+
+- window_name: bench
+  focus: true
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+    - export DISPLAY=${DISPLAY:-:0}
+  panes:
+    - python3 ${ROS2_WORKSPACE}/src/scripts/latency_clock_display.py 1920 1080
+    # - ros2 launch gimbal_controller usb_cam.launch.py ns:=a8 camera_name:=a8
+    - |
+      ros2 run rtsp_camera rtsp_camera_node --ros-args \
+        -r __ns:=/${ROBOT_NAME}/camera \
+        -p rtsp_url:=rtsp://192.168.144.26:8554/main.264 \
+        -p camera_name:=color \
+        -p width:=960 \
+        -p height:=540 \
+        -p latency_ms:=200 \
+        -p drop_on_latency:=false \
+        -p use_tcp:=false \
+        -p do_retransmission:=false \
+        -p codec:=h264 \
+        -p decoder:=avdec_h264
+    - python3 ${ROS2_WORKSPACE}/src/scripts/latency_measurement.py /a8/image_raw/compressed --csv /tmp/latency_samples.csv

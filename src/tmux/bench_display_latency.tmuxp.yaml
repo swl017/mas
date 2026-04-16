@@ -1,0 +1,64 @@
+session_name: bench_display
+
+environment:
+  ROS2_INSTALL_PATH: /opt/ros/humble
+  ROS2_WORKSPACE: /home/usrg/mas
+
+options:
+  default-command: /bin/bash
+
+# Display-stack latency benchmark (ticket 031 follow-up).
+#
+# What it measures:
+#   For each viewer, glass-to-glass = real_now − the digit readout that
+#   the viewer has on screen right now. (The publisher draws the current
+#   wallclock into every frame, so the digits ARE the publish time.)
+#   Subtract age (header.stamp → callback) and you have the
+#   post-stamp latency = DDS + decode + GUI stack + display refresh.
+#
+# How to measure:
+#   1. tmuxp load src/tmux/bench_display_latency.tmuxp.yaml
+#   2. Let the session run for a few seconds (viewers need to warm up).
+#   3. Take ONE photo or screenshot that captures:
+#        - rviz2 window (pane 1): big green digits = t_rviz
+#        - cv2 viewer (pane 2):   big green digits = t_cv2
+#        - wallclock pane  (pane 3): current printed value = t_now
+#   4. Compute, all in (s mod 100):
+#        glass-to-glass rviz = t_now - t_rviz
+#        glass-to-glass cv2  = t_now - t_cv2
+#        rviz display-stack overhead = (glass-to-glass rviz) - (glass-to-glass cv2)
+#   5. The age overlay in the cv2 window (header.stamp → callback age)
+#      lets you further split glass-to-cv2 into DDS hop + cv2 render.
+
+windows:
+
+- window_name: bench
+  focus: true
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+    - export DISPLAY=${DISPLAY:-:0}
+  panes:
+    # Pane 0 — synthetic publisher. 960x540 @ 25 Hz, JPEG q=80. Big
+    # wallclock digits are drawn into the frame before publish.
+    - python3 ${ROS2_WORKSPACE}/src/scripts/bench_display_latency.py --ros-args -p rate_hz:=25.0 -p width:=960 -p height:=540
+
+    # Pane 1 — rviz2 pointed at /bench_ts/image_raw with compressed
+    # transport, BEST_EFFORT, Depth=1 / Filter=1.
+    - rviz2 -d ${ROS2_WORKSPACE}/src/rtsp_camera/config/rviz/bench_display.rviz
+
+    # Pane 2 — cv2.imshow baseline (QImage-free path, one-frame buffer).
+    # The viewer also overlays its own age (now − stamp) for the
+    # DDS-to-callback hop.
+    - python3 ${ROS2_WORKSPACE}/src/scripts/view_compressed.py /bench_ts/image_raw/compressed
+
+    # Pane 3 — live reference wallclock, same format as the published
+    # overlay ("seconds mod 100, .mmm"), refreshed ~100 Hz so a photo
+    # captures a readable number.
+    - |
+      python3 -u -c '
+      import time
+      while True:
+          print(f"real_now = {time.time()%100:07.3f}", flush=True)
+          time.sleep(0.01)
+      '

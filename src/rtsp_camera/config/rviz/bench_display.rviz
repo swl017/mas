@@ -1,0 +1,62 @@
+Panels:
+  - Class: rviz_common/Displays
+    Help Height: 0
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Bench1/Topic1
+      Splitter Ratio: 0.5
+    Tree Height: 400
+Visualization Manager:
+  Class: ""
+  Displays:
+    # Synthetic-frame topic from bench_display_latency.py — the BIG
+    # green digits in the middle are the current wallclock at publish
+    # time (seconds mod 100, .mmm precision). Anything rviz shows is
+    # stale by the display-stack latency we're measuring.
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: Bench
+      Normalize Range: true
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        Filter size: 1
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /bench_ts/image_raw
+      Transport Hint: compressed
+      Value: true
+  Enabled: true
+  Global Options:
+    Background Color: 48; 48; 48
+    Default Light: true
+    Fixed Frame: bench_ts
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+  Value: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 10
+      Focal Point: {X: 0, Y: 0, Z: 0}
+      Focal Shape Fixed Size: true
+      Focal Shape Size: 0.05
+      Invert Z Axis: false
+      Name: Current View
+      Near Clip Distance: 0.01
+      Pitch: 0.785
+      Target Frame: <Fixed Frame>
+      Yaw: 0.785
+    Saved: ~
+Window Geometry:
+  Displays: {collapsed: false}
+  Height: 900
+  Width: 1280
+  X: 40
+  Y: 40
