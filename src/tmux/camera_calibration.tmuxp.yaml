@@ -1,0 +1,130 @@
+session_name: camera_calibration
+
+environment:
+  ROS2_WORKSPACE: /home/usrg/mas
+
+options:
+  default-command: /bin/bash
+
+# Ticket 028 bench workflow — SIYI zoom-camera intrinsics via mrcal.
+# See src/scripts/camera_calibration/README.md for the 5-step process.
+#
+# Session variables (override on the tmuxp command line):
+#   CALIB_DATE       session date folder under datasets/camera_calibration/
+#                    default: today (YYYY-MM-DD)
+#   ZOOM_LEVELS      discrete zoom levels to prep (space-separated)
+#                    default: "1 2 4"
+#   CAPTURE_ZOOM     zoom level the operator is actively capturing (integer)
+#                    default: 1
+#
+# Calibration captures must be raw full-resolution frames (README §2), so the
+# camera pane forces high-res regardless of the runtime CAMERA_RES preset.
+
+windows:
+
+- window_name: gimbal
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
+    - source ${ROS2_WORKSPACE}/drone_config/robot.env
+    - CAPTURE_ZOOM="${CAPTURE_ZOOM:-1}"
+  panes:
+    - ros2 launch gimbal_controller siyi_ros.launch.py ns:=/${ROBOT_NAME} server_ip:=${GIMBAL_IP}
+    # Zoom command helper — edit `data:` to the discrete level you are capturing.
+    - |
+      echo "Publish a discrete zoom (1.0 / 2.0 / 4.0 ...) then Ctrl-C:"
+      echo "  ros2 topic pub -1 /${ROBOT_NAME}/gimbal/zoom_cmd std_msgs/msg/Float32 \"data: ${CAPTURE_ZOOM}.0\""
+
+- window_name: camera
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
+    - source ${ROS2_WORKSPACE}/drone_config/robot.env
+    # Calibration requires raw full-resolution frames — force 1920x1080.
+    - CAM_W=1920
+    - CAM_H=1080
+    - echo "calibration stream ${CAM_W}x${CAM_H} (raw full-res per README §2)"
+  panes:
+    - |
+      ros2 run rtsp_camera rtsp_camera_node --ros-args \
+        -r __ns:=/${ROBOT_NAME}/camera \
+        -p rtsp_url:=rtsp://192.168.144.26:8554/main.264 \
+        -p camera_name:=color \
+        -p width:=${CAM_W} \
+        -p height:=${CAM_H} \
+        -p latency_ms:=200 \
+        -p drop_on_latency:=false \
+        -p use_tcp:=false \
+        -p do_retransmission:=false \
+        -p codec:=h264 \
+        -p decoder:=avdec_h264
+    # Live viewer so the operator can frame the board before capturing.
+    # - ros2 run rqt_image_view rqt_image_view /${ROBOT_NAME}/camera/color/image_raw # Currently not working.
+
+- window_name: capture
+  focus: true
+  layout: tiled
+  shell_command_before:
+    - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
+    - source ${ROS2_WORKSPACE}/drone_config/robot.env
+    - CALIB_DATE="${CALIB_DATE:-$(date +%Y-%m-%d)}"
+    - CAPTURE_ZOOM="${CAPTURE_ZOOM:-1}"
+    - SESSION_ROOT="${ROS2_WORKSPACE}/datasets/camera_calibration/${CALIB_DATE}"
+    - IMAGE_DIR="${SESSION_ROOT}/${CAPTURE_ZOOM}x/images"
+    - echo "session=${SESSION_ROOT}  zoom=${CAPTURE_ZOOM}x  images->${IMAGE_DIR}"
+  panes:
+    # Custom saver — rtsp_camera publishes SensorDataQoS (BEST_EFFORT), which
+    # image_view/image_saver (defaults RELIABLE) will not subscribe to. This
+    # helper matches the publisher's QoS and writes a JPEG per `~/save` call.
+    - |
+      mkdir -p "${IMAGE_DIR}" && \
+      python3 ${ROS2_WORKSPACE}/src/scripts/camera_calibration/capture_frame.py \
+        --ros-args \
+        -r image:=/${ROBOT_NAME}/camera/color/image_raw \
+        -p output_dir:=${IMAGE_DIR} \
+        -p filename_format:=frame_%04d.jpg
+    # Trigger pane — call this to snap a single frame (repeat 30+ times per zoom).
+    - |
+      echo "Trigger one save with:"
+      echo "  ros2 service call /capture_frame/save std_srvs/srv/Empty"
+      echo "Counts:  ls ${IMAGE_DIR} | wc -l"
+
+- window_name: calibrate
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
+    - source ${ROS2_WORKSPACE}/drone_config/robot.env
+    - CALIB_DATE="${CALIB_DATE:-$(date +%Y-%m-%d)}"
+    - ZOOM_LEVELS="${ZOOM_LEVELS:-1 2 4}"
+    - CAPTURE_ZOOM="${CAPTURE_ZOOM:-1}"
+    - SESSION_ROOT="${ROS2_WORKSPACE}/datasets/camera_calibration/${CALIB_DATE}"
+    - cd ${ROS2_WORKSPACE}
+    - echo "session=${SESSION_ROOT}  zoom_levels=${ZOOM_LEVELS}"
+  panes:
+    # Step 1 — initialize the dated session tree.
+    - |
+      echo "=== Step 1: init session ==="
+      echo "python3 src/scripts/camera_calibration/init_camera_calibration_session.py \\"
+      echo "  --date ${CALIB_DATE} --zoom-levels ${ZOOM_LEVELS}"
+    # Step 3 — run mrcal per active zoom level.
+    - |
+      echo "=== Step 3: run mrcal for ${CAPTURE_ZOOM}x ==="
+      echo "src/scripts/camera_calibration/run_mrcal_intrinsics.sh \\"
+      echo "  --dataset-root ${SESSION_ROOT} \\"
+      echo "  --zoom-level ${CAPTURE_ZOOM} \\"
+      echo "  --object-spacing-m 0.015 --object-width-n 10 \\"
+      echo "  --focal-px 1100 --lensmodel LENSMODEL_OPENCV8"
+    # Step 4 — residuals / uncertainty review (requires local mrcal install).
+    - |
+      echo "=== Step 4: review ==="
+      echo "mrcal-show-residuals ${SESSION_ROOT}/${CAPTURE_ZOOM}x/calibration/camera-0.cameramodel"
+      echo "mrcal-show-projection-uncertainty ${SESSION_ROOT}/${CAPTURE_ZOOM}x/calibration/camera-0.cameramodel"
+      echo "Record metrics in ${SESSION_ROOT}/${CAPTURE_ZOOM}x/metrics.json"
+    # Step 5 — session aggregate JSON + CSV.
+    - |
+      echo "=== Step 5: summarize ==="
+      echo "python3 src/scripts/camera_calibration/summarize_mrcal_intrinsics.py \\"
+      echo "  --dataset-root ${SESSION_ROOT}"

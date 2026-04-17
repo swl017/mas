@@ -204,5 +204,5 @@ This slice sets up the reproducible workflow and the machine-readable outputs.
 The actual bench capture, `mrcal` execution, and DR re-derivation still require:
 
 - hardware access
-- local `mrcal` installation
+- local `mrcal` installation `sudo apt install mrcal libmrcal-dev python3-mrcal`
 - accepted `metrics.json` values from the bench session
