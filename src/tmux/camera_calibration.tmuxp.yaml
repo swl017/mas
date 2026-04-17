@@ -31,10 +31,10 @@ windows:
     - CAPTURE_ZOOM="${CAPTURE_ZOOM:-1}"
   panes:
     - ros2 launch gimbal_controller siyi_ros.launch.py ns:=/${ROBOT_NAME} server_ip:=${GIMBAL_IP}
-    # Zoom command helper — edit `data:` to the discrete level you are capturing.
-    - |
-      echo "Publish a discrete zoom (1.0 / 2.0 / 4.0 ...) then Ctrl-C:"
-      echo "  ros2 topic pub -1 /${ROBOT_NAME}/gimbal/zoom_cmd std_msgs/msg/Float32 \"data: ${CAPTURE_ZOOM}.0\""
+#     # Zoom command helper — edit `data:` to the discrete level you are capturing.
+#     - |
+#       echo "Publish a discrete zoom (1.0 / 2.0 / 4.0 ...) then Ctrl-C:"
+#       echo "  ros2 topic pub -1 /${ROBOT_NAME}/gimbal/zoom_cmd std_msgs/msg/Float32 \"data: ${CAPTURE_ZOOM}.0\""
 
 - window_name: camera
   focus: false
@@ -60,8 +60,8 @@ windows:
         -p do_retransmission:=false \
         -p codec:=h264 \
         -p decoder:=avdec_h264
-    # Live viewer so the operator can frame the board before capturing.
-    # - ros2 run rqt_image_view rqt_image_view /${ROBOT_NAME}/camera/color/image_raw # Currently not working.
+#     # Live viewer so the operator can frame the board before capturing.
+#     # - ros2 run rqt_image_view rqt_image_view /${ROBOT_NAME}/camera/color/image_raw # Currently not working.
 
 - window_name: capture
   focus: true
@@ -105,26 +105,38 @@ windows:
     - echo "session=${SESSION_ROOT}  zoom_levels=${ZOOM_LEVELS}"
   panes:
     # Step 1 — initialize the dated session tree.
-    - |
-      echo "=== Step 1: init session ==="
-      echo "python3 src/scripts/camera_calibration/init_camera_calibration_session.py \\"
-      echo "  --date ${CALIB_DATE} --zoom-levels ${ZOOM_LEVELS}"
+    # - |
+    #   echo "=== Step 1: init session ==="
+    #   python3 src/scripts/camera_calibration/init_camera_calibration_session.py \
+    #     --date ${CALIB_DATE} --zoom-levels ${ZOOM_LEVELS}
     # Step 3 — run mrcal per active zoom level.
     - |
       echo "=== Step 3: run mrcal for ${CAPTURE_ZOOM}x ==="
-      echo "src/scripts/camera_calibration/run_mrcal_intrinsics.sh \\"
-      echo "  --dataset-root ${SESSION_ROOT} \\"
-      echo "  --zoom-level ${CAPTURE_ZOOM} \\"
-      echo "  --object-spacing-m 0.015 --object-width-n 10 \\"
-      echo "  --focal-px 1100 --lensmodel LENSMODEL_OPENCV8"
-    # Step 4 — residuals / uncertainty review (requires local mrcal install).
+      ./src/scripts/camera_calibration/run_mrcal_intrinsics.sh \
+        --dataset-root ${SESSION_ROOT} \
+        --zoom-level ${CAPTURE_ZOOM} \
+        --object-spacing-m 0.015 --object-width-n 10 \
+        --focal-px 5100 --lensmodel LENSMODEL_OPENCV8
+    # Step 4a — residuals / uncertainty plots. `mrcal-show-*` default to an
+    # interactive gnuplot window; on a headless Jetson we write PNGs into
+    # `<zoom>x/analysis/` via `--hardcopy` so they can be copied off-box.
     - |
-      echo "=== Step 4: review ==="
-      echo "mrcal-show-residuals ${SESSION_ROOT}/${CAPTURE_ZOOM}x/calibration/camera-0.cameramodel"
-      echo "mrcal-show-projection-uncertainty ${SESSION_ROOT}/${CAPTURE_ZOOM}x/calibration/camera-0.cameramodel"
-      echo "Record metrics in ${SESSION_ROOT}/${CAPTURE_ZOOM}x/metrics.json"
+      echo "=== Step 4a: plots ==="
+      ZOOM_DIR=${SESSION_ROOT}/${CAPTURE_ZOOM}x
+      MODEL=${ZOOM_DIR}/calibration/camera-0.cameramodel
+      OUT=${ZOOM_DIR}/analysis
+      mrcal-show-residuals --magnitudes            --hardcopy ${OUT}/residuals_magnitudes.png  ${MODEL}
+      mrcal-show-residuals --vectorfield           --hardcopy ${OUT}/residuals_vectorfield.png ${MODEL}
+      mrcal-show-residuals --histogram-this-camera --hardcopy ${OUT}/residuals_histogram.png   ${MODEL}
+      mrcal-show-projection-uncertainty            --hardcopy ${OUT}/projection_uncertainty.png ${MODEL}
+    # Step 4b — populate metrics.json (RMS/worst from cameramodel header,
+    # max projection uncertainty sampled, parameter_stddev via (JtJ)^-1).
+    - |
+      echo "=== Step 4b: metrics.json ==="
+      python3 src/scripts/camera_calibration/compute_metrics.py \
+        ${SESSION_ROOT}/${CAPTURE_ZOOM}x
     # Step 5 — session aggregate JSON + CSV.
     - |
       echo "=== Step 5: summarize ==="
-      echo "python3 src/scripts/camera_calibration/summarize_mrcal_intrinsics.py \\"
-      echo "  --dataset-root ${SESSION_ROOT}"
+      python3 src/scripts/camera_calibration/summarize_mrcal_intrinsics.py \
+        --dataset-root ${SESSION_ROOT}

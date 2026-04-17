@@ -119,11 +119,17 @@ class SiyiGimbalNode(Node):
             self.rate_callback,
             qos_profile)
 
-        # Zoom command subscriber
-        self.zoom_sub = self.create_subscription(
+        # Zoom rate command subscriber
+        self.zoom_rate_sub = self.create_subscription(
             Float32,
-            'zoom_cmd',
-            self.zoom_callback,
+            'zoom_rate_cmd',
+            self.zoom_rate_callback,
+            qos_profile)
+
+        self.zoom_level_sub = self.create_subscription(
+            Float32,
+            'zoom_level_cmd',
+            self.zoom_level_callback,
             qos_profile)
 
         # Encoder angles publisher
@@ -249,7 +255,7 @@ class SiyiGimbalNode(Node):
         except Exception as e:
             self.get_logger().error(f"Failed to send rate command: {e}")
 
-    def zoom_callback(self, msg: Float32):
+    def zoom_rate_callback(self, msg: Float32):
         """Zoom rate command. Positive=zoom in, negative=zoom out, 0=stop."""
         try:
             zoom_val = msg.data
@@ -261,6 +267,18 @@ class SiyiGimbalNode(Node):
                 self.cam.requestZoomHold()
         except Exception as e:
             self.get_logger().error(f"Failed to send zoom command: {e}")
+
+    def zoom_level_callback(self, msg: Float32):
+        """Absolute zoom level command via 0x0F. A8 mini supports 1.0x–6.0x
+        with 0.1 resolution. Values outside that range are clamped.
+        """
+        try:
+            level = max(1.0, min(6.0, float(msg.data)))
+            # SDK encoder splits into int + first decimal; quantize to 0.1.
+            level = round(level * 10.0) / 10.0
+            self.cam.requestAbsoluteZoom(level)
+        except Exception as e:
+            self.get_logger().error(f"Failed to send zoom-level command: {e}")
 
     def publish_angles_callback(self):
         """Callback function called by the timer to publish current angles."""
@@ -353,15 +371,20 @@ class SiyiGimbalNode(Node):
                 cav_msg.vector.z = float(combined_w[2])
                 self.combined_ang_vel_w_pub.publish(cav_msg)
 
-            # Publish zoom level from SDK
+            # Poll + publish zoom level (camera state feedback).
+            # 0x18 CURRENT_ZOOM_VALUE is a request/reply; the reply lands in
+            # _current_zoom_level_msg asynchronously, so getCurrentZoomLevel()
+            # reads the value from the *previous* poll tick. At 100 Hz that's
+            # ~10 ms of staleness, which is negligible for zoom.
             try:
-                zoom = self.cam.getZoomLevel()
+                self.cam.requestCurrentZoomLevel()
+                zoom = self.cam.getCurrentZoomLevel()
                 if zoom is not None:
                     zoom_msg = Float64()
                     zoom_msg.data = float(zoom)
                     self.zoom_level_pub.publish(zoom_msg)
             except Exception:
-                pass  # getZoomLevel may not be available on all models
+                pass  # getCurrentZoomLevel may not be available on all models
 
         except TypeError as e:
              self.get_logger().warn(f"Could not get attitude from camera (likely not ready or error): {e}. Check connection and camera status.")

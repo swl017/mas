@@ -1,0 +1,42 @@
+{
+  "zoom_level": "1x",
+  "lensmodel": "LENSMODEL_OPENCV8",
+  "model_path": "/home/usrg/mas/drone_config/../datasets/camera_calibration/2026-04-17/1x/calibration/camera-0.cameramodel",
+  "image_size": {
+    "width": 1920,
+    "height": 1080
+  },
+  "num_images": 74,
+  "num_detected_corner_frames": 74,
+  "rms_reprojection_error_px": 0.2,
+  "worst_reprojection_error_px": 0.8,
+  "max_projection_uncertainty_px": 6.085209252815207,
+  "intrinsics": {
+    "fx": 1053.044591,
+    "fy": 1052.905959,
+    "cx": 973.3505638,
+    "cy": 560.0710478,
+    "k1": -0.05412913437,
+    "k2": 0.0004071334562,
+    "p1": 0.001278074402,
+    "p2": -0.0001416636452,
+    "k3": -0.07146042586,
+    "k4": 0.0318919642,
+    "k5": -0.07958272957,
+    "k6": -0.05555322601
+  },
+  "intrinsics_stddev": {
+    "fx": 26.49069557730026,
+    "fy": 26.175212143103135,
+    "cx": 4.570452322681265,
+    "cy": 5.429914601112429,
+    "k1": 0.18027923261016077,
+    "k2": 0.16138562516257898,
+    "p1": 0.0005933972509054379,
+    "p2": 0.0005563368467887373,
+    "k3": 0.16870841603195802,
+    "k4": 0.18088436395973245,
+    "k5": 0.17108077647140538,
+    "k6": 0.1715558933449439
+  }
+}

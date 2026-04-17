@@ -383,6 +383,8 @@ class SIYISDK:
                 self.parseGimbalEncoderMsg(data, seq)
             elif cmd_id==COMMAND.CURRENT_ZOOM_VALUE:
                 self.parseCurrentZoomLevelMsg(data, seq)
+            elif cmd_id==COMMAND.ABSOLUTE_ZOOM:
+                pass  # ACK has no useful payload beyond confirming receipt
             else:
                 self._logger.warning("CMD ID is not recognized")
 

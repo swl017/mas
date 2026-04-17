@@ -38,7 +38,7 @@ OBJECT_WIDTH_N=""
 FOCAL_PX=""
 LENSMODEL="LENSMODEL_OPENCV8"
 IMAGE_GLOB="*.jpg"
-OBSERVED_PIXEL_UNCERTAINTY="2.0"
+OBSERVED_PIXEL_UNCERTAINTY=""
 SKIP_CALOBJECT_WARP_SOLVE=0
 EXTRA_ARGS=()
 
@@ -139,9 +139,12 @@ cmd=(
   --focal "$FOCAL_PX"
   --object-spacing "$OBJECT_SPACING_M"
   --object-width-n "$OBJECT_WIDTH_N"
-  --observed-pixel-uncertainty "$OBSERVED_PIXEL_UNCERTAINTY"
   --outdir "$CALIB_DIR"
 )
+
+if [[ -n "$OBSERVED_PIXEL_UNCERTAINTY" ]]; then
+  cmd+=(--observed-pixel-uncertainty "$OBSERVED_PIXEL_UNCERTAINTY")
+fi
 
 if [[ "$SKIP_CALOBJECT_WARP_SOLVE" -eq 1 ]]; then
   cmd+=(--skip-calobject-warp-solve)
@@ -151,7 +154,10 @@ if [[ ${#EXTRA_ARGS[@]} -gt 0 ]]; then
   cmd+=("${EXTRA_ARGS[@]}")
 fi
 
-cmd+=("${image_paths[@]}")
+# mrcal-calibrate-cameras expects ONE glob per camera, not expanded paths —
+# each extra argument is interpreted as another camera. Pass the literal
+# pattern and let mrcal expand it internally.
+cmd+=("$IMAGES_DIR/$IMAGE_GLOB")
 
 printf 'Running calibration for %s with %d images\n' "$ZOOM_DIR" "${#image_paths[@]}"
 printf 'Command:\n' | tee "$CALIB_LOG"
