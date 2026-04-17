@@ -856,3 +856,60 @@ Done:
   visible gap vs the parallel gst-launch pane. Single-camera per
   Jetson is the project scope, so no multi-stream concern.
   Ticket #031 updated with the matrix and the mechanism.
+
+----------------------------------------
+2026-04-16 (cont.) — Ticket #031 closeout: glass-to-ROS2 latency
+----------------------------------------
+Done:
+- Built a self-contained QR-code bench that measures glass-to-topic
+  latency without physical stopwatches: src/scripts/
+  latency_clock_display.py (fullscreen cv2 window drawing a QR of
+  int(time.time()*1000) using cv2.QRCodeEncoder_create — no pip
+  deps) + src/scripts/latency_measurement.py (BEST_EFFORT depth=1
+  subscriber, cv2.QRCodeDetector on each CompressedImage, streams
+  samples line-buffered to CSV, handles ExternalShutdownException
+  in finally) + src/tmux/latency_bench.tmuxp.yaml (clock +
+  rtsp_camera + measurement).
+- Fixed early CSV-save bug: original design used a custom SIGINT
+  handler that caused rclpy.spin to raise ExternalShutdownException
+  (not KeyboardInterrupt), skipping the final save. Replaced with
+  streaming append writes — each sample hits disk as it's computed,
+  so partial runs always produce a usable CSV.
+- Measured RTSP path (avdec_h264 / 960x540, 1236 samples, 91 s):
+  p50 261 ms raw / 245 ms bias-corrected, p95 287 / 271, p99
+  297 / 281, std 17 ms. Tight distribution (std ~= half a frame
+  period).
+- Measured HDMI -> USB-capture path (327 samples, 87 s): p50
+  260 / 244 ms — no faster than RTSP, tail is worse (p99 329 ms,
+  std 24 ms). Consumer USB HDMI capture boards re-encode the HDMI
+  stream (MJPEG on USB2, H.264 on USB3), relocating the bottleneck
+  rather than removing it. A low-latency board (Magewell, Elgato
+  Cam Link 4K, or PCIe like Magewell Pro Capture) would be needed
+  to actually benefit from the A8's HDMI output; typical gains
+  30-60 ms (USB-grade) or 5-15 ms (PCIe).
+- Attributed the 245 ms p50 budget (in the ticket):
+    A8 internal H.264 encoder  ~150-200 ms  (camera firmware)
+    RTSP + rtspsrc             ~10-30 ms    (already tuned)
+    rtsp_camera decode+stamp   ~15 ms       (already on avdec_h264)
+    JPEG + DDS + sub wakeup    ~30 ms       (IPC composition -> ~15)
+    Monitor refresh bias       ~16 ms       (measurement artifact)
+  ~85 % of the 245 ms is upstream of our ROS node.
+- Camera-class reference table added to the ticket:
+    MIPI-CSI direct          5-15 ms
+    GigE Vision              10-30 ms
+    USB3 UVC                 30-50 ms
+    Consumer IP/RTSP (A8)    150-300 ms
+    Event cameras            1-10 ms
+  VIO/optical-flow pipelines universally target the top half; 245
+  ms is normal for a gimbaled ISR payload like the A8 — predictor/
+  Kalman compensation is the standard approach at this latency
+  class.
+- Flipped feature_list.json rtsp-a8-low-latency to status: done.
+  Ticket #031 closed out.
+
+Next (outside ticket scope):
+- Sort3D / mas_multiview wiring to /yolo_result_vision on the
+  Jetson A8 path.
+- If 245 ms p50 is unacceptable: change camera class, swap for a
+  low-latency HDMI capture board, or add predictive compensation
+  in the tracker/policy.

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <launch>
-  <arg name="ns" default="/fdf"/>
+  <arg name="ns" default="/"/>
   <arg name="use_sim_time" default="false"/>
   <arg name="debug" default="false"/>
   <arg name="yolo_model" default="yolov11x-drone.pt"/>

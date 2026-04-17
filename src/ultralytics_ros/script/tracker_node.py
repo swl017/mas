@@ -17,12 +17,21 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+import time
+from collections import deque
+
 import cv_bridge
 import numpy as np
 import rclpy
 from ament_index_python.packages import get_package_share_directory
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rcl_interfaces.msg import SetParametersResult
+from rclpy.qos import (
+    QoSHistoryPolicy,
+    QoSProfile,
+    QoSReliabilityPolicy,
+    qos_profile_sensor_data,
+)
 from sensor_msgs.msg import Image, CompressedImage
 from ultralytics import YOLO
 from std_msgs.msg import Bool
@@ -58,27 +67,78 @@ class TrackerNode(Node):
         self.bridge = cv_bridge.CvBridge()
         self.use_segmentation = yolo_model.endswith("-seg.pt")
 
-        input_topic = (
-            self.get_parameter("input_topic").get_parameter_value().string_value
-        )
-        result_topic = (
-            self.get_parameter("result_topic").get_parameter_value().string_value
-        )
-        result_image_topic = (
-            self.get_parameter("result_image_topic").get_parameter_value().string_value
+        # Cache all runtime parameters at construction time. These are
+        # launch-time configuration, not dynamically tunable state —
+        # pulling them per-frame cost ~1 ms/frame across 11 reads and
+        # showed up during Phase 0 instrumentation.
+        self._conf_thres = self.get_parameter("conf_thres").get_parameter_value().double_value
+        self._iou_thres = self.get_parameter("iou_thres").get_parameter_value().double_value
+        self._max_det = self.get_parameter("max_det").get_parameter_value().integer_value
+        self._classes = list(self.get_parameter("classes").get_parameter_value().integer_array_value)
+        self._tracker = self.get_parameter("tracker").get_parameter_value().string_value
+        self._device = self.get_parameter("device").get_parameter_value().string_value or None
+        self._result_conf = self.get_parameter("result_conf").get_parameter_value().bool_value
+        self._result_line_width = self.get_parameter("result_line_width").get_parameter_value().integer_value
+        self._result_font_size = self.get_parameter("result_font_size").get_parameter_value().integer_value
+        self._result_font = self.get_parameter("result_font").get_parameter_value().string_value
+        self._result_labels = self.get_parameter("result_labels").get_parameter_value().bool_value
+        self._result_boxes = self.get_parameter("result_boxes").get_parameter_value().bool_value
+
+        input_topic = self.get_parameter("input_topic").get_parameter_value().string_value
+        result_topic = self.get_parameter("result_topic").get_parameter_value().string_value
+        result_image_topic = self.get_parameter("result_image_topic").get_parameter_value().string_value
+
+        # Depth=1 BEST_EFFORT on the image sub: the publisher is already
+        # BEST_EFFORT (rtsp_camera uses SensorDataQoS), and a deeper
+        # queue here lets frames pile up when inference is slower than
+        # the publish rate — ~200 ms of staleness accumulates in steady
+        # state at the previous depth=5 default. See ticket 032 for the
+        # measurement.
+        image_qos = QoSProfile(
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
         )
         self.use_compressed = input_topic.endswith("compressed")
         if self.use_compressed:
             self.get_logger().info(f"Subscribing to compressed image topic: {input_topic}")
-            self.create_subscription(CompressedImage, input_topic, self.image_callback, qos_profile_sensor_data)
+            self.create_subscription(CompressedImage, input_topic, self.image_callback, image_qos)
         else:
             self.get_logger().info(f"Subscribing to raw image topic: {input_topic}")
-            self.create_subscription(Image, input_topic, self.image_callback, qos_profile_sensor_data)
+            self.create_subscription(Image, input_topic, self.image_callback, image_qos)
 
         self.results_pub = self.create_publisher(YoloResult, result_topic, qos_profile_sensor_data)
         self.results_vision_msg_pub = self.create_publisher(Detection2DArray, result_topic+"_vision", qos_profile_sensor_data)
         self.detection_active_pub = self.create_publisher(Bool, result_topic+"_active", qos_profile_sensor_data)
         self.result_image_pub = self.create_publisher(Image, result_image_topic, qos_profile_sensor_data)
+
+        # Rolling inference-time window; logged every _log_every frames.
+        self._infer_samples_ms: deque[float] = deque(maxlen=240)
+        self._log_every = 60
+        self._frames_since_log = 0
+
+        # Runtime-tunable knobs. Route `ros2 param set` through a
+        # callback that updates the same cached `self._*` slots the
+        # hot path reads, so Phase 2 sweeps can re-tune live without a
+        # node restart. Only tuning knobs are listed; launch-time-only
+        # params (model path, topic names, QoS) stay immutable.
+        self.add_on_set_parameters_callback(self._on_param_change)
+
+    def _on_param_change(self, params):
+        for p in params:
+            if p.name == "conf_thres":
+                self._conf_thres = float(p.value)
+            elif p.name == "iou_thres":
+                self._iou_thres = float(p.value)
+            elif p.name == "max_det":
+                self._max_det = int(p.value)
+            elif p.name == "classes":
+                self._classes = list(p.value)
+            elif p.name == "tracker":
+                self._tracker = str(p.value)
+            elif p.name == "device":
+                self._device = str(p.value) or None
+        return SetParametersResult(successful=True)
 
     def image_callback(self, msg):
         if self.use_compressed:
@@ -86,44 +146,53 @@ class TrackerNode(Node):
         else:
             cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
 
-        conf_thres = self.get_parameter("conf_thres").get_parameter_value().double_value
-        iou_thres = self.get_parameter("iou_thres").get_parameter_value().double_value
-        max_det = self.get_parameter("max_det").get_parameter_value().integer_value
-        classes = (
-            self.get_parameter("classes").get_parameter_value().integer_array_value
-        )
-        tracker = self.get_parameter("tracker").get_parameter_value().string_value
-        device = self.get_parameter("device").get_parameter_value().string_value or None
+        t0 = time.perf_counter()
         results = self.model.track(
             source=cv_image,
-            conf=conf_thres,
-            iou=iou_thres,
-            max_det=max_det,
-            classes=classes,
-            tracker=tracker,
-            device=device,
+            conf=self._conf_thres,
+            iou=self._iou_thres,
+            max_det=self._max_det,
+            classes=self._classes,
+            tracker=self._tracker,
+            device=self._device,
             verbose=False,
-            retina_masks=True,
+            retina_masks=self.use_segmentation,
+            persist=True,
         )
+        self._infer_samples_ms.append((time.perf_counter() - t0) * 1000.0)
+        self._frames_since_log += 1
+        if self._frames_since_log >= self._log_every:
+            window = np.asarray(self._infer_samples_ms, dtype=np.float64)
+            self.get_logger().info(
+                f"infer N={len(window):3d} "
+                f"p50={np.median(window):6.1f} "
+                f"p95={np.quantile(window, 0.95):6.1f} ms"
+            )
+            self._frames_since_log = 0
 
         if results is not None:
             yolo_result_msg = YoloResult()
             yolo_result_msg.detections = self.create_detections_array(results)
-            yolo_result_image_msg = self.create_result_image(results)
             if self.use_segmentation:
                 yolo_result_msg.masks = self.create_segmentation_masks(results)
             # Carry the input image's stamp + frame_id through to every
             # downstream message so consumers can measure end-to-end age
             # and TF-transform using the capture time rather than the
-            # publish time. create_result_image() and create_detections_array()
-            # both build fresh messages, so headers have to be assigned here.
+            # publish time. create_detections_array() builds a fresh
+            # message, so the header has to be assigned here.
             yolo_result_msg.header = msg.header
             yolo_result_msg.detections.header = msg.header
-            yolo_result_image_msg.header = msg.header
             self.results_pub.publish(yolo_result_msg)
-            self.result_image_pub.publish(yolo_result_image_msg)
             self.results_vision_msg_pub.publish(yolo_result_msg.detections)
             self.detection_active_pub.publish(Bool(data=len(yolo_result_msg.detections.detections) > 0))
+
+            # `results[0].plot()` is a ~5-15 ms CPU op (PIL text render +
+            # box draw). Skip it when no one is listening — matches the
+            # subscriber-gating pattern in rtsp_camera.
+            if self.result_image_pub.get_subscription_count() > 0:
+                yolo_result_image_msg = self.create_result_image(results)
+                yolo_result_image_msg.header = msg.header
+                self.result_image_pub.publish(yolo_result_image_msg)
 
     def create_detections_array(self, results):
         detections_msg = Detection2DArray()
@@ -148,29 +217,13 @@ class TrackerNode(Node):
         return detections_msg
 
     def create_result_image(self, results):
-        result_conf = self.get_parameter("result_conf").get_parameter_value().bool_value
-        result_line_width = (
-            self.get_parameter("result_line_width").get_parameter_value().integer_value
-        )
-        result_font_size = (
-            self.get_parameter("result_font_size").get_parameter_value().integer_value
-        )
-        result_font = (
-            self.get_parameter("result_font").get_parameter_value().string_value
-        )
-        result_labels = (
-            self.get_parameter("result_labels").get_parameter_value().bool_value
-        )
-        result_boxes = (
-            self.get_parameter("result_boxes").get_parameter_value().bool_value
-        )
         plotted_image = results[0].plot(
-            conf=result_conf,
-            line_width=result_line_width,
-            font_size=result_font_size,
-            font=result_font,
-            labels=result_labels,
-            boxes=result_boxes,
+            conf=self._result_conf,
+            line_width=self._result_line_width,
+            font_size=self._result_font_size,
+            font=self._result_font,
+            labels=self._result_labels,
+            boxes=self._result_boxes,
         )
         result_image_msg = self.bridge.cv2_to_imgmsg(plotted_image, encoding="bgr8")
         return result_image_msg

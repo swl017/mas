@@ -335,11 +335,118 @@ CPU 110 % of one core, `age` 10–20 ms, no visible gap vs the parallel
 the CPU cost is acceptable. Flip back to 1080p if YOLO needs the extra
 pixels — the freshness tradeoff doesn't change.
 
-**Still pending**:
-- Glass-to-`/a8/image_raw` latency measurement against a visible ms
-  clock, without VNC in the loop.
+**Glass-to-ROS2-topic latency bench (2026-04-16)**:
+
+Built a self-contained bench that measures glass-to-topic latency
+without a physical stopwatch or photography:
+
+- [src/scripts/latency_clock_display.py](../../../../scripts/latency_clock_display.py)
+  renders a full-screen QR code encoding `int(time.time() * 1000)`
+  using OpenCV's built-in `QRCodeEncoder_create()` (no `qrcode` pip
+  dependency). Refresh is tied to the monitor refresh rate.
+- [src/scripts/latency_measurement.py](../../../../scripts/latency_measurement.py)
+  subscribes BEST_EFFORT depth=1 to a `sensor_msgs/CompressedImage`
+  topic, runs `cv2.QRCodeDetector` on each frame, differences the
+  decoded timestamp against `time.time()` at callback entry. Streams
+  every sample to CSV line-buffered so partial runs are never lost.
+  Handles `ExternalShutdownException` and logs a rolling distribution
+  (p50/p95/p99, mean±std, decode-drop %).
+- [src/tmux/latency_bench.tmuxp.yaml](../../../../tmux/latency_bench.tmuxp.yaml)
+  wires clock + rtsp_camera + measurement in one pane layout.
+
+Both endpoints read the same `time.time()` on the same Jetson, so
+there is no clock-drift term. Known measurement bias: ~one monitor
+refresh (~16 ms at 60 Hz) inflates every sample by a constant amount.
+
+**Result — RTSP path** (1236 samples over 91 s, avdec_h264 default):
+
+| Metric                | Raw    | Bias-corrected (−16 ms) |
+|-----------------------|-------:|------------------------:|
+| Decoded frame rate    |   13.5 Hz | —                    |
+| **Median (p50)**      | 261 ms | **245 ms**              |
+| Mean ± std            | 261 ± 17 ms | 245 ± 17 ms        |
+| p95                   | 287 ms | 271 ms                  |
+| p99                   | 297 ms | 281 ms                  |
+| Min / Max             | 209 / 308 ms | —                 |
+
+Std dev ≈ half a frame period — the distribution is quantization
+noise around a steady mean, not jitter. ~38% of frames are dropped
+by `cv2.QRCodeDetector` (JPEG artifacts / slight blur); this doesn't
+bias the latency estimate because each sample is self-contained via
+`t_display` / `t_received`, but it caps sample density.
+
+**Latency budget, attributed** (from p50 + separately-measured `age`
+and monitor bias):
+
+| Segment                                          | ms | Tunable? |
+|--------------------------------------------------|---:|----------|
+| A8 internal H.264 encoder (sensor → RTP bytes out) | ~150–200 | **Camera firmware — not in our hands** |
+| RTSP transit + rtspsrc                              | ~10–30  | Already tuned (latency_ms=200, sync=false on appsink) |
+| rtsp_camera decode + stamp                          | ~15     | Already on avdec_h264 low-latency path |
+| JPEG encode + DDS + subscriber wakeup (= `age`)     | ~30     | Possible next step: intra-process composition |
+| Monitor refresh (measurement bias, not real)        | ~16     | Subtract from reported numbers |
+| **Total measured glass-to-ROS2 p50**                | **~261** ||
+
+**~85% of the glass-to-topic latency is upstream of our ROS node**
+(A8 encoder + RTSP transit). No amount of code-side tuning recovers
+that portion.
+
+**Result — HDMI → USB-capture-board path** (327 samples over 87 s,
+A8 "ultra-low-latency" HDMI output through the capture board into
+`gimbal_controller usb_cam` launch):
+
+| Metric                | Raw    | Bias-corrected |
+|-----------------------|-------:|---------------:|
+| Decoded frame rate    |  3.74 Hz | —           |
+| **Median (p50)**      | 260 ms | **244 ms**     |
+| Mean ± std            | 261 ± 24 ms | 245 ± 24 ms |
+| p95                   | 301 ms | 285 ms         |
+| p99                   | 329 ms | 313 ms         |
+| Max                   | 392 ms | —              |
+
+**The HDMI path is not faster.** p50 is within 1 ms of the RTSP path,
+but the tail is longer (p99 + 32 ms vs RTSP) and std dev is 40%
+higher. Decode rate is one third the RTSP rate, suggesting the USB
+capture board is itself producing fewer frames.
+
+Interpretation: consumer USB HDMI capture boards re-encode the HDMI
+stream (MJPEG on USB 2.0, H.264 on USB 3.0) before sending over USB.
+That encoder sits where the A8's H.264 encoder was on the RTSP
+path — the bottleneck was relocated, not removed. To actually benefit
+from the A8's HDMI output the capture board has to be a low-latency
+model (Magewell USB Capture, Elgato Cam Link 4K, or PCIe like
+Magewell Pro Capture / Blackmagic DeckLink), typically 30–60 ms for
+USB-grade and 5–15 ms for PCIe.
+
+**Latency in other-camera-class reference points** (for context when
+deciding whether to replace the A8):
+
+| Interface                           | Typical glass-to-host |
+|-------------------------------------|----------------------:|
+| MIPI-CSI direct to SoC ISP (IMX219, IMX477) | 5–15 ms        |
+| GigE Vision (Basler, FLIR)          |  10–30 ms             |
+| USB 3.0 UVC (RealSense, ZED)        |  30–50 ms             |
+| **Consumer IP / RTSP H.264 (A8 class)** | **150–300 ms**    |
+| Event cameras (Prophesee, iniVation) |  1–10 ms             |
+
+Research-grade VIO / optical-flow pipelines universally target the
+top half of the table; 245 ms is the expected regime for a gimbaled
+ISR payload like the A8, and compensation via predictor/Kalman is
+the standard approach at this latency class.
+
+**Ticket closeout**:
+
+The ticket is functionally complete: rtsp_camera delivers the lowest
+latency possible from this camera class, the pipeline is wired to
+YOLO end-to-end, and the absolute numbers are now measured.
+
+**Still pending / follow-on**:
 - Sort3D / mas_multiview wiring to `/yolo_result_vision` on the
   Jetson A8 path.
+- If a 245 ms p50 is unacceptable for policy loops, the path forward
+  is either (a) a different camera class (CSI/USB3/GigE), (b) a
+  better HDMI capture board (Magewell / PCIe), or (c) predictive
+  compensation in the tracker/policy. All outside ticket scope.
 
 **Unrelated build failure surfaced during a full `colcon build`**:
 `src/image2rtsp/CMakeLists.txt:27` requires

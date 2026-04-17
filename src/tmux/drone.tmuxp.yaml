@@ -37,25 +37,39 @@ windows:
     # - ros2 run gimbal_controller point_to_region_node --ros-args -r __ns:=/${ROBOT_NAME} -r gimbal_command_los_world_deg:=tracking/gimbal_command_los_world_deg
     - ros2 launch gimbal_controller siyi_ros.launch.py ns:=/${ROBOT_NAME} server_ip:=${GIMBAL_IP}
 
-# - window_name: camera
-#   focus: false
-#   layout: tiled
-#   shell_command_before:
-#     - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
-#     - source ${ROS2_WORKSPACE}/drone_config/robot.env
-#   panes:
-#     # - ros2 launch gimbal_controller usb_cam.launch.py ns:=/${ROBOT_NAME}/camera/color camera_name:=camera
-#     - |
-#       ros2 run rtsp_camera rtsp_camera_node --ros-args \
-#         -r __ns:=/${ROBOT_NAME}/camera \
-#         -p rtsp_url:=rtsp://192.168.144.26:8554/main.264 \
-#         -p camera_name:=color \
-#         -p width:=960 \
-#         -p height:=540 \
-#         -p latency_ms:=200 \
-#         -p drop_on_latency:=false \
-#         -p use_tcp:=false \
-#         -p do_retransmission:=false \
-#         -p codec:=h264 \
-#         -p decoder:=avdec_h264
-#     - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/${ROBOT_NAME} input_topic:=camera/color/image_raw/compressed yolo_model:=yolov11m-drone.engine
+- window_name: camera
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
+    - source ${ROS2_WORKSPACE}/drone_config/robot.env
+    # Camera resolution preset (ticket 032 / Phase 6 table).
+    # Override per-session with e.g. `CAMERA_RES=mid tmuxp load ...`.
+    #   low  → rtsp  640×360,  engine dronecop9-2-384x640   (winner; ~47 ms age p50, 24 Hz)
+    #   mid  → rtsp  960×540,  engine dronecop9-2-544x960   (~69 ms age p50, 17 Hz)
+    #   high → rtsp 1920×1080, engine dronecop9-2-1088x1920 (~164 ms age p50,  8 Hz)
+    - CAMERA_RES="${CAMERA_RES:-low}"
+    - |-
+      case "$CAMERA_RES" in
+        low)  CAM_W=640;  CAM_H=360;  YOLO_MODEL=dronecop9-2-384x640.engine  ;;
+        mid)  CAM_W=960;  CAM_H=540;  YOLO_MODEL=dronecop9-2-544x960.engine  ;;
+        high) CAM_W=1920; CAM_H=1080; YOLO_MODEL=dronecop9-2-1088x1920.engine ;;
+        *)    echo "unknown CAMERA_RES=$CAMERA_RES (use low|mid|high)" >&2; exit 1 ;;
+      esac
+      echo "CAMERA_RES=$CAMERA_RES  ${CAM_W}x${CAM_H}  model=$YOLO_MODEL"
+  panes:
+    # - ros2 launch gimbal_controller usb_cam.launch.py ns:=/${ROBOT_NAME}/camera/color camera_name:=camera
+    - |
+      ros2 run rtsp_camera rtsp_camera_node --ros-args \
+        -r __ns:=/${ROBOT_NAME}/camera \
+        -p rtsp_url:=rtsp://192.168.144.26:8554/main.264 \
+        -p camera_name:=color \
+        -p width:=${CAM_W} \
+        -p height:=${CAM_H} \
+        -p latency_ms:=200 \
+        -p drop_on_latency:=false \
+        -p use_tcp:=false \
+        -p do_retransmission:=false \
+        -p codec:=h264 \
+        -p decoder:=avdec_h264
+    - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/${ROBOT_NAME} input_topic:=camera/color/image_raw/compressed yolo_model:=${YOLO_MODEL}

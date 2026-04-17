@@ -1,0 +1,16 @@
+{
+  "yaw": {
+    "k_deg_s_per_u": 73.30868234282028,
+    "tau_rate_s": 0.0995200980793346,
+    "u_deadband": 0.0,
+    "n_points": 10,
+    "n_railed": 0
+  },
+  "pitch": {
+    "k_deg_s_per_u": 73.39531531531532,
+    "tau_rate_s": 0.09540073799364494,
+    "u_deadband": 0.0,
+    "n_points": 3,
+    "n_railed": 7
+  }
+}
