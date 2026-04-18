@@ -33,8 +33,8 @@ Peers (absolute topics, `/{peer_name}/` prefix):
 - `/{peer}/camera/zoom_level` (`std_msgs/Float64`) — peer zoom level
 - `/{peer}/policy/observation` (`std_msgs/Float32MultiArray`) — peer assembled observation vector for value network shared state (BEST_EFFORT, depth=1)
 
-Global:
-- `/chosen_target_pose` (`geometry_msgs/PoseWithCovarianceStamped`) — triangulation result with covariance (when `enable_triangulation=true`)
+Ego triangulation (relative — resolves under vehicle namespace):
+- `chosen_target_pose` (`geometry_msgs/PoseWithCovarianceStamped`) — sort3d's selected target with covariance (when `enable_triangulation=true`). Published per-vehicle by `mas_tracker/sort3d_node`, so deploy subscribes relatively to pick up `/{ego}/chosen_target_pose`.
 
 #### Publishers
 
@@ -52,7 +52,7 @@ Relative topics (resolved by node namespace):
 - `vehicle_name` (`string`, default: from namespace) — this vehicle's namespace
 - `peer_names` (`string[]`, default: `[]`) — other vehicles' namespaces (set by launch file)
 - `checkpoint_path` (`string`, default: `""`) — path to SKRL .pt checkpoint
-- `obs_dim` (`int`, default: `62`) — observation vector dimension
+- `obs_dim` (`int`, default: `63`) — observation vector dimension (31 ego + 16·(N-1) inter-agent [+6 triangulation])
 - `action_dim` (`int`, default: `7`) — action dimension (3 vel + 1 yaw + 2 gimbal + 1 zoom)
 - `architecture` (`string`, default: `"mappo_rnn"`) — `"mappo_rnn"` or `"ppo_mlp"`
 - `hidden_size` (`int`, default: `64`) — MLP hidden layer size
@@ -62,7 +62,7 @@ Relative topics (resolved by node namespace):
 - `max_lin_vel` (`double`, default: `10.0`) — max linear velocity for action scaling (m/s)
 - `max_yaw_rate` (`double`, default: `0.7854`) — max yaw rate for action scaling (rad/s)
 - `max_gimbal_rate` (`double`, default: `3.14159`) — max gimbal LOS rate for action denormalization (rad/s, must match training)
-- `max_zoom_rate` (`double`, default: `1.0`) — max zoom rate for action denormalization (zoom-levels/s, must match training)
+- `max_zoom_rate` (`double`, default: `2.0`) — max zoom rate for action denormalization (zoom-levels/s, must match training `ZoomControllerCfg`)
 - `enable_cbf` (`bool`, default: `true`) — enable CBF inter-agent safety filter
 - `enable_triangulation` (`bool`, default: `false`) — append 6D triangulation tail to observations
 - `image_width` (`int`, default: `640`) — image width for bbox normalization
@@ -89,7 +89,7 @@ Relative topics (resolved by node namespace):
 ## Key Files
 - `mas_policy/policy_node.py` — per-vehicle ROS2 node (25 Hz timer loop)
 - `mas_policy/policy_loader.py` — standalone PolicyNetRNN/MLP/ValueNetRNN + SKRL checkpoint loading
-- `mas_policy/observation_assembler.py` — ego + peer subscribers → 62/68D observation vector
+- `mas_policy/observation_assembler.py` — ego + peer subscribers → 63/69D observation vector
 - `mas_policy/action_publisher.py` — 7D actions → cmd_vel + gimbal_cmd_los_rate + zoom_rate_cmd
 - `mas_policy/cbf_filter.py` — deployment CBF safety filter (halfspace projection)
 - `mas_policy/utils.py` — math utilities (gimbal_ray_direction_world, euler_from_quat, frame conversions)

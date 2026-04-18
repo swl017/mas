@@ -88,12 +88,12 @@ class TestObsDim:
     def test_2_agents_tri(self):
         node = _make_mock_node()
         asm = ObservationAssembler(node, "px4_1", ["px4_2"], enable_triangulation=True)
-        assert asm.obs_dim == 52  # 30 + 16*1 + 6
+        assert asm.obs_dim == 53  # 31 + 16*1 + 6
 
     def test_3_agents_tri(self):
         node = _make_mock_node()
         asm = ObservationAssembler(node, "px4_1", ["px4_2", "px4_3"], enable_triangulation=True)
-        assert asm.obs_dim == 68  # 30 + 16*2 + 6
+        assert asm.obs_dim == 69  # 31 + 16*2 + 6
 
 
 class TestAssemble:
@@ -109,7 +109,8 @@ class TestAssemble:
         state.velocity_w = np.array([0.5, -0.5, 0.1])
         state.orientation_w = np.array([1.0, 0.0, 0.0, 0.0])
         state.angular_velocity_b = np.array([0.01, -0.01, 0.02])
-        state.linear_acceleration_b = np.array([0.0, 0.0, -9.81])
+        # MAVROS IMU convention: hovering level reads +g in body Z (ENU up).
+        state.linear_acceleration_b = np.array([0.0, 0.0, 9.81])
         state.gimbal_yaw_body = 0.1
         state.gimbal_pitch_body = -0.2
         state.combined_ang_vel_w = np.array([0.05, -0.03, 0.01])
@@ -126,14 +127,14 @@ class TestAssemble:
         for name in asm.all_names:
             self._populate_state(asm.get_vehicle_state(name))
         obs = asm.assemble()
-        assert len(obs) == asm.obs_dim == 52
+        assert len(obs) == asm.obs_dim == 53
 
     def test_output_shape_3_agents_tri(self):
         asm = self._make_assembler(num_peers=2, enable_tri=True)
         for name in asm.all_names:
             self._populate_state(asm.get_vehicle_state(name))
         obs = asm.assemble()
-        assert len(obs) == asm.obs_dim == 68
+        assert len(obs) == asm.obs_dim == 69
 
     def test_gimbal_yaw_no_offset(self):
         """Verify obs[15] is the raw gimbal_yaw_body, no offset subtracted."""
@@ -153,6 +154,28 @@ class TestAssemble:
         obs = asm.assemble()
         assert obs[23] <= 20.0
         np.testing.assert_allclose(obs[23], 20.0, atol=1e-10)
+
+    def test_lin_acc_gravity_compensation_level_hover(self):
+        """Level hover: IMU reads [0, 0, +g] body, after g-compensation obs[12:15] ≈ 0."""
+        asm = self._make_assembler(num_peers=1, enable_tri=True)
+        for name in asm.all_names:
+            self._populate_state(asm.get_vehicle_state(name))
+        ego = asm.get_vehicle_state("px4_1")
+        ego.orientation_w = np.array([1.0, 0.0, 0.0, 0.0])  # identity
+        ego.linear_acceleration_b = np.array([0.0, 0.0, 9.81])
+        obs = asm.assemble()
+        np.testing.assert_allclose(obs[12:15], [0.0, 0.0, 0.0], atol=1e-6)
+
+    def test_lin_acc_gravity_compensation_nonzero_kinematic(self):
+        """Kinematic accel of [0.3, 0, 0] body at level hover: IMU reads [0.3, 0, +g]."""
+        asm = self._make_assembler(num_peers=1, enable_tri=True)
+        for name in asm.all_names:
+            self._populate_state(asm.get_vehicle_state(name))
+        ego = asm.get_vehicle_state("px4_1")
+        ego.orientation_w = np.array([1.0, 0.0, 0.0, 0.0])
+        ego.linear_acceleration_b = np.array([0.3, 0.0, 9.81])
+        obs = asm.assemble()
+        np.testing.assert_allclose(obs[12:15], [0.3, 0.0, 0.0], atol=1e-6)
 
     def test_combined_ang_vel_from_state(self):
         """Verify obs[20:23] uses the cached combined_ang_vel_w, not computed."""

@@ -28,6 +28,7 @@ def _load_config(context):
 def launch_setup(context):
     config = _load_config(context)
     vehicle_filter = LaunchConfiguration('vehicle_filter').perform(context)
+    use_sim_time = LaunchConfiguration('use_sim_time').perform(context).lower() == 'true'
 
     vehicles = config['vehicles']
     if vehicle_filter:
@@ -55,6 +56,7 @@ def launch_setup(context):
                 'position.z': pos['z'],
                 'position.yaw_deg': pos['yaw_deg'],
                 'takeoff_speed': vehicle.get('takeoff_speed', 3.0),
+                'use_sim_time': use_sim_time,
             }],
         )
         nodes.append(node)
@@ -73,6 +75,11 @@ def generate_launch_description():
             'vehicle_filter',
             default_value='',
             description='If set, only launch for this vehicle namespace (e.g. px4_1)',
+        ),
+        DeclareLaunchArgument(
+            'use_sim_time',
+            default_value='false',
+            description='Use /clock (sim) time when true, wall time otherwise',
         ),
         OpaqueFunction(function=launch_setup),
     ])

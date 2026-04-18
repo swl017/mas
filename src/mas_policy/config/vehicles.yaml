@@ -2,4 +2,4 @@ vehicles:
   - namespace: "px4_1"
     agent_id: "drone_0"
   - namespace: "px4_2"
-    agent_id: "drone_0"
+    agent_id: "drone_1"

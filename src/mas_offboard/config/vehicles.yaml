@@ -5,14 +5,14 @@ vehicles:
       x: -15.0
       y: 0.0
       z: 20.0
-      yaw_deg: -90.0
+      yaw_deg: 0.0
   - namespace: "px4_2"
     target_system: 3
     position:
       x: 0.0
       y: -15.0
       z: 22.0
-      yaw_deg: 0.0
+      yaw_deg: 90.0
   - namespace: "px4_3"
     target_system: 4
     position:

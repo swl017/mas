@@ -4,11 +4,11 @@
 
 ---
 
-## 1. Observation Vector (52D for 2 agents)
+## 1. Observation Vector (53D for 2 agents)
 
-Formula: `obs_dim = 30 + 16 × (num_agents - 1) + 6` (with triangulation enabled)
+Formula: `obs_dim = 31 + 16 × (num_agents - 1) + 6` (with triangulation enabled)
 
-### Ego Observations (30D) — indices [0:30]
+### Ego Observations (31D) — indices [0:31]
 
 | Index | Quantity | Dim | Unit | Source (ROS2) |
 |-------|----------|-----|------|---------------|
@@ -23,10 +23,11 @@ Formula: `obs_dim = 30 + 16 × (num_agents - 1) + 6` (with triangulation enabled
 | 20-22 | Camera sweep rate (world) | 3 | rad/s | Combined body + gimbal angular velocity in world frame |
 | 23 | Bbox age-of-information | 1 | s | Time since last valid detection |
 | 24 | Zoom level | 1 | - | Current camera zoom factor |
-| 25-28 | Bounding box (normalized) | 4 | [0,1] | [cx, cy, w, h] in image coords, divided by image dims |
-| 29 | Bbox empty flag | 1 | bool | 1.0 if no detection, 0.0 if valid |
+| 25 | Effective HFOV | 1 | rad | `2·atan2(W/2, fx · zoom)` using `camera/color/camera_info` fx (1x) and current zoom |
+| 26-29 | Bounding box (normalized) | 4 | [0,1] | [cx, cy, w, h] in image coords, divided by image dims |
+| 30 | Bbox empty flag | 1 | bool | 1.0 if no detection, 0.0 if valid |
 
-### Inter-Agent Observations (16D per other agent) — indices [30:46]
+### Inter-Agent Observations (16D per other agent) — indices [31:47]
 
 | Offset | Quantity | Dim | Unit | Source |
 |--------|----------|-----|------|--------|
@@ -39,10 +40,10 @@ Formula: `obs_dim = 30 + 16 × (num_agents - 1) + 6` (with triangulation enabled
 | +14 | Data age-of-information | 1 | s | Time since motion data received from other |
 | +15 | Bbox age-of-information | 1 | s | Time since detection data received from other |
 
-For 2 agents: one block of 16D at indices [30:46].
-For 3 agents: two blocks at [30:46] and [46:62].
+For 2 agents: one block of 16D at indices [31:47].
+For 3 agents: two blocks at [31:47] and [47:63].
 
-### Triangulation Tail (6D) — indices [46:52]
+### Triangulation Tail (6D) — indices [47:53]
 
 | Offset | Quantity | Dim | Unit |
 |--------|----------|-----|------|
@@ -74,10 +75,10 @@ All policy outputs are in [-1, 1]. Scaling applied before sending to actuators.
 ### Policy Network (MAPPORNNPolicy)
 
 ```
-Input (52D observations)
+Input (53D observations — 2 agents + triangulation)
   |-- RunningStandardScaler: obs_norm = (obs - running_mean) / sqrt(running_variance + 1e-8)
   |
-  |-- Linear(52, 64) + ReLU
+  |-- Linear(53, 64) + ReLU
   |-- Linear(64, 64) + ReLU
   |-- GRU(input=64, hidden=64, layers=1, batch_first=True)
   |-- Linear(64, 7)  -->  action mean
@@ -121,7 +122,7 @@ import torch
 import torch.nn as nn
 
 class PolicyNetwork(nn.Module):
-    def __init__(self, obs_dim=52, act_dim=7, hidden=64, gru_layers=1):
+    def __init__(self, obs_dim=53, act_dim=7, hidden=64, gru_layers=1):
         super().__init__()
         self.fc1 = nn.Linear(obs_dim, hidden)
         self.fc2 = nn.Linear(hidden, hidden)
@@ -161,8 +162,8 @@ policy.load_state_dict(agent["policy"], strict=False)
 
 # Preprocessor — running statistics
 sp = agent["state_preprocessor"]
-running_mean = sp["running_mean"]          # (52,) float64
-running_variance = sp["running_variance"]  # (52,) float64
+running_mean = sp["running_mean"]          # (53,) float64
+running_variance = sp["running_variance"]  # (53,) float64
 # Normalize: (obs - running_mean) / sqrt(running_variance + 1e-8)
 ```
 
@@ -172,8 +173,8 @@ running_variance = sp["running_variance"]  # (52,) float64
 h = torch.zeros(1, 1, 64)  # GRU hidden state
 
 while running:
-    obs = build_observation_vector()           # (52,) from ROS2 topics
-    obs_tensor = torch.tensor(obs).unsqueeze(0)  # (1, 52)
+    obs = build_observation_vector()           # (53,) from ROS2 topics
+    obs_tensor = torch.tensor(obs).unsqueeze(0)  # (1, 53)
     obs_norm = (obs_tensor - running_mean) / torch.sqrt(running_variance + 1e-8)
 
     with torch.no_grad():

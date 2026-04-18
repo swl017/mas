@@ -35,6 +35,30 @@ def _is_chosen(pos, chosen_pos, threshold_sq: float = 4.0) -> bool:
     return (dx * dx + dy * dy + dz * dz) < threshold_sq
 
 
+def _match_cov_trace(vs, pos) -> float | None:
+    """Find the closest triangulated point's covariance trace for a tracked position."""
+    tri = vs.triangulated_points
+    if tri is None or len(tri.points) == 0:
+        return None
+
+    best_dist_sq = float('inf')
+    best_trace = None
+    for pt in tri.points:
+        dx = pt.position.x - pos.x
+        dy = pt.position.y - pos.y
+        dz = pt.position.z - pos.z
+        d_sq = dx * dx + dy * dy + dz * dz
+        if d_sq < best_dist_sq:
+            best_dist_sq = d_sq
+            cov = pt.covariance
+            if len(cov) >= 9:
+                best_trace = cov[0] + cov[4] + cov[8]
+
+    if best_trace is not None and best_dist_sq < 25.0:  # within 5m
+        return best_trace
+    return None
+
+
 def _find_chosen_track_id(fleet: FleetState) -> str | None:
     """Get the cached chosen track ID from any vehicle."""
     for vs in fleet.vehicles.values():
@@ -99,6 +123,7 @@ def build_marker_array(
 
                 p = det.bbox.center.position
                 is_chosen = _is_chosen(p, chosen_pos)
+                cov_trace = _match_cov_trace(vs, p)
 
                 # Target sphere — chosen target is larger and green
                 target = _make_marker(marker_id, Marker.SPHERE, FRAME_ID)
@@ -124,12 +149,13 @@ def build_marker_array(
                 label.pose.position = Point(x=p.x, y=p.y, z=p.z + 0.8)
                 label.pose.orientation.w = 1.0
                 label.scale.z = 0.5
+                cov_str = f' cov={cov_trace:.3f}' if cov_trace is not None else ''
                 if is_chosen:
                     label.color = ColorRGBA(r=0.0, g=1.0, b=0.3, a=1.0)
-                    label.text = f'T{track_id} [SEL]'
+                    label.text = f'T{track_id} [SEL]{cov_str}'
                 else:
                     label.color = ColorRGBA(r=1.0, g=1.0, b=0.3, a=1.0)
-                    label.text = f'T{track_id}'
+                    label.text = f'T{track_id}{cov_str}'
                 ma.markers.append(label)
                 marker_id += 1
 

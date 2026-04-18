@@ -310,8 +310,38 @@ void Sort3DNode::pubChosenTarget(){
         target_pose_msg.header.frame_id = last_detection_frame_id_;
         target_pose_msg.pose.pose.position = picked_target_detection.bbox.center.position;
         target_pose_msg.pose.pose.orientation = picked_target_detection.bbox.center.orientation;
-        // Populate covariance from detection results if available
-        if (!picked_target_detection.results.empty()) {
+
+        // Covariance source: prefer the original 3x3 triangulation covariance from the
+        // nearest TriangulatedPoint (preserves anisotropy and off-diagonal terms from
+        // multi-view geometry — matches training's compute_full_triangulation output).
+        // Fallback: Kalman posterior diagonal stored on the hypothesis.
+        bool tri_cov_copied = false;
+        if (latest_tri_points_ && !latest_tri_points_->points.empty()) {
+            const auto& target_pos = picked_target_detection.bbox.center.position;
+            double best_dist_sq = std::numeric_limits<double>::max();
+            const mas_msgs::msg::TriangulatedPoint* best_tri = nullptr;
+            for (const auto& pt : latest_tri_points_->points) {
+                double dx = pt.position.x - target_pos.x;
+                double dy = pt.position.y - target_pos.y;
+                double dz = pt.position.z - target_pos.z;
+                double d2 = dx*dx + dy*dy + dz*dz;
+                if (d2 < best_dist_sq) {
+                    best_dist_sq = d2;
+                    best_tri = &pt;
+                }
+            }
+            if (best_tri && best_dist_sq < association_dist_threshold_ * association_dist_threshold_) {
+                // TriangulatedPoint.covariance is a 9-element row-major 3x3 position
+                // covariance. Pose covariance is row-major 6x6 with position block
+                // occupying rows/cols 0..2 — strided by 6 in the flat index.
+                const auto& tc = best_tri->covariance;
+                for (int r = 0; r < 3; ++r)
+                    for (int c = 0; c < 3; ++c)
+                        target_pose_msg.pose.covariance[r * 6 + c] = tc[r * 3 + c];
+                tri_cov_copied = true;
+            }
+        }
+        if (!tri_cov_copied && !picked_target_detection.results.empty()) {
             const auto& hyp_cov = picked_target_detection.results[0].pose.covariance;
             target_pose_msg.pose.covariance[0]  = hyp_cov[0];   // var_x
             target_pose_msg.pose.covariance[7]  = hyp_cov[7];   // var_y

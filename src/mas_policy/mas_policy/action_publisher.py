@@ -40,7 +40,7 @@ class ActionPublisher:
         max_lin_vel: float = 10.0,
         max_yaw_rate: float = 0.7854,
         max_gimbal_rate: float = 3.141592653589793,
-        max_zoom_rate: float = 1.0,
+        max_zoom_rate: float = 2.0,
     ):
         self._node = node
         self._max_lin_vel = max_lin_vel

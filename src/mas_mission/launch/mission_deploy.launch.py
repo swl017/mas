@@ -17,6 +17,7 @@ def launch_setup(context):
     config_file = LaunchConfiguration('config_file').perform(context)
     initial_state = LaunchConfiguration('initial_state').perform(context)
     vehicle_filter = LaunchConfiguration('vehicle_filter').perform(context)
+    use_sim_time = LaunchConfiguration('use_sim_time').perform(context).lower() == 'true'
 
     if os.path.isabs(config_file):
         config_path = config_file
@@ -49,6 +50,7 @@ def launch_setup(context):
             parameters=[{
                 'initial_state': int(initial_state),
                 'heartbeat_rate_hz': 1.0,
+                'use_sim_time': use_sim_time,
             }],
             remappings=[
                 ('tracking/gimbal_cmd_los_world_deg', 'tracking/gimbal_command_los_world_deg'),
@@ -75,6 +77,11 @@ def generate_launch_description():
             'vehicle_filter',
             default_value='',
             description='If set, only launch for this vehicle namespace (e.g. px4_1)',
+        ),
+        DeclareLaunchArgument(
+            'use_sim_time',
+            default_value='false',
+            description='Use /clock (sim) time when true, wall time otherwise',
         ),
         OpaqueFunction(function=launch_setup),
     ])

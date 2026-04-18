@@ -9,6 +9,7 @@ def _launch_sort3d(context):
     num_cameras = int(LaunchConfiguration('num_cameras').perform(context))
     camera_name_prefix = LaunchConfiguration('camera_name_prefix').perform(context)
     self_camera_index = int(LaunchConfiguration('self_camera_index').perform(context))
+    use_sim_time = LaunchConfiguration('use_sim_time').perform(context).lower() == 'true'
 
     # Build per-camera ray topic remappings
     remappings = [
@@ -34,6 +35,7 @@ def _launch_sort3d(context):
             'num_cameras': num_cameras,
             'camera_name_prefix': camera_name_prefix,
             'self_camera_index': self_camera_index,
+            'use_sim_time': use_sim_time,
         }],
     )]
 
@@ -52,5 +54,7 @@ def generate_launch_description():
                               description='Prefix for per-camera topics (e.g. /px4_)'),
         DeclareLaunchArgument('self_camera_index', default_value='1',
                               description='1-indexed camera index for this drone'),
+        DeclareLaunchArgument('use_sim_time', default_value='false',
+                              description='Use /clock (sim) time when true, wall time otherwise'),
         OpaqueFunction(function=_launch_sort3d),
     ])

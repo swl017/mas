@@ -2,6 +2,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -9,6 +10,12 @@ def generate_launch_description():
     ns_arg = DeclareLaunchArgument(
         'ns', default_value='/',
         description='Namespace for the node'
+    )
+
+    use_sim_time_arg = DeclareLaunchArgument(
+        'use_sim_time',
+        default_value='false',
+        description='Use /clock (sim) time when true, wall time otherwise',
     )
 
     frame_id_arg = DeclareLaunchArgument(
@@ -102,6 +109,8 @@ def generate_launch_description():
             'gimbal_angle_order': LaunchConfiguration('gimbal_angle_order'),
             'max_solve_time': LaunchConfiguration('max_solve_time'),
             'max_reprojection_error': LaunchConfiguration('max_reprojection_error'),
+            'use_sim_time': ParameterValue(
+                LaunchConfiguration('use_sim_time'), value_type=bool),
         }],
         remappings=[
             # ('triangulated_points', '/triangulated_points'),
@@ -111,6 +120,7 @@ def generate_launch_description():
     # Create launch description
     return LaunchDescription([
         ns_arg,
+        use_sim_time_arg,
         frame_id_arg,
         publish_rate_arg,
         num_camera_arg,

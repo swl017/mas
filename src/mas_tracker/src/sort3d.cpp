@@ -127,6 +127,16 @@ vision_msgs::msg::Detection3D Tracker3D::getAsDetection3D() const {
     hyp.pose.pose.position = det3d.bbox.center.position;
     hyp.pose.pose.orientation = det3d.bbox.center.orientation;
 
+    // Copy the 3x3 position block of the Kalman posterior covariance into the
+    // 6x6 pose covariance (position is the first 3 state dims). Downstream
+    // consumers (mas_policy triangulation tail) read the diagonal at [0,7,14].
+    const Eigen::MatrixXd& P = kf_->state_cov_;
+    for (int r = 0; r < 3; ++r) {
+        for (int c = 0; c < 3; ++c) {
+            hyp.pose.covariance[r * 6 + c] = P(r, c);
+        }
+    }
+
     det3d.results.push_back(hyp);
     // det3d.header can be set by the caller (Sort3DNode) with current timestamp and frame_id
     return det3d;

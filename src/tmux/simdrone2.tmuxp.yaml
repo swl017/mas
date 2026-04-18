@@ -4,6 +4,9 @@ environment:
   ROS2_INSTALL_PATH: /home/usrg/ros2_humble/install
   ROS2_WORKSPACE: /home/usrg/mas
   ROBOT_NAME: px4_2
+  # Override at load time with `USE_SIM_TIME=false tmuxp load simdrone2.tmuxp.yaml`
+  # when running against real hardware. Every node below propagates this flag.
+  USE_SIM_TIME: 'true'
 
 options:
   default-command: /bin/bash
@@ -15,7 +18,7 @@ windows:
   shell_command_before:
     - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
-    - ros2 run mavros mavros_node --ros-args -p fcu_url:=udp://:14542@localhost:14552 -p tgt_system:=3 -p local_position.tf.frame_id:=${ROBOT_NAME}/map -p local_position.tf.child_frame_id:=${ROBOT_NAME}/base_link -p global_position.frame_id:=${ROBOT_NAME}/map -p global_position.child_frame_id:=${ROBOT_NAME}/base_link -r __ns:=/${ROBOT_NAME}/mavros
+    - ros2 run mavros mavros_node --ros-args -p fcu_url:=udp://:14542@localhost:14552 -p tgt_system:=3 -p local_position.tf.frame_id:=${ROBOT_NAME}/map -p local_position.tf.child_frame_id:=${ROBOT_NAME}/base_link -p global_position.frame_id:=${ROBOT_NAME}/map -p global_position.child_frame_id:=${ROBOT_NAME}/base_link -p use_sim_time:=${USE_SIM_TIME} -r __ns:=/${ROBOT_NAME}/mavros
     - 'sleep 5 && ros2 service call /${ROBOT_NAME}/mavros/set_message_interval mavros_msgs/srv/MessageInterval "{message_id: 31, message_rate: 250.0}" && ros2 service call /${ROBOT_NAME}/mavros/set_message_interval mavros_msgs/srv/MessageInterval "{message_id: 32, message_rate: 100.0}" && ros2 service call /${ROBOT_NAME}/mavros/set_message_interval mavros_msgs/srv/MessageInterval "{message_id: 33, message_rate: 50.0}" && ros2 service call /${ROBOT_NAME}/mavros/set_message_interval mavros_msgs/srv/MessageInterval "{message_id: 105, message_rate: 250.0}" && ros2 service call /${ROBOT_NAME}/mavros/set_message_interval mavros_msgs/srv/MessageInterval "{message_id: 27, message_rate: 250.0}"'
 
 - window_name: frame
@@ -24,7 +27,7 @@ windows:
   shell_command_before:
     - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
-    - ros2 launch mas_common_frame common_frame_single.launch.py ns:=/${ROBOT_NAME}
+    - ros2 launch mas_common_frame common_frame_single.launch.py ns:=/${ROBOT_NAME} use_sim_time:=${USE_SIM_TIME}
 
 - window_name: camera
   focus: false
@@ -32,7 +35,7 @@ windows:
   shell_command_before:
     - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
-    - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/${ROBOT_NAME} input_topic:=camera/color/image_raw yolo_model:=yolov11m-drone.pt
+    - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/${ROBOT_NAME} input_topic:=camera/color/image_raw yolo_model:=yolov11m-drone.pt use_sim_time:=${USE_SIM_TIME}
 
 - window_name: triangulation
   focus: false
@@ -40,7 +43,7 @@ windows:
   shell_command_before:
     - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
-    - ros2 launch mas_multiview triangulation.launch.py ns:=/${ROBOT_NAME} num_camera:=3 publish_rate:=1.0 gimbal_angle_order:=zxy
+    - ros2 launch mas_multiview triangulation.launch.py ns:=/${ROBOT_NAME} num_camera:=2 publish_rate:=1.0 gimbal_angle_order:=zxy use_sim_time:=${USE_SIM_TIME}
 
 - window_name: tracker
   focus: false
@@ -48,7 +51,7 @@ windows:
   shell_command_before:
     - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
-    - ros2 launch mas_tracker sort3d.launch.py ns:=/${ROBOT_NAME} self_camera_index:=2
+    - ros2 launch mas_tracker sort3d.launch.py ns:=/${ROBOT_NAME} self_camera_index:=2 use_sim_time:=${USE_SIM_TIME}
 
 - window_name: gimbal
   focus: false
@@ -56,7 +59,7 @@ windows:
   shell_command_before:
     - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
-    - ros2 run gimbal_controller gimbal_los_tracker_node --ros-args -r __ns:=/${ROBOT_NAME} -r gimbal_cmd_los_rate:=tracking/gimbal_cmd_los_rate -p target_topic:=/target_region -p use_sim_time:=true
+    - ros2 run gimbal_controller gimbal_los_tracker_node --ros-args -r __ns:=/${ROBOT_NAME} -r gimbal_cmd_los_rate:=tracking/gimbal_cmd_los_rate -p target_topic:=/target_region -p use_sim_time:=${USE_SIM_TIME}
 
 - window_name: mission
   focus: false
@@ -64,7 +67,7 @@ windows:
   shell_command_before:
     - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
-    - ros2 launch mas_mission mission_deploy.launch.py vehicle_filter:=${ROBOT_NAME}
+    - ros2 launch mas_mission mission_deploy.launch.py vehicle_filter:=${ROBOT_NAME} use_sim_time:=${USE_SIM_TIME}
 
 - window_name: offboard
   focus: false
@@ -72,7 +75,7 @@ windows:
   shell_command_before:
     - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
-    - ros2 launch mas_offboard offboard.launch.py vehicle_filter:=${ROBOT_NAME}
+    - ros2 launch mas_offboard offboard.launch.py vehicle_filter:=${ROBOT_NAME} use_sim_time:=${USE_SIM_TIME}
 
 - window_name: policy
   focus: false
@@ -80,7 +83,7 @@ windows:
   shell_command_before:
     - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
-    - ros2 launch mas_policy policy_deploy.launch.py use_mission_gate:=true use_sim_time:=true vehicle_filter:=${ROBOT_NAME} checkpoint_path:=/home/usrg/mas/src/mas_policy/models/2026-04-01_13-19-18_mappo_rnn_torch_928b9585f2_min_lr_tuning/checkpoints/best_agent.pt
+    - ros2 launch mas_policy policy_deploy.launch.py use_mission_gate:=true use_sim_time:=${USE_SIM_TIME} vehicle_filter:=${ROBOT_NAME} checkpoint_path:=/home/usrg/mas/src/mas_policy/models/2026-04-16_14-55-03_mappo_rnn_torch_3556bf75a4_action_penalty_tuning/checkpoints/agent_120000.pt
 
 # - window_name: teleop
 #   focus: true

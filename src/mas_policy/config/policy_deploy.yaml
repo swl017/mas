@@ -6,7 +6,7 @@
     checkpoint_path: ""  # Path to SKRL .pt checkpoint file (required)
 
     # --- Network architecture ---
-    num_agents: 2        # obs_dim computed: 30 + 16*(num_agents-1) [+ 6 triangulation]
+    num_agents: 2        # obs_dim computed: 31 + 16*(num_agents-1) [+ 6 triangulation]
     action_dim: 7        # vx, vy, vz, yaw_rate, gimbal_az_rate, gimbal_el_rate, zoom_rate
     architecture: "mappo_rnn"  # "mappo_rnn" or "ppo_mlp"
     hidden_size: 64
@@ -18,8 +18,8 @@
     max_lin_vel: 10.0        # m/s
     max_yaw_rate: 0.7854     # rad/s (45 deg/s)
     max_gimbal_rate: 3.141592653589793  # rad/s (180 deg/s, must match training env)
-    max_zoom_rate: 1.0       # zoom-levels/s (must match training env)
-    device: "cpu"
+    max_zoom_rate: 2.0       # zoom-levels/s (must match training env ZoomControllerCfg)
+    device: "cuda:0"
 
     # --- Observation ---
     image_width: 640

@@ -51,7 +51,7 @@ class PolicyDeployNode(Node):
         self.declare_parameter('max_lin_vel', 10.0)
         self.declare_parameter('max_yaw_rate', 0.7854)
         self.declare_parameter('max_gimbal_rate', 3.141592653589793)
-        self.declare_parameter('max_zoom_rate', 1.0)
+        self.declare_parameter('max_zoom_rate', 2.0)
         self.declare_parameter('enable_cbf', True)
         self.declare_parameter('enable_triangulation', False)
         self.declare_parameter('image_width', 640)
@@ -104,8 +104,8 @@ class PolicyDeployNode(Node):
         self._max_lin_vel = max_lin_vel
         self._num_agents = 1 + len(self._peer_names)
 
-        # Compute obs_dim from num_agents: 30 ego + 16*(N-1) inter-agent [+ 6 tri]
-        self._obs_dim = 30 + 16 * (num_agents - 1) + (6 if enable_tri else 0)
+        # Compute obs_dim from num_agents: 31 ego + 16*(N-1) inter-agent [+ 6 tri]
+        self._obs_dim = 31 + 16 * (num_agents - 1) + (6 if enable_tri else 0)
 
         # Validate peer count matches num_agents
         if self._num_agents != num_agents:

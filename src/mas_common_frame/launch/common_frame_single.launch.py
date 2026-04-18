@@ -1,7 +1,9 @@
 from launch import LaunchDescription
-from launch_ros.actions import Node
-from launch.substitutions import LaunchConfiguration
 from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
+
 
 def generate_launch_description():
     ns_arg = DeclareLaunchArgument(
@@ -9,8 +11,14 @@ def generate_launch_description():
         default_value='/',
         description='Namespace for the node'
     )
+    use_sim_time_arg = DeclareLaunchArgument(
+        'use_sim_time',
+        default_value='false',
+        description='Use /clock (sim) time when true, wall time otherwise',
+    )
     return LaunchDescription([
         ns_arg,
+        use_sim_time_arg,
         Node(
             package='mas_common_frame',
             executable='common_frame_node_single',
@@ -23,6 +31,8 @@ def generate_launch_description():
                     -9.137977, #127.3660736,
                     143.8, #100.0,
                 ]},
+                {'use_sim_time': ParameterValue(
+                    LaunchConfiguration('use_sim_time'), value_type=bool)},
             ]
         )
     ])

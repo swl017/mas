@@ -1,13 +1,14 @@
-"""Observation assembler: ROS2 topics → 62/68D observation vector.
+"""Observation assembler: ROS2 topics → 63/69D observation vector.
 
 Per-vehicle design: each policy_node instance runs in a vehicle namespace and
 assembles observations for its own agent (ego). It subscribes to peer vehicles'
 topics via absolute paths for inter-agent observations.
 
 Observation structure:
-- Ego (30D): pos(3), vel(3), euler_rpy(3), ang_vel_b(3), lin_acc_b(3),
+- Ego (31D): pos(3), vel(3), euler_rpy(3), ang_vel_b(3), lin_acc_b(3),
   gimbal_yaw_body(1, 0=forward), gimbal_pitch_body(1), ray_dir_w(3),
-  combined_ang_vel_w(3, from topic), bbox_aoi(1, clipped), zoom(1), bbox(4), bbox_empty(1)
+  combined_ang_vel_w(3, from topic), bbox_aoi(1, clipped), zoom(1),
+  effective_hfov(1, rad), bbox(4), bbox_empty(1)
 - Inter-agent (16D per other): pos(3), vel(3), ray_dir_w(3),
   combined_ang_vel_w(3), zoom(1), bbox_empty(1), data_age(1), bbox_age(1)
 - Optional triangulation tail (6D): tri_pos(3), tri_std(3)
@@ -33,8 +34,12 @@ from vision_msgs.msg import Detection2DArray
 
 from .utils import (
     euler_xyz_from_quat,
+    quat_rotate_inverse,
     wrap_to_pi,
 )
+
+# ENU gravity vector in world frame (pulls −Z / down).
+_GRAVITY_WORLD_ENU = np.array([0.0, 0.0, -9.81])
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +127,10 @@ class ObservationAssembler:
         self._use_common_frame = use_common_frame
         self._max_bbox_aoi = max_bbox_aoi
 
+        # Ego camera fx at current zoom-independent setting (K[0,0] from camera_info).
+        # effective_hfov = 2 * atan2(W/2, fx * zoom). Populated by _camera_info_callback.
+        self._camera_fx: float = 0.0
+
         # Cached state for ego + all peers
         self._states: dict[str, VehicleState] = {
             name: VehicleState() for name in self._all_names
@@ -147,11 +156,12 @@ class ObservationAssembler:
         for peer in peer_names:
             self._create_peer_subscriptions(peer, use_common_frame)
 
-        # Triangulation subscription (global topic)
+        # Triangulation subscription (per-vehicle: sort3d runs inside each vehicle namespace).
+        # Relative topic resolves to /{ego_name}/chosen_target_pose.
         if enable_triangulation:
             sub = node.create_subscription(
                 PoseWithCovarianceStamped,
-                '/chosen_target_pose',
+                'chosen_target_pose',
                 self._triangulation_callback,
                 10,
             )
@@ -355,7 +365,7 @@ class ObservationAssembler:
         self._states[veh].chosen_target_ray_w = np.array([msg.vector.x, msg.vector.y, msg.vector.z])
 
     def _camera_info_callback(self, msg: CameraInfo):
-        """Update bbox normalization dimensions from actual camera resolution."""
+        """Update bbox normalization dimensions + fx from actual camera_info."""
         if msg.width > 0 and msg.height > 0:
             if msg.width != self._image_width or msg.height != self._image_height:
                 logger.info(
@@ -364,18 +374,30 @@ class ObservationAssembler:
                 )
                 self._image_width = msg.width
                 self._image_height = msg.height
+        # K = [fx, 0, cx, 0, fy, cy, 0, 0, 1]; fx is the zoom-independent (1x) focal length
+        fx = float(msg.k[0])
+        if fx > 0.0:
+            self._camera_fx = fx
 
     def _triangulation_callback(self, msg: PoseWithCovarianceStamped):
-        """Cache triangulation result with covariance."""
+        """Cache triangulation result. Presence-of-message = validity (matches training).
+
+        Training's triangulation tail is `sqrt(clamp(cov_diag, min=1e-12))` whenever
+        `is_valid` is True, so a near-zero covariance is *still* valid and yields a
+        near-zero std. mas_tracker only publishes `chosen_target_pose` when a target
+        is tracked, so message arrival is the authoritative validity signal. Treat
+        NaN/negative variances as the only "invalid" condition.
+        """
         pos = msg.pose.pose.position
         self._tri_state.position = np.array([pos.x, pos.y, pos.z])
 
         cov = msg.pose.covariance
-        var_x, var_y, var_z = cov[0], cov[7], cov[14]
+        variances = np.array([cov[0], cov[7], cov[14]])
 
-        variances = np.array([var_x, var_y, var_z])
-        if np.all(np.isfinite(variances)) and np.all(variances > 0):
-            self._tri_state.std_dev = np.sqrt(variances)
+        if np.all(np.isfinite(variances)) and np.all(variances >= 0.0):
+            # Match training: clamp to 1e-12 before sqrt so std is well-defined
+            # even when the upstream triangulator reports zero covariance.
+            self._tri_state.std_dev = np.sqrt(np.clip(variances, 1e-12, None))
             self._tri_state.is_valid = True
         else:
             self._tri_state.std_dev = np.full(3, -1.0)
@@ -398,7 +420,7 @@ class ObservationAssembler:
         now = self._get_time()
         ego = self._states[self._ego_name]
 
-        # --- Ego observation (30D) ---
+        # --- Ego observation (31D) ---
         roll, pitch, yaw = euler_xyz_from_quat(ego.orientation_w)
         euler_rpy = wrap_to_pi(np.array([roll, pitch, yaw]))
 
@@ -419,20 +441,35 @@ class ObservationAssembler:
         bbox_aoi = now - ego.detection_timestamp if ego.detection_timestamp > 0 else 0.0
         bbox_aoi = min(bbox_aoi, self._max_bbox_aoi)
 
+        # effective_hfov = 2 * atan2(W/2, fx_base * zoom). Matches training (dr_scale=1 at deploy).
+        fx_eff = self._camera_fx * ego.zoom_level
+        if fx_eff > 0.0:
+            effective_hfov = 2.0 * math.atan2(self._image_width * 0.5, fx_eff)
+        else:
+            effective_hfov = 0.0
+
+        # MAVROS IMU reports specific force (proper accel = a_kinematic − g_world) in body
+        # frame, while training uses kinematic body acc (zero at hover). Add g_world→body
+        # to recover the kinematic acceleration expected by the policy.
+        lin_acc_kinematic_b = ego.linear_acceleration_b + quat_rotate_inverse(
+            ego.orientation_w, _GRAVITY_WORLD_ENU
+        )
+
         ego_obs = np.concatenate([
             ego.position_w,                         # 0-2: position (3)
             ego.velocity_w,                         # 3-5: velocity (3)
             euler_rpy,                              # 6-8: euler RPY (3)
             ego.angular_velocity_b,                 # 9-11: angular vel body (3)
-            ego.linear_acceleration_b,              # 12-14: linear acc body (3)
+            lin_acc_kinematic_b,                    # 12-14: kinematic lin acc body (3)
             np.array([gimbal_yaw_obs]),             # 15: gimbal yaw body (1)
             np.array([gimbal_pitch_obs]),           # 16: gimbal pitch body (1)
             ray_w,                                  # 17-19: ray direction world (3)
             combined_ang_vel_w,                     # 20-22: combined ang vel world (3)
             np.array([bbox_aoi]),                   # 23: bbox AoI (1)
             np.array([ego.zoom_level]),             # 24: zoom level (1)
-            ego.bbox_xywh,                          # 25-28: bbox normalized (4)
-            np.array([ego.bbox_empty]),             # 29: bbox empty (1)
+            np.array([effective_hfov]),             # 25: effective HFOV rad (1)
+            ego.bbox_xywh,                          # 26-29: bbox normalized (4)
+            np.array([ego.bbox_empty]),             # 30: bbox empty (1)
         ])
 
         # --- Inter-agent observations (16D per peer) ---
@@ -492,7 +529,7 @@ class ObservationAssembler:
     @property
     def obs_dim(self) -> int:
         """Expected observation dimension."""
-        dim = 30 + 16 * len(self._peer_names)
+        dim = 31 + 16 * len(self._peer_names)
         if self._enable_triangulation:
             dim += 6
         return dim
