@@ -44,11 +44,11 @@
   reliability: best_effort
   history: keep_last
   depth: 1
-/px4_1/policy/observation:
+/px4_1/mavros/imu/data:
   reliability: best_effort
   history: keep_last
   depth: 1
-/px4_1/mavros/imu/data:
+/px4_1/tracking/gimbal_cmd_los_rate:
   reliability: best_effort
   history: keep_last
   depth: 1
@@ -91,11 +91,11 @@
   reliability: best_effort
   history: keep_last
   depth: 1
-/px4_2/policy/observation:
+/px4_2/mavros/imu/data:
   reliability: best_effort
   history: keep_last
   depth: 1
-/px4_2/mavros/imu/data:
+/px4_2/tracking/gimbal_cmd_los_rate:
   reliability: best_effort
   history: keep_last
   depth: 1

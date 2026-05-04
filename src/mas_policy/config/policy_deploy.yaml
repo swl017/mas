@@ -25,12 +25,12 @@
     image_width: 640
     image_height: 480
     max_bbox_aoi: 20.0       # clip bbox age-of-information (s), matches training episode length
-    enable_triangulation: true
+    enable_triangulation: false
     use_common_frame: true
     stale_timeout: 2.0
 
     # --- Safety ---
-    enable_cbf: true
+    enable_cbf: false
     cbf_D_s: 2.0
     cbf_v_max: 15.0
     cbf_tau_delay_max: 0.2

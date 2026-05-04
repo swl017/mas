@@ -317,7 +317,7 @@ class ObservationAssembler:
         yaw=0 meaning forward. No offset subtraction needed.
         """
         state = self._states[veh]
-        state.gimbal_yaw_body = math.radians(msg.z)
+        state.gimbal_yaw_body = wrap_to_pi(math.radians(msg.z))
         state.gimbal_pitch_body = math.radians(msg.y)
         state.gimbal_timestamp = self._get_time()
 
@@ -428,9 +428,13 @@ class ObservationAssembler:
         gimbal_yaw_obs = ego.gimbal_yaw_body
         gimbal_pitch_obs = ego.gimbal_pitch_body
 
-        # Use pre-selected target ray from tracker; zero when unavailable
-        # (matches training env: ray is zero when no bbox detected)
-        if ego.chosen_target_ray_w is not None:
+        # Use pre-selected target ray from tracker; zero when unavailable.
+        # Gate by bbox_empty so deployment matches IL training: in training
+        # the ray is computed from the bbox itself, so bbox_empty=1 ⇒ ray=0.
+        # The SORT tracker can keep emitting a non-zero ray after YOLO drops a
+        # frame, which would create an OOD (bbox_empty=1, ray≠0) combination
+        # the policy never saw at training time.
+        if ego.bbox_empty == 0 and ego.chosen_target_ray_w is not None:
             ray_w = ego.chosen_target_ray_w
         else:
             ray_w = np.zeros(3)
@@ -477,8 +481,11 @@ class ObservationAssembler:
         for peer in self._peer_names:
             other = self._states[peer]
 
-            # Use pre-selected target ray from peer's tracker; zero when unavailable
-            if other.chosen_target_ray_w is not None:
+            # Use pre-selected target ray from peer's tracker; zero when
+            # unavailable. Gate by peer bbox_empty so deployment matches IL
+            # training (ray is bbox-derived in training, so bbox_empty=1
+            # implies ray=0).
+            if other.bbox_empty == 0 and other.chosen_target_ray_w is not None:
                 other_ray_w = other.chosen_target_ray_w
             else:
                 other_ray_w = np.zeros(3)

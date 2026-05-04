@@ -43,7 +43,7 @@ windows:
   shell_command_before:
     - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
-    - ros2 launch mas_multiview triangulation.launch.py ns:=/${ROBOT_NAME} num_camera:=2 publish_rate:=1.0 gimbal_angle_order:=zxy use_sim_time:=${USE_SIM_TIME}
+    - ros2 launch mas_multiview triangulation.launch.py ns:=/${ROBOT_NAME} num_camera:=2 publish_rate:=30.0 gimbal_angle_order:=zxy use_sim_time:=${USE_SIM_TIME}
 
 - window_name: tracker
   focus: false
@@ -83,7 +83,8 @@ windows:
   shell_command_before:
     - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
-    - ros2 launch mas_policy policy_deploy.launch.py use_mission_gate:=true use_sim_time:=${USE_SIM_TIME} vehicle_filter:=${ROBOT_NAME} checkpoint_path:=/home/usrg/mas/src/mas_policy/models/2026-04-16_14-55-03_mappo_rnn_torch_3556bf75a4_action_penalty_tuning/checkpoints/agent_120000.pt
+    - ros2 launch mas_policy policy_deploy.launch.py use_mission_gate:=true use_sim_time:=${USE_SIM_TIME} vehicle_filter:=${ROBOT_NAME} checkpoint_path:=/home/usrg/mas/src/mas_policy/models/2026-04-19_05-02-59_mappo_rnn_torch_0d4fa6906b_obs_wo_tri/checkpoints/agent_280000.pt
+    # - ros2 launch mas_policy policy_deploy.launch.py use_mission_gate:=true use_sim_time:=${USE_SIM_TIME} vehicle_filter:=${ROBOT_NAME} checkpoint_path:=/home/usrg/mas/src/mas_policy/models/2026-04-20_15-25-00_mappo_rnn_torch_e72c116d6b_obs_wo_tri_action_penalty_tuning/checkpoints/agent_120000.pt
 
 # - window_name: teleop
 #   focus: true
