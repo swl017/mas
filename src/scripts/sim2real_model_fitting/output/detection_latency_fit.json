@@ -1,0 +1,61 @@
+{
+  "description": "End-to-end detection latency fit (camera sensor timestamp -> detection output receive time). Three regimes correspond to low/mid/high YOLO model sizes. Distribution is multi-modal across regimes; within each regime it is approximately Gaussian.",
+  "units": "milliseconds",
+  "per_regime": {
+    "low": {
+      "source_csv": "/home/usrg/mas/src/scripts/phase7_low_latency.csv",
+      "n_samples": 1062,
+      "mean_ms": 51.1555065913371,
+      "std_ms": 13.707003079683062,
+      "median_ms": 48.274,
+      "p05_ms": 32.451,
+      "p95_ms": 76.025,
+      "p99_ms": 86.686,
+      "min_ms": 25.449,
+      "max_ms": 105.48
+    },
+    "mid": {
+      "source_csv": "/home/usrg/mas/src/scripts/phase7_mid_latency.csv",
+      "n_samples": 598,
+      "mean_ms": 65.25645317725753,
+      "std_ms": 12.649154599447291,
+      "median_ms": 65.018,
+      "p05_ms": 46.725,
+      "p95_ms": 87.266,
+      "p99_ms": 95.972,
+      "min_ms": 37.867,
+      "max_ms": 99.219
+    },
+    "high": {
+      "source_csv": "/home/usrg/mas/src/scripts/phase7_high_latency.csv",
+      "n_samples": 584,
+      "mean_ms": 141.25560787671233,
+      "std_ms": 13.32057264975236,
+      "median_ms": 140.692,
+      "p05_ms": 120.687,
+      "p95_ms": 162.635,
+      "p99_ms": 173.106,
+      "min_ms": 107.899,
+      "max_ms": 179.421
+    }
+  },
+  "union": {
+    "source_csvs": [
+      "/home/usrg/mas/src/scripts/phase7_low_latency.csv",
+      "/home/usrg/mas/src/scripts/phase7_mid_latency.csv",
+      "/home/usrg/mas/src/scripts/phase7_high_latency.csv"
+    ],
+    "n_samples": 2244,
+    "mean_ms": 78.36175668449198,
+    "std_ms": 40.04666455391152,
+    "median_ms": 63.546,
+    "p05_ms": 35.691,
+    "p95_ms": 154.386,
+    "p99_ms": 164.347,
+    "min_ms": 25.449,
+    "max_ms": 179.421
+  },
+  "recommended_default_regime": "mid",
+  "recommended_default_note": "iris_ma6 currently uses ego_detection_latency_mean=100ms, std=15ms. Measured 'mid' regime (mean=65.3, std=12.6) is the closest match to current sim and is recommended as the default until the three-regime curriculum lands.",
+  "schema_version": 1
+}

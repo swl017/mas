@@ -1,0 +1,44 @@
+{
+  "description": "Gimbal command-to-first-move dead time (rate command published -> first measurable motor motion). Source: rate-step bench (mas/026). Aggregated over yaw and pitch, all amplitudes.",
+  "units": "seconds",
+  "input_csv": "/home/usrg/mas/src/gimbal_controller/scripts/gimbal_rate_step_followspeed_tune/rate_step_summary.csv",
+  "per_axis": {
+    "yaw": {
+      "n_samples": 10,
+      "mean_s": 0.0682976484298706,
+      "std_s": 0.01493807137693384,
+      "median_s": 0.06999945640563965,
+      "p05_s": 0.04992961883544922,
+      "p95_s": 0.10097074508666992,
+      "min_s": 0.04992961883544922,
+      "max_s": 0.10097074508666992
+    },
+    "pitch": {
+      "n_samples": 10,
+      "mean_s": 0.06339919567108154,
+      "std_s": 0.016883597855350277,
+      "median_s": 0.060204505920410156,
+      "p05_s": 0.04038286209106445,
+      "p95_s": 0.09001541137695312,
+      "min_s": 0.04038286209106445,
+      "max_s": 0.09001541137695312
+    }
+  },
+  "union": {
+    "n_samples": 20,
+    "mean_s": 0.06584842205047607,
+    "std_s": 0.01571755785600842,
+    "median_s": 0.06979012489318848,
+    "p05_s": 0.049909114837646484,
+    "p95_s": 0.10097074508666992,
+    "min_s": 0.04038286209106445,
+    "max_s": 0.10097074508666992
+  },
+  "recommended_defaults": {
+    "dead_time_mean_s": 0.066,
+    "dead_time_std_s": 0.016,
+    "dead_time_max_s": 0.12,
+    "note": "iris_ma6 GimbalRateLoopCfg sources its mas/036 defaults from these values. mean_s and std_s feed the per-env Gaussian sampler at episode reset; max_s caps the circular-buffer depth (clip and pre-allocation bound)."
+  },
+  "schema_version": 1
+}

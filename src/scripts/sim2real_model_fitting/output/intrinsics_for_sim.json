@@ -1,0 +1,92 @@
+{
+  "description": "Per-zoom camera intrinsics from mrcal calibration. Trustworthy set (1x..5x) is suitable for grounding iris_ma6 CameraRandomizationCfg.focal_length_range and fov_scale_range. 6x is excluded with reason.",
+  "calibration_date": "2026-04-17",
+  "calibration_root": "/home/usrg/mas/datasets/camera_calibration/2026-04-17",
+  "zoom_curve_reference": "/home/usrg/mas/src/scripts/camera_calibration/zoom_curve.json",
+  "trustworthy_zooms": {
+    "1x": {
+      "fx": 1053.044591,
+      "fx_std": 26.49069557730026,
+      "fy": 1052.905959,
+      "fy_std": 26.175212143103135,
+      "cx": 973.3505638,
+      "cy": 560.0710478,
+      "image_width": 1920,
+      "image_height": 1080,
+      "num_images": 74,
+      "num_detected_corner_frames": 74,
+      "rms_reprojection_error_px": 0.2,
+      "max_projection_uncertainty_px": 6.085209252815207,
+      "lensmodel": "LENSMODEL_OPENCV8"
+    },
+    "2x": {
+      "fx": 1286.002087,
+      "fx_std": 25.446128146210388,
+      "fy": 1280.41893,
+      "fy_std": 25.15448230920741,
+      "cx": 977.1199773,
+      "cy": 563.9173352,
+      "image_width": 1920,
+      "image_height": 1080,
+      "num_images": 72,
+      "num_detected_corner_frames": 72,
+      "rms_reprojection_error_px": 0.2,
+      "max_projection_uncertainty_px": 3.991461712328161,
+      "lensmodel": "LENSMODEL_OPENCV8"
+    },
+    "4x": {
+      "fx": 2084.713381,
+      "fx_std": 69.11852388227157,
+      "fy": 2077.552585,
+      "fy_std": 68.14640892256166,
+      "cx": 982.2103028,
+      "cy": 571.8526536,
+      "image_width": 1920,
+      "image_height": 1080,
+      "num_images": 48,
+      "num_detected_corner_frames": 44,
+      "rms_reprojection_error_px": 0.2,
+      "max_projection_uncertainty_px": 6.272132566128779,
+      "lensmodel": "LENSMODEL_OPENCV8"
+    },
+    "5x": {
+      "fx": 3139.039359,
+      "fx_std": 203.95375605168124,
+      "fy": 3121.787142,
+      "fy_std": 202.2844166960605,
+      "cx": 1001.035862,
+      "cy": 626.5844837,
+      "image_width": 1920,
+      "image_height": 1080,
+      "num_images": 154,
+      "num_detected_corner_frames": 49,
+      "rms_reprojection_error_px": 0.3,
+      "max_projection_uncertainty_px": 14.93571791019656,
+      "lensmodel": "LENSMODEL_OPENCV8"
+    }
+  },
+  "excluded_zooms": {
+    "6x": {
+      "reason": "fx_std/fx and max_projection_uncertainty_px exceed the trust threshold; 6x is operationally not used. See zoom_curve.json which excludes 6x from the fit.",
+      "fx": 7234.879998,
+      "fx_std": 696.9097882934848,
+      "fy": 7169.146153,
+      "fy_std": 678.0563747557612,
+      "cx": 876.1069603,
+      "cy": 643.2900316,
+      "image_width": 1920,
+      "image_height": 1080,
+      "num_images": 50,
+      "num_detected_corner_frames": 19,
+      "rms_reprojection_error_px": 0.5,
+      "max_projection_uncertainty_px": 27.09821410581828,
+      "lensmodel": "LENSMODEL_OPENCV8"
+    }
+  },
+  "fx_envelope_pm_1sigma": {
+    "min": 1026.5538954226997,
+    "max": 3342.9931150516813,
+    "note": "Union envelope: min(fx - 1\u03c3) over 1x..5x to max(fx + 1\u03c3). Useful as a single-range fallback for focal_length_range when zoom-conditional intrinsics are not yet wired in."
+  },
+  "schema_version": 1
+}
