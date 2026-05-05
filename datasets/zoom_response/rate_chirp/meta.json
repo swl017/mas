@@ -1,0 +1,13 @@
+{
+  "namespace": "/px4_2",
+  "mode": "rate",
+  "profile": "chirp",
+  "publish_hz": 25.0,
+  "settle_pre_s": 2.5,
+  "started_at": "2026-05-05T16:32:53",
+  "chirp_amplitude": 1.0,
+  "chirp_f0_hz": 0.05,
+  "chirp_f1_hz": 2.0,
+  "start_level": 3.5,
+  "duration_s": 30.0
+}

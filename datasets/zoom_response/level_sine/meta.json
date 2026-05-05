@@ -1,0 +1,14 @@
+{
+  "namespace": "/px4_2",
+  "mode": "level",
+  "profile": "sine",
+  "publish_hz": 25.0,
+  "settle_pre_s": 2.5,
+  "started_at": "2026-05-05T16:14:26",
+  "sine_center": 3.5,
+  "sine_amplitude": 1.5,
+  "sine_period_s": 6.0,
+  "duration_s": 18.0,
+  "zoom_min": 1.0,
+  "zoom_max": 6.0
+}

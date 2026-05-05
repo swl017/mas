@@ -1,0 +1,11 @@
+{
+  "namespace": "/px4_2",
+  "mode": "rate",
+  "profile": "const",
+  "publish_hz": 25.0,
+  "settle_pre_s": 2.5,
+  "started_at": "2026-05-05T16:14:59",
+  "rate_cmd": 1.0,
+  "start_level": 1.0,
+  "duration_s": 5.0
+}

@@ -913,3 +913,65 @@ Next (outside ticket scope):
 - If 245 ms p50 is unacceptable: change camera class, swap for a
   low-latency HDMI capture board, or add predictive compensation
   in the tracker/policy.
+
+==============================================================
+2026-05-05 — Ticket #037 SIYI A8 zoom response characterization
+==============================================================
+Done:
+- Found and fixed a hardware-side bug in
+  src/gimbal_controller/gimbal_controller/siyi_ros_node.py:
+  the old zoom_rate_callback used 0x05 MANUAL_ZOOM which is
+  direction-only at the protocol level, so /zoom_rate_cmd
+  magnitude was discarded. Replaced with a software rate
+  integrator (zoom_rate_step_callback at 50 Hz) that
+  integrates rate · dt into a clamped target and dispatches
+  via 0x0F ABSOLUTE_ZOOM whenever the 0.1-quantized target
+  advances. New parameters: zoom_rate_step_hz=50.0,
+  zoom_rate_timeout_s=0.5 (watchdog), zoom_min=1.0,
+  zoom_max=6.0.
+- Throttled zoom_level_callback to dispatch only on quantum
+  transitions. Unthrottled it stalled the lens at 25 Hz
+  level streams (rapid 0x0F preempts in-flight slews).
+- New bench tooling under src/scripts/zoom_response/:
+    zoom_response_test.py — level/step, level/sine,
+                            rate/const, rate/sine, rate/chirp
+                            profiles; --publish-hz 25.0 default
+    zoom_response_plot.py — adapts to profile, condenses
+                            republished rate-cmd events,
+                            metrics overlay (xcorr lag, ρ, ...)
+- Captured four characterization runs under
+  datasets/zoom_response/:
+    level_step_quantum    single-quantum step → τ_d
+    level_step_paired     paired 1↔4 → v_max symmetry
+    rate_chirp            0.05→2 Hz, 30 s → bandwidth
+    rate_sine_saturated   amp=6/s → saturation behavior
+- New fitter + acceptance harness:
+    src/scripts/sim2real_model_fitting/fit_zoom_model.py
+    src/scripts/sim2real_model_fitting/compare_zoom.py
+    src/scripts/sim2real_model_fitting/output/zoom_model.json
+
+Headline fitted params:
+  τ_d            = 0.10 s (std 0.018)
+  v_max in/out   = 3.16 / 3.16 levels/s   (0.2 % asymmetry)
+  τ₁             = 0.091 s
+  quantum        = 0.1 levels
+  bandwidth_3dB ≈ 0.385 Hz (chirp, approximate)
+
+Acceptance: PASSED median ≤ 0.15 levels on the three
+linear-regime runs; rate_sine_saturated is informational
+(model symmetric v_max diverges from real lens's
+sustained-saturation stall, where rapid 0x0F dispatches
+preempt each other faster than the firmware can react).
+
+Findings + RL training tips recorded in the ticket. Ticket
+renamed to 037-zoom-response-characterization-DONE.
+
+Next (outside this ticket):
+- Sim-side port (IsaacLab repo): apply zoom_model.json with
+  the same input-side dead-time buffer pattern as mas/035 /
+  mas/036, write sysid_output/zoom/compare_zoom.py.
+- Optional: multi-point constant-freq Bode sweep to replace
+  the chirp's noisy magnitude estimate (clean Bode in ~30 s
+  of bench time).
+- Optional: rate-clip-before-integrate fix in siyi_ros_node
+  if a future task drives max_zoom_rate toward v_max.

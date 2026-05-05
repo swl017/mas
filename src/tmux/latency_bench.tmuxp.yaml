@@ -34,6 +34,7 @@ windows:
   shell_command_before:
     - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
     - export DISPLAY=${DISPLAY:-:0}
+    - source ${ROS2_WORKSPACE}/drone_config/robot.env
   panes:
     - python3 ${ROS2_WORKSPACE}/src/scripts/latency_clock_display.py 1920 1080
     # - ros2 launch gimbal_controller usb_cam.launch.py ns:=a8 camera_name:=a8
@@ -42,12 +43,12 @@ windows:
         -r __ns:=/${ROBOT_NAME}/camera \
         -p rtsp_url:=rtsp://192.168.144.26:8554/main.264 \
         -p camera_name:=color \
-        -p width:=960 \
-        -p height:=540 \
+        -p width:=1920 \
+        -p height:=1080 \
         -p latency_ms:=200 \
         -p drop_on_latency:=false \
         -p use_tcp:=false \
         -p do_retransmission:=false \
         -p codec:=h264 \
         -p decoder:=avdec_h264
-    - python3 ${ROS2_WORKSPACE}/src/scripts/latency_measurement.py /a8/image_raw/compressed --csv /tmp/latency_samples.csv
+    - python3 ${ROS2_WORKSPACE}/src/scripts/latency_measurement.py /px4_2/camera/color/image_raw/compressed --csv /tmp/latency_samples_1920x1080_native.csv

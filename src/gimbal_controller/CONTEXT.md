@@ -12,7 +12,8 @@ Gimbal hardware interface (SIYI SDK) and camera pointing control for target trac
 #### Subscriptions
 - `siyi_gimbal_angles/command_rpy_deg` (`geometry_msgs/Vector3`) — target gimbal angles (heading-frame, 0x0E)
 - `gimbal_cmd_los_rate` (`geometry_msgs/Vector3`) — heading-frame LOS rate command (x=yaw, y=pitch, normalized -1..1, 0x07)
-- `zoom_cmd` (`std_msgs/Float32`) — zoom rate command (+1=in, -1=out, 0=stop, 0x05)
+- `zoom_rate_cmd` (`std_msgs/Float32`) — zoom rate command in **zoom-levels per second** (positive = zoom in). The protocol's `0x05 MANUAL_ZOOM` is direction-only (int8 in {-1, 0, +1}) and ignores magnitude, so siyi_ros_node integrates rate · dt into a software target at 50 Hz (`zoom_rate_step_callback`) and dispatches via `0x0F ABSOLUTE_ZOOM` whenever the 0.1-quantized target advances. Watchdog: if no rate command arrives within `zoom_rate_timeout_s` the integrator freezes. See ticket #037.
+- `zoom_level_cmd` (`std_msgs/Float32`) — absolute zoom-level command (1.0–6.0, clamped, quantized to 0.1). Dispatched via `0x0F` only on quantum transitions (rapid same-quantum republishes stall the lens firmware).
 - `mavros/imu/data` (`sensor_msgs/Imu`) — aircraft attitude for joint angle derivation + 0x22 injection (BEST_EFFORT)
 - `common_frame/odom` (`nav_msgs/Odometry`) — velocity cache for 0x3E GPS injection (BEST_EFFORT)
 - `mavros/global_position/global` (`sensor_msgs/NavSatFix`) — GPS for 0x3E injection (BEST_EFFORT)
@@ -34,6 +35,9 @@ Gimbal hardware interface (SIYI SDK) and camera pointing control for target trac
 - `yaw_rate_cmd_sign` (`double`, default: `-1.0`) — per-axis hardware quirk: 0x07 GimbalSpeed yaw polarity is opposite to 0x0D attitude rate on A8 mini. Verified by rate-step calibration (run 1776262353). Override per unit if needed.
 - `pitch_rate_cmd_sign` (`double`, default: `1.0`) — per-axis 0x07 pitch polarity. A8 mini: no extra flip beyond pitch_direction.
 - `enable_aircraft_attitude` (`bool`, default: `true`) — enable 0x22 attitude injection (from IMU at 100 Hz) and 0x3E GPS injection
+- `zoom_rate_step_hz` (`double`, default: `50.0`) — software zoom-rate integrator tick rate (ticket #037)
+- `zoom_rate_timeout_s` (`double`, default: `0.5`) — watchdog: integrator freezes if no `zoom_rate_cmd` within this window
+- `zoom_min` / `zoom_max` (`double`, defaults: `1.0` / `6.0`) — A8 mini zoom limits used by both the integrator and the level callback
 
 ---
 

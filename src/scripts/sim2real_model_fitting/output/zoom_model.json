@@ -1,0 +1,123 @@
+{
+  "description": "SIYI A8 mini zoom-response sim2real model. Fit from bench runs in datasets/zoom_response/. Hardware-side integrator is software-emulated in siyi_ros_node.zoom_rate_step_callback because 0x05 MANUAL_ZOOM is direction-only; only 0x0F ABSOLUTE_ZOOM accepts magnitudes. Sim should match this integrator shape (clamped, quantized, dead-time-buffered).",
+  "deadtime_s_in": 0.1,
+  "deadtime_s_out": 0.1,
+  "deadtime_std_s": 0.018,
+  "deadtime_min_s": 0.089,
+  "deadtime_max_s": 0.129,
+  "v_max_in_per_s": 3.16,
+  "v_max_out_per_s": 3.16,
+  "v_max_asymmetry": 0.002,
+  "quantum": 0.1,
+  "first_order_tau_s": 0.091,
+  "first_order_tau_source": "rate_sine",
+  "bandwidth_hz_3db": 0.385,
+  "bandwidth_note": "approximate \u2014 chirp bins show single-frequency-fit noise; use a multi-point constant-freq sweep for tighter bound.",
+  "saturation_check": {
+    "available": true,
+    "max_dz_dt_in_per_s": 3.2608695652173356,
+    "max_dz_dt_out_per_s": 2.142857142857061,
+    "max_in_vs_v_max": 1.0326086956521534,
+    "max_out_vs_v_max": 0.6774999999999748
+  },
+  "fit_provenance": {
+    "step_quantum_dir": "datasets/zoom_response/level_step_quantum",
+    "step_paired_dir": "datasets/zoom_response/level_step_paired",
+    "chirp_dir": "datasets/zoom_response/rate_chirp",
+    "saturated_dir": "datasets/zoom_response/rate_sine_saturated"
+  },
+  "raw_quantum_step_rows": [
+    {
+      "t_cmd": 1.5101,
+      "z0": 1.0,
+      "target": 1.1,
+      "delta": 0.10000000000000009,
+      "dead_time_s": 0.0996999999999999
+    },
+    {
+      "t_cmd": 3.0206,
+      "z0": 1.1,
+      "target": 1.0,
+      "delta": -0.10000000000000009,
+      "dead_time_s": 0.08879999999999999
+    },
+    {
+      "t_cmd": 4.5308,
+      "z0": 1.0,
+      "target": 1.2,
+      "delta": 0.19999999999999996,
+      "dead_time_s": 0.12910000000000021
+    },
+    {
+      "t_cmd": 6.0407,
+      "z0": 1.2,
+      "target": 1.0,
+      "delta": -0.19999999999999996,
+      "dead_time_s": 0.12919999999999998
+    },
+    {
+      "t_cmd": 7.5498,
+      "z0": 1.0,
+      "target": 1.5,
+      "delta": 0.5,
+      "dead_time_s": 0.10009999999999941
+    },
+    {
+      "t_cmd": 9.0602,
+      "z0": 1.5,
+      "target": 1.0,
+      "delta": -0.5,
+      "dead_time_s": 0.08990000000000009
+    }
+  ],
+  "raw_paired_summary": {
+    "in": {
+      "n": 3,
+      "v_max_peak200ms_per_s": 3.157894736842114,
+      "v_max_peak200ms_max_per_s": 3.166226912928764,
+      "avg_rate_per_s": 2.5859839668994056
+    },
+    "out": {
+      "n": 3,
+      "v_max_peak200ms_per_s": 3.1628887717448575,
+      "v_max_peak200ms_max_per_s": 3.172924378635646,
+      "avg_rate_per_s": 2.480363786688714
+    }
+  },
+  "raw_chirp_bins": [
+    {
+      "f_hz": 0.09871752429174097,
+      "amp_cmd": 0.0881263043156334,
+      "amp_state": 0.11089625996101084,
+      "ratio": 1.258378651212066,
+      "phase_lag_rad": 0.12019733313355774,
+      "phase_lag_s": 0.19378524585091775,
+      "n_samples": 260
+    },
+    {
+      "f_hz": 0.1949029920458095,
+      "amp_cmd": 0.1879888913691695,
+      "amp_state": 0.2128826907727469,
+      "ratio": 1.1324216512064609,
+      "phase_lag_rad": 0.11097060117994806,
+      "phase_lag_s": 0.09061697581080197,
+      "n_samples": 172
+    },
+    {
+      "f_hz": 0.38480681703630404,
+      "amp_cmd": 0.07012169770245953,
+      "amp_state": 0.08687405831942742,
+      "ratio": 1.2389040933956208,
+      "phase_lag_rad": 0.39672728400285306,
+      "phase_lag_s": 0.1640852124054739,
+      "n_samples": 130
+    }
+  ],
+  "raw_rate_sine_tau": {
+    "available": true,
+    "f_hz": 0.25,
+    "observed_lag_s": 0.19,
+    "best_corr": 0.5081710154772822,
+    "tau1_s": 0.09050238756822487
+  }
+}

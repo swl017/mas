@@ -39,6 +39,17 @@ class SiyiGimbalNode(Node):
         self.declare_parameter('enable_encoder_stream', True)
         self.declare_parameter('enable_aircraft_attitude', True)
         self.declare_parameter('encoder_stream_freq', 100)
+        # Software rate integration for /zoom_rate_cmd. The SIYI 0x05 MANUAL_ZOOM
+        # command is direction-only (in / out / stop) and ignores magnitude, so
+        # we integrate the commanded rate (zoom-levels/s) into a target zoom
+        # level and dispatch it via 0x0F absoluteZoom at zoom_rate_step_hz.
+        self.declare_parameter('zoom_rate_step_hz', 50.0)
+        # Watchdog: if no /zoom_rate_cmd arrives within this many seconds, the
+        # integrator freezes (rate -> 0). Prevents runaway from a stuck topic.
+        self.declare_parameter('zoom_rate_timeout_s', 0.5)
+        # Min/max zoom limits — A8 mini supports 1.0x .. 6.0x with 0.1 steps.
+        self.declare_parameter('zoom_min', 1.0)
+        self.declare_parameter('zoom_max', 6.0)
 
         server_ip = self.get_parameter('server_ip').get_parameter_value().string_value
         server_port = self.get_parameter('server_port').get_parameter_value().integer_value
@@ -50,6 +61,10 @@ class SiyiGimbalNode(Node):
         self.enable_encoder_stream = self.get_parameter('enable_encoder_stream').get_parameter_value().bool_value
         self.enable_aircraft_attitude = self.get_parameter('enable_aircraft_attitude').get_parameter_value().bool_value
         encoder_stream_freq = self.get_parameter('encoder_stream_freq').get_parameter_value().integer_value
+        self.zoom_rate_step_hz = self.get_parameter('zoom_rate_step_hz').get_parameter_value().double_value
+        self.zoom_rate_timeout_s = self.get_parameter('zoom_rate_timeout_s').get_parameter_value().double_value
+        self.zoom_min = self.get_parameter('zoom_min').get_parameter_value().double_value
+        self.zoom_max = self.get_parameter('zoom_max').get_parameter_value().double_value
 
         # --- SIYI SDK Initialization ---
         self.get_logger().info(f"Attempting to connect to SIYI SDK at {server_ip}:{server_port}")
@@ -187,6 +202,17 @@ class SiyiGimbalNode(Node):
         # Velocity cache (ENU, m/s) for 0x3E GPS data
         self._velocity_enu = np.zeros(3)
 
+        # --- Zoom-rate integrator state (see zoom_rate_step_callback) ---
+        # _zoom_rate is the latest rate commanded on /zoom_rate_cmd, in
+        # zoom-levels per second. _zoom_rate_target is the floating-point
+        # target the integrator advances; we dispatch it via 0x0F whenever its
+        # 0.1-quantized value differs from the last sent target.
+        self._zoom_rate = 0.0
+        self._zoom_rate_target: float | None = None
+        self._zoom_rate_last_cmd_t: float | None = None
+        self._zoom_rate_last_step_t: float | None = None
+        self._zoom_rate_last_sent: float | None = None
+
         # IMU cache for 0x22 attitude injection (NED, sent by timer at 100 Hz)
         self._imu_valid = False
         self._imu_roll_ned = 0.0
@@ -204,6 +230,13 @@ class SiyiGimbalNode(Node):
         # --- 0x22 attitude injection timer (100 Hz, only when enabled) ---
         if self.enable_aircraft_attitude:
             self.att_inject_timer = self.create_timer(0.01, self.attitude_inject_callback)
+
+        # --- Zoom-rate integration timer ---
+        # Translates /zoom_rate_cmd magnitudes into a continuous stream of
+        # absolute-zoom targets (0x0F). 0x05 MANUAL_ZOOM is direction-only.
+        zoom_step_period = 1.0 / max(self.zoom_rate_step_hz, 1.0)
+        self.zoom_rate_step_timer = self.create_timer(
+            zoom_step_period, self.zoom_rate_step_callback)
 
         self.get_logger().info(f"Siyi Gimbal Node Started. Publishing state at {publish_rate} Hz.")
 
@@ -256,29 +289,93 @@ class SiyiGimbalNode(Node):
             self.get_logger().error(f"Failed to send rate command: {e}")
 
     def zoom_rate_callback(self, msg: Float32):
-        """Zoom rate command. Positive=zoom in, negative=zoom out, 0=stop."""
+        """Zoom rate command in zoom-levels per second. Positive=zoom in.
+
+        The protocol's 0x05 MANUAL_ZOOM is direction-only (in/out/stop) and
+        ignores magnitude, which is why we don't dispatch from this callback
+        directly. Instead we cache the rate; zoom_rate_step_callback integrates
+        it into a target zoom level and sends 0x0F absoluteZoom updates.
+        """
         try:
-            zoom_val = msg.data
-            if zoom_val > 0:
-                self.cam.requestZoomIn()
-            elif zoom_val < 0:
-                self.cam.requestZoomOut()
-            else:
-                self.cam.requestZoomHold()
+            self._zoom_rate = float(msg.data)
+            self._zoom_rate_last_cmd_t = self.get_clock().now().nanoseconds / 1e9
+            # Seed the integrator on the first non-zero rate after idle so it
+            # starts from the lens's actual position rather than wherever the
+            # target was last left.
+            if self._zoom_rate_target is None and self._zoom_rate != 0.0:
+                seed = None
+                try:
+                    seed = self.cam.getCurrentZoomLevel()
+                except Exception:
+                    seed = None
+                self._zoom_rate_target = float(seed) if seed is not None else self.zoom_min
         except Exception as e:
-            self.get_logger().error(f"Failed to send zoom command: {e}")
+            self.get_logger().error(f"Failed to handle zoom rate command: {e}")
 
     def zoom_level_callback(self, msg: Float32):
         """Absolute zoom level command via 0x0F. A8 mini supports 1.0x–6.0x
         with 0.1 resolution. Values outside that range are clamped.
+
+        Dispatch is throttled by quantized 0.1-level change: when a publisher
+        sends a continuously varying level (e.g. policy or human-in-the-loop
+        slider) at 25 Hz, sending an abs-zoom command for every duplicate
+        quantum stalls the camera firmware (rapid 0x0F preempts ongoing
+        slews). Sending only on quantum transitions tracks the trajectory
+        cleanly and matches the behaviour of zoom_rate_step_callback.
         """
         try:
-            level = max(1.0, min(6.0, float(msg.data)))
+            level = max(self.zoom_min, min(self.zoom_max, float(msg.data)))
             # SDK encoder splits into int + first decimal; quantize to 0.1.
-            level = round(level * 10.0) / 10.0
-            self.cam.requestAbsoluteZoom(level)
+            quantized = round(level * 10.0) / 10.0
+            if (self._zoom_rate_last_sent is None
+                    or abs(quantized - self._zoom_rate_last_sent) >= 0.05):
+                self.cam.requestAbsoluteZoom(quantized)
+                self._zoom_rate_last_sent = quantized
+            # Re-baseline the rate integrator so a subsequent zoom_rate_cmd
+            # advances from the level we just commanded, not a stale target.
+            self._zoom_rate_target = quantized
         except Exception as e:
             self.get_logger().error(f"Failed to send zoom-level command: {e}")
+
+    def zoom_rate_step_callback(self):
+        """Integrate /zoom_rate_cmd into a target zoom level and dispatch via
+        absoluteZoom (0x0F) when the 0.1-quantized target moves.
+
+        Watchdog: if no rate command has arrived within zoom_rate_timeout_s,
+        the cached rate is forced to zero so a stuck publisher cannot drive
+        the lens to a limit. The target itself is held (not reset), so the
+        lens stays where it is until the next command arrives.
+        """
+        try:
+            now = self.get_clock().now().nanoseconds / 1e9
+            prev_t = self._zoom_rate_last_step_t
+            self._zoom_rate_last_step_t = now
+            if prev_t is None:
+                return
+            dt = now - prev_t
+            if dt <= 0.0:
+                return
+
+            # Watchdog: stale command stream -> freeze.
+            if (self._zoom_rate_last_cmd_t is None
+                    or (now - self._zoom_rate_last_cmd_t) > self.zoom_rate_timeout_s):
+                if self._zoom_rate != 0.0:
+                    self._zoom_rate = 0.0
+
+            if self._zoom_rate == 0.0 or self._zoom_rate_target is None:
+                return
+
+            self._zoom_rate_target = max(
+                self.zoom_min,
+                min(self.zoom_max, self._zoom_rate_target + self._zoom_rate * dt),
+            )
+            quantized = round(self._zoom_rate_target * 10.0) / 10.0
+            if (self._zoom_rate_last_sent is None
+                    or abs(quantized - self._zoom_rate_last_sent) >= 0.05):
+                self.cam.requestAbsoluteZoom(quantized)
+                self._zoom_rate_last_sent = quantized
+        except Exception as e:
+            self.get_logger().error(f"zoom_rate_step_callback error: {e}")
 
     def publish_angles_callback(self):
         """Callback function called by the timer to publish current angles."""
