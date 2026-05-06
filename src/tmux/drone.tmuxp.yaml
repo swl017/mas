@@ -2,30 +2,31 @@ session_name: drone
 
 environment:
   ROS2_WORKSPACE: /home/usrg/mas
+  USE_SIM_TIME: 'false'
 
 options:
   default-command: /bin/bash
 
 windows:
-# - window_name: mavros
-#   focus: true
-#   layout: tiled
-#   shell_command_before:
-#     - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
-#     - source ${ROS2_WORKSPACE}/drone_config/robot.env
-#   panes:
-#     - ros2 run mavros mavros_node --ros-args -p fcu_url:=${FCU_URL} -p gcs_url:=udp://:14556@${GCS_IP}:14550 -p tgt_system:=${TGT_SYSTEM} -p local_position.tf.frame_id:=${ROBOT_NAME}/map -p local_position.tf.child_frame_id:=${ROBOT_NAME}/base_link -p global_position.frame_id:=${ROBOT_NAME}/map -p global_position.child_frame_id:=${ROBOT_NAME}/base_link -r __ns:=/${ROBOT_NAME}/mavros
-#     - |
-#       sleep 5 && ros2 service call /${ROBOT_NAME}/mavros/set_message_interval mavros_msgs/srv/MessageInterval "{message_id: 31, message_rate: 200.0}" # `ATTITUDE_QUATERNION` (msg 31) bumps `mavros/imu/data` topic
+- window_name: mavros
+  focus: true
+  layout: tiled
+  shell_command_before:
+    - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
+    - source ${ROS2_WORKSPACE}/drone_config/robot.env
+  panes:
+    - ros2 run mavros mavros_node --ros-args -p fcu_url:=${FCU_URL} -p gcs_url:=udp://:14556@${GCS_IP}:14550 -p tgt_system:=${TGT_SYSTEM} -p local_position.tf.frame_id:=${ROBOT_NAME}/map -p local_position.tf.child_frame_id:=${ROBOT_NAME}/base_link -p global_position.frame_id:=${ROBOT_NAME}/map -p global_position.child_frame_id:=${ROBOT_NAME}/base_link -r __ns:=/${ROBOT_NAME}/mavros
+    - |
+      sleep 5 && ros2 service call /${ROBOT_NAME}/mavros/set_message_interval mavros_msgs/srv/MessageInterval "{message_id: 31, message_rate: 200.0}" # `ATTITUDE_QUATERNION` (msg 31) bumps `mavros/imu/data` topic
 
-# - window_name: frame
-#   focus: true
-#   layout: tiled
-#   shell_command_before:
-#     - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
-#     - source ${ROS2_WORKSPACE}/drone_config/robot.env
-#   panes:
-#     - ros2 launch mas_common_frame common_frame_single.launch.py ns:=/${ROBOT_NAME}
+- window_name: frame
+  focus: true
+  layout: tiled
+  shell_command_before:
+    - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
+    - source ${ROS2_WORKSPACE}/drone_config/robot.env
+  panes:
+    - ros2 launch mas_common_frame common_frame_single.launch.py ns:=/${ROBOT_NAME}
 
 - window_name: gimbal
   focus: false
@@ -62,7 +63,7 @@ windows:
     - |
       ros2 run rtsp_camera rtsp_camera_node --ros-args \
         -r __ns:=/${ROBOT_NAME}/camera \
-        -p rtsp_url:=rtsp://192.168.144.26:8554/main.264 \
+        -p rtsp_url:=rtsp://${GIMBAL_IP}:8554/main.264 \
         -p camera_name:=color \
         -p width:=${CAM_W} \
         -p height:=${CAM_H} \
@@ -72,4 +73,53 @@ windows:
         -p do_retransmission:=false \
         -p codec:=h264 \
         -p decoder:=avdec_h264
-    # - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/${ROBOT_NAME} input_topic:=camera/color/image_raw/compressed yolo_model:=${YOLO_MODEL}
+    - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/${ROBOT_NAME} input_topic:=camera/color/image_raw/compressed yolo_model:=${YOLO_MODEL}
+
+
+- window_name: triangulation
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mas_multiview triangulation.launch.py ns:=/${ROBOT_NAME} num_camera:=2 publish_rate:=30.0 gimbal_angle_order:=zxy use_sim_time:=${USE_SIM_TIME}
+
+- window_name: tracker
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mas_tracker sort3d.launch.py ns:=/${ROBOT_NAME} self_camera_index:=1 use_sim_time:=${USE_SIM_TIME}
+
+- window_name: gimbal
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 run gimbal_controller gimbal_los_tracker_node --ros-args -r __ns:=/${ROBOT_NAME} -r gimbal_cmd_los_rate:=tracking/gimbal_cmd_los_rate -p target_topic:=/target_region -p use_sim_time:=${USE_SIM_TIME}
+
+- window_name: mission
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mas_mission mission_deploy.launch.py vehicle_filter:=${ROBOT_NAME} use_sim_time:=${USE_SIM_TIME}
+
+- window_name: offboard
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mas_offboard offboard.launch.py vehicle_filter:=${ROBOT_NAME} use_sim_time:=${USE_SIM_TIME}
+
+- window_name: policy
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mas_policy policy_deploy.launch.py use_mission_gate:=true use_sim_time:=${USE_SIM_TIME} vehicle_filter:=${ROBOT_NAME} checkpoint_path:=/home/usrg/mas/src/mas_policy/models/2026-04-20_15-25-00_mappo_rnn_torch_e72c116d6b_obs_wo_tri_action_penalty_tuning/checkpoints/agent_160000.pt
