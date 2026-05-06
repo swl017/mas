@@ -1,6 +1,7 @@
 session_name: drone
 
 environment:
+  ROS2_WORKSPACE: /home/usrg/mas/
   USE_SIM_TIME: 'false'
 
 options:
