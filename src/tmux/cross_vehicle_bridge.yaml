@@ -1,0 +1,87 @@
+# mas cross-vehicle topic bridge
+#
+# Bridges peer-required topics between veh1 (ROS_DOMAIN_ID=1) and veh2
+# (ROS_DOMAIN_ID=2). Run on a third PC (ground station) that has WiFi reach
+# to both Jetsons.
+#
+# Why a bridge instead of letting DDS auto-discover: see
+#   src/doc/active/tickets/038-mavros-dual-vehicle-imu-degradation/ticket.md
+# Direct Jetson↔Jetson WiFi traffic is blocked at iptables level on each
+# Jetson; that block fixes IMU rate collapse but also kills cross-drone
+# discovery. This bridge re-introduces only the topics policy_node actually
+# needs, routed via the third PC.
+#
+# The set of peer topics is defined by mas_policy/CONTEXT.md →
+# "Peers (absolute topics)". If that contract changes, update this file.
+#
+# Run with:
+#   ros2 run domain_bridge domain_bridge \
+#     /home/usrg/mas/src/tmux/cross_vehicle_bridge.yaml
+#
+# Install on the third PC (one-time):
+#   sudo apt install ros-humble-domain-bridge
+
+name: mas_cross_vehicle_bridge
+
+topics:
+  # ── veh1 → veh2 ────────────────────────────────────────────────────
+  /px4_1/common_frame/odom:
+    type: nav_msgs/msg/Odometry
+    from_domain: 1
+    to_domain: 2
+
+  /px4_1/combined_ang_vel_w:
+    type: geometry_msgs/msg/Vector3Stamped
+    from_domain: 1
+    to_domain: 2
+
+  /px4_1/yolo_result_active:
+    type: std_msgs/msg/Bool
+    from_domain: 1
+    to_domain: 2
+
+  /px4_1/camera/zoom_level:
+    type: std_msgs/msg/Float64
+    from_domain: 1
+    to_domain: 2
+
+  /px4_1/policy/observation:
+    type: std_msgs/msg/Float32MultiArray
+    from_domain: 1
+    to_domain: 2
+    qos:
+      reliability: best_effort
+      history: keep_last
+      depth: 1
+      durability: volatile
+
+  # ── veh2 → veh1 ────────────────────────────────────────────────────
+  /px4_2/common_frame/odom:
+    type: nav_msgs/msg/Odometry
+    from_domain: 2
+    to_domain: 1
+
+  /px4_2/combined_ang_vel_w:
+    type: geometry_msgs/msg/Vector3Stamped
+    from_domain: 2
+    to_domain: 1
+
+  /px4_2/yolo_result_active:
+    type: std_msgs/msg/Bool
+    from_domain: 2
+    to_domain: 1
+
+  /px4_2/camera/zoom_level:
+    type: std_msgs/msg/Float64
+    from_domain: 2
+    to_domain: 1
+
+  /px4_2/policy/observation:
+    type: std_msgs/msg/Float32MultiArray
+    from_domain: 2
+    to_domain: 1
+    qos:
+      reliability: best_effort
+      history: keep_last
+      depth: 1
+      durability: volatile

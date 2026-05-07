@@ -1,0 +1,66 @@
+// zenoh-bridge-ros2dds v1.9.0 config for vehicle1 (px4_1, ROS_DOMAIN_ID=1).
+// Background: src/doc/active/tickets/039-zenoh-direct-cross-vehicle-bridge/ticket.md
+//
+// Pairs with drone_config/zenoh/zenoh_bridge_px4_2.json5 on the other Jetson.
+// Together they form a 2-peer Zenoh mesh over WiFi TCP/7447 carrying ONLY
+// the topics in `plugins.ros2dds.allow`. All other DDS stays local.
+// FastDDS XML at drone_config/dds/fastdds_local_only.xml binds local ROS2
+// FastDDS off WiFi entirely; CycloneDDS XML at cyclonedds_local_only.xml
+// does the same for the bridge's internal CycloneDDS.
+//
+// Run via:
+//   /home/usrg/thirdparty/zenoh-plugin-ros2dds/zenoh-bridge-ros2dds \
+//     -c /home/usrg/mas/drone_config/zenoh/zenoh_bridge_px4_1.json5
+
+{
+  // Listen on this Jetson's WiFi IP. Peer connects here.
+  listen: {
+    endpoints: ["tcp/192.168.0.14:7447"]
+  },
+
+  // Connect outbound to vehicle2's Jetson WiFi IP.
+  connect: {
+    endpoints: ["tcp/192.168.0.8:7447"]
+  },
+
+  // Disable multicast scouting — the peer is static and reachable via the
+  // explicit `connect`/`listen` endpoints above. Multicast on WiFi is
+  // exactly what we're avoiding.
+  scouting: {
+    multicast: { enabled: false },
+    gossip: { enabled: true }
+  },
+
+  plugins: {
+    ros2dds: {
+      // Local DDS domain that this bridge bridges from/to. Matches
+      // ROS_DOMAIN_ID=1 in robot.env on this vehicle.
+      domain: 1,
+
+      // Per v1.9.0 schema: each interface type that's not specified or set
+      // to [] is fully denied. Cross-vehicle should ONLY carry the 5 peer
+      // topics from mas_policy/CONTEXT.md — services and actions stay
+      // strictly local.
+      allow: {
+        publishers: [
+          "/px4_1/common_frame/odom",
+          "/px4_1/combined_ang_vel_w",
+          "/px4_1/yolo_result_active",
+          "/px4_1/camera/zoom_level",
+          "/px4_1/policy/observation"
+        ],
+        subscribers: [
+          "/px4_2/common_frame/odom",
+          "/px4_2/combined_ang_vel_w",
+          "/px4_2/yolo_result_active",
+          "/px4_2/camera/zoom_level",
+          "/px4_2/policy/observation"
+        ],
+        service_servers: [],
+        service_clients: [],
+        action_servers: [],
+        action_clients: []
+      }
+    }
+  }
+}

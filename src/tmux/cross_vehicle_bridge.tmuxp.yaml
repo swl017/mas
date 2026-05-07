@@ -1,0 +1,33 @@
+session_name: cross_vehicle_bridge
+
+# Run on the third PC (ground station). NOT on either Jetson — they're
+# blocked from each other at iptables. This bridge exists to relay only
+# the peer topics policy_node needs.
+#
+# See src/tmux/cross_vehicle_bridge.yaml for the topic allowlist and
+# src/doc/active/tickets/038-mavros-dual-vehicle-imu-degradation/ticket.md
+# for why this design.
+
+environment:
+  ROS2_WORKSPACE: /home/usrg/mas/
+
+options:
+  default-command: /bin/bash
+
+windows:
+- window_name: bridge
+  focus: true
+  layout: tiled
+  shell_command_before:
+    - source /opt/ros/humble/setup.bash
+    - export ROS_DOMAIN_ID=0    # bridge process itself; per-topic from/to_domain overrides
+  panes:
+    - ros2 run domain_bridge domain_bridge ${ROS2_WORKSPACE}/src/tmux/cross_vehicle_bridge.yaml
+
+- window_name: monitor
+  focus: false
+  layout: tiled
+  panes:
+    # Watch what's coming through. Switch ROS_DOMAIN_ID to inspect either side.
+    - ROS_DOMAIN_ID=1 bash -i
+    - ROS_DOMAIN_ID=2 bash -i

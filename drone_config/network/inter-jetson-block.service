@@ -1,0 +1,13 @@
+[Unit]
+Description=Block inter-Jetson WiFi traffic (mas ticket 038)
+Documentation=file:///home/usrg/mas/src/doc/active/tickets/038-mavros-dual-vehicle-imu-degradation/ticket.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/inter-jetson-block.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
