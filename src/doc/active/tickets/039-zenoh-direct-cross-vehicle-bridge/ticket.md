@@ -27,7 +27,110 @@ Files now committed:
 - [drone_config/robot.env](/home/usrg/mas/drone_config/robot.env)
 - [src/tmux/drone.tmuxp.yaml](/home/usrg/mas/src/tmux/drone.tmuxp.yaml) — zenoh-bridge window invokes the absolute binary path and exports `CYCLONEDDS_URI`
 
-**Vehicle2 binary copy** (one-time):
+### CycloneDDS XML interface restriction abandoned (2026-05-08)
+
+`apt`'s `ros-humble-cyclonedds` 0.10.5 rejects the modern `<Interfaces><NetworkInterface address="..."/></Interfaces>` schema as "unknown element" at parse time. The legacy single-string `<NetworkInterfaceAddress>` form is supported but only takes one address per file (no list), and is being deprecated.
+
+After the FastDDS XML, the FastDDS Discovery Server, and now the CycloneDDS XML, this is the third DDS-config restriction approach we've tried that broke things. Pattern: each DDS impl's interface-restriction config is finicky in subtle ways, and they each have different schema gotchas.
+
+Decision: **drop the DDS-level interface restriction entirely**. The iptables block in [drone_config/network/inter-jetson-block.sh](/home/usrg/mas/drone_config/network/inter-jetson-block.sh) is comprehensive — drops ALL Jetson-to-Jetson traffic on WiFi except TCP/7447. So:
+- CycloneDDS sending multicast to `239.255.0.1` on the WiFi interface: outbound packet egresses, but the peer Jetson can't deliver inbound (drop at INPUT chain). Some CPU cost on send side, but zero throttle effect on the peer.
+- CycloneDDS receiving inbound multicast on WiFi: kernel drops at iptables before delivery to userspace.
+
+Net effect: the iptables block is doing the same job as the XML would, at the kernel level, with no DDS-config to maintain.
+
+Files updated:
+- [drone_config/robot.env](/home/usrg/mas/drone_config/robot.env): `unset CYCLONEDDS_URI` with explanatory comment
+- The XML files under `drone_config/dds/` stay on disk for the record.
+
+### zenoh_bridge_dds v0.5.x uses CLI flags, not JSON5 config (2026-05-08)
+
+The JSON5 config files we wrote (`listen.endpoints`, `connect.endpoints`, `scouting.multicast.enabled`, `plugins.dds.allow`) used the newer Zenoh schema. v0.5.x silently ignores those keys — bridge bound to a random port (35337 instead of 7447) and multicast scouting stayed enabled.
+
+CLI flag names in v0.5.x (from `--help`):
+- `-l, --listener` (singular, not `--listen`)
+- `-e, --peer` (not `--connect`)
+- `--no-multicast-scouting`
+- `-d, --dds-domain` (alias `--domain`)
+- `-a, --dds-allow` (alias `--allow`) — single regex, not lists
+
+Working invocation now in [src/tmux/drone.tmuxp.yaml](/home/usrg/mas/src/tmux/drone.tmuxp.yaml) — uses a per-vehicle if-then to pick SELF/PEER/DOMAIN based on `$ROBOT_NAME`. The JSON5 files at `drone_config/zenoh/` stay on disk for the record but are no longer consumed.
+
+### Switched bridge from prebuilt zenoh-bridge-ros2dds v1.9.0 → apt zenoh-bridge-dds v0.5.x (2026-05-08)
+
+After switching the local RMW to CycloneDDS, the bridge *still* didn't discover any publishers. Hypothesis: the prebuilt v1.9.0 binary bundles a much newer CycloneDDS than the apt `rmw_cyclonedds_cpp` 0.10.x, and CycloneDDS isn't wire-compatible across that version gap.
+
+Pivoted back to the apt-installable older bridge (`ros-humble-zenoh-bridge-dds`, v0.5.x) — same Cyclone version family as `rmw_cyclonedds_cpp`. This was originally rejected when the apt mirror returned 404 due to an expired ROS GPG key (since fixed; see below).
+
+Schema change in [drone_config/zenoh/zenoh_bridge_px4_{1,2}.json5](/home/usrg/mas/drone_config/zenoh/):
+- `plugins.ros2dds` → `plugins.dds` (older schema, different keys)
+- `allow.publishers/subscribers` lists → single `allow` regex string
+- Topic name format unchanged (matches against ROS topic path with leading `/`)
+
+Tmuxp invocation in [src/tmux/drone.tmuxp.yaml](/home/usrg/mas/src/tmux/drone.tmuxp.yaml):
+- `/home/usrg/thirdparty/zenoh-plugin-ros2dds/zenoh-bridge-ros2dds -c ...` → `ros2 run zenoh_bridge_dds zenoh_bridge_dds -c ...`
+
+The prebuilt v1.9.0 binary at `/home/usrg/thirdparty/zenoh-plugin-ros2dds/` stays on disk for the record but is no longer invoked.
+
+### ROS GPG key refresh (2026-05-08)
+
+`packages.ros.org` apt index couldn't be verified — the Open Robotics signing key `F42ED6FBAB17C654` had expired. apt fell back to the stale local index, which pointed at packages versions that no longer existed on the mirror — that's the root cause of the earlier `zenoh-bridge-dds` 404 and the `rmw-cyclonedds-cpp` 404. Fix:
+
+```bash
+sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+  -o /usr/share/keyrings/ros-archive-keyring.gpg
+sudo apt update     # now succeeds with valid signature
+```
+
+Has to be run once per Jetson before the install commands.
+
+### RMW switched to CycloneDDS (2026-05-08)
+
+After unsetting `ROS_DISCOVERY_SERVER` (below) the bridge *still* didn't discover MAVROS publishers — even with both processes confirmed to have clean env via `/proc/<pid>/environ`. Strong indicator of a FastDDS↔CycloneDDS interop quirk at the SPDP level (not a configuration issue).
+
+Architectural fix: **switch the local RMW from `rmw_fastrtps_cpp` to `rmw_cyclonedds_cpp`**. Both local ROS2 nodes and the embedded-in-the-bridge CycloneDDS now use the same DDS implementation and the same XML profile. No interop layer.
+
+Trade-offs considered:
+- This is a real change to the ROS2 stack — QoS/timing/behavior may shift slightly. Per [mas_policy/CONTEXT.md](/home/usrg/mas/src/mas_policy/CONTEXT.md) the only QoS-sensitive topic is `policy/observation` (BEST_EFFORT, depth=1) — both RMWs respect this.
+- CycloneDDS is the official ROS2 default for several distros and is well-tested with MAVROS.
+- iptables block + CycloneDDS XML interface whitelist is now defense-in-depth that *both* actually work (FastDDS XML version was abandoned because `useBuiltinTransports=false` broke local IPC).
+
+Files changed:
+- [drone_config/robot.env](/home/usrg/mas/drone_config/robot.env) — `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp` and `CYCLONEDDS_URI=file://.../cyclonedds_local_only_${ROBOT_NAME}.xml` now exported globally
+- [src/tmux/drone.tmuxp.yaml](/home/usrg/mas/src/tmux/drone.tmuxp.yaml) — removed the per-window `CYCLONEDDS_URI` override on the zenoh-bridge window (redundant; robot.env handles it)
+
+Install on each Jetson (one-time):
+```bash
+sudo apt install ros-humble-rmw-cyclonedds-cpp
+```
+
+### ROS_DISCOVERY_SERVER abandoned (2026-05-08)
+
+Bridge was running cleanly but never logged "Discovered Publisher" for any MAVROS topic, even when ros2 node list / topic list saw all of MAVROS from another FastDDS process. Root cause: [robot.env](/home/usrg/mas/drone_config/robot.env) had `ROS_DISCOVERY_SERVER="192.168.144.101:11811"` set (left over from ticket 038's per-vehicle separation attempt). FastDDS clients in Discovery Server mode do not broadcast standard SPDP — they only talk to the configured server. zenoh-bridge-ros2dds embeds CycloneDDS, which only speaks standard DDS-RTPS SPDP. Result: FastDDS-to-FastDDS works inside each vehicle, but FastDDS-to-bridge doesn't, so no cross-vehicle topic flow.
+
+Fix: unset `ROS_DISCOVERY_SERVER`. Cross-vehicle isolation is now done at the iptables layer (drops all peer-to-peer WiFi except TCP/7447), so the Discovery Server is no longer load-bearing — and it was actively breaking the new bridge.
+
+[robot.env](/home/usrg/mas/drone_config/robot.env) updated: `unset ROS_DISCOVERY_SERVER` with explanatory comment.
+
+### Pixhawk MAV_2_BROADCAST=1 abandoned (2026-05-07)
+
+Earlier in the diagnostic flow the suggestion was to set `MAV_2_BROADCAST=1` on the Pixhawk for MAVROS auto-discovery. That worked on UART but is harmful with the static-IP Ethernet config: PX4 in broadcast mode sends replies to `<subnet_broadcast>:remote_port`, not to the partner's source IP:port. With FCU_URL bind_port (14555) ≠ remote_port (14550), MAVROS never received replies. Symptom: Pixhawk receives 65k+ MAVROS messages, but MAVROS gets nothing back, then VER request times out → "FCU don't support AUTOPILOT_VERSION".
+
+Fix: `param set MAV_2_BROADCAST 0; param save; reboot` on each Pixhawk. PX4 then learns the partner's source IP:port from inbound packets and unicasts replies back to that address — works regardless of bind/remote port match.
+
+User also normalized `FCU_URL` to `udp://:14550@192.168.144.10:14550` (bind == remote port) which makes the link configuration robust even if broadcast is later toggled by mistake.
+
+### FastDDS XML restriction abandoned (2026-05-07)
+
+Initial design called for a FastDDS XML profile that whitelisted only `lo` + gimbal-side interfaces. In practice this broke things:
+- Field test: bridge started cleanly but discovered only `/_ros2cli_daemon_*`, never the MAVROS publishers. `ros2 topic list` showed topics; `ros2 topic echo` produced no data.
+- Root cause: `useBuiltinTransports=false` plus a custom UDPv4 transport doesn't automatically configure the SPDP discovery locators that FastDDS needs. Adding those would require explicit `<builtin>` `metatrafficMulticastLocatorList` config — extra fragility for what's already covered by iptables.
+
+Decision: **disable the FastDDS XML restriction**. The iptables drop is comprehensive (drops all peer-to-peer WiFi traffic except TCP/7447), so the XML was strict defense-in-depth that broke local IPC. The export line in [robot.env](/home/usrg/mas/drone_config/robot.env) is commented out with a note. The XML file [drone_config/dds/fastdds_local_only.xml](/home/usrg/mas/drone_config/dds/fastdds_local_only.xml) stays in tree for the record.
+
+**The CycloneDDS XML for the bridge is still active** — without it, the bridge's CycloneDDS would advertise on WiFi, which iptables would drop but at non-zero softirq cost. Per-vehicle XML works because CycloneDDS is strict about `<NetworkInterface>` matching local interfaces.
+
+### Vehicle2 binary copy (one-time):
 ```bash
 # From vehicle1 Jetson:
 rsync -av /home/usrg/thirdparty/zenoh-plugin-ros2dds-1.9.0/ \

@@ -1,18 +1,22 @@
-// zenoh-bridge-ros2dds v1.9.0 config for vehicle1 (px4_1, ROS_DOMAIN_ID=1).
+// zenoh-bridge-dds v0.5.x config for vehicle1 (px4_1, ROS_DOMAIN_ID=1).
 // Background: src/doc/active/tickets/039-zenoh-direct-cross-vehicle-bridge/ticket.md
 //
+// Switched from the prebuilt zenoh-bridge-ros2dds v1.9.0 binary back to the
+// apt-installed `ros-humble-zenoh-bridge-dds` (v0.5.x) because the prebuilt
+// bundled a newer CycloneDDS that wouldn't interop with the apt
+// rmw_cyclonedds_cpp 0.10.x running on local ROS2 nodes — bridge started
+// cleanly but never discovered any local DDS publishers.
+//
 // Pairs with drone_config/zenoh/zenoh_bridge_px4_2.json5 on the other Jetson.
-// Together they form a 2-peer Zenoh mesh over WiFi TCP/7447 carrying ONLY
-// the topics in `plugins.ros2dds.allow`. All other DDS stays local.
-// FastDDS XML at drone_config/dds/fastdds_local_only.xml binds local ROS2
-// FastDDS off WiFi entirely; CycloneDDS XML at cyclonedds_local_only.xml
-// does the same for the bridge's internal CycloneDDS.
+// Together they form a 2-peer Zenoh mesh over WiFi TCP/7447.
 //
 // Run via:
-//   /home/usrg/thirdparty/zenoh-plugin-ros2dds/zenoh-bridge-ros2dds \
-//     -c /home/usrg/mas/drone_config/zenoh/zenoh_bridge_px4_1.json5
+//   ros2 run zenoh_bridge_dds zenoh_bridge_dds -c \
+//     /home/usrg/mas/drone_config/zenoh/zenoh_bridge_px4_1.json5
 
 {
+  mode: "peer",
+
   // Listen on this Jetson's WiFi IP. Peer connects here.
   listen: {
     endpoints: ["tcp/192.168.0.14:7447"]
@@ -32,35 +36,18 @@
   },
 
   plugins: {
-    ros2dds: {
-      // Local DDS domain that this bridge bridges from/to. Matches
-      // ROS_DOMAIN_ID=1 in robot.env on this vehicle.
+    // zenoh-bridge-dds v0.5.x uses `plugins.dds` (the newer
+    // zenoh-bridge-ros2dds uses `plugins.ros2dds` — different schema).
+    dds: {
+      // Local DDS domain that this bridge bridges from/to.
       domain: 1,
 
-      // Per v1.9.0 schema: each interface type that's not specified or set
-      // to [] is fully denied. Cross-vehicle should ONLY carry the 5 peer
-      // topics from mas_policy/CONTEXT.md — services and actions stay
-      // strictly local.
-      allow: {
-        publishers: [
-          "/px4_1/common_frame/odom",
-          "/px4_1/combined_ang_vel_w",
-          "/px4_1/yolo_result_active",
-          "/px4_1/camera/zoom_level",
-          "/px4_1/policy/observation"
-        ],
-        subscribers: [
-          "/px4_2/common_frame/odom",
-          "/px4_2/combined_ang_vel_w",
-          "/px4_2/yolo_result_active",
-          "/px4_2/camera/zoom_level",
-          "/px4_2/policy/observation"
-        ],
-        service_servers: [],
-        service_clients: [],
-        action_servers: [],
-        action_clients: []
-      }
+      // Allowlist regex — single string covering the 5 cross-vehicle peer
+      // topics from mas_policy/CONTEXT.md plus mavros/state and
+      // mavros/imu/data (added during development for smoke testing).
+      // The bridge subscribes locally to topics matching this regex AND
+      // re-publishes any incoming Zenoh-bridged topics that match.
+      allow: "^/(px4_1|px4_2)/(mavros/state|mavros/imu/data|common_frame/odom|combined_ang_vel_w|yolo_result_active|camera/zoom_level|policy/observation)$"
     }
   }
 }

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  CycloneDDS profile for vehicle2. See cyclonedds_local_only_px4_1.xml
+  for full rationale.
+-->
+<CycloneDDS xmlns="https://cdds.io/config"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="https://cdds.io/config
+              https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+  <Domain id="any">
+    <General>
+      <Interfaces>
+        <NetworkInterface address="192.168.144.102" multicast="default" />
+      </Interfaces>
+      <AllowMulticast>spdp</AllowMulticast>
+    </General>
+  </Domain>
+</CycloneDDS>

@@ -15,17 +15,27 @@ windows:
 - window_name: zenoh-bridge
   focus: false
   layout: tiled
-  shell_command_before:
-    # Bridge embeds CycloneDDS internally; restrict it to localhost +
-    # gimbal-side via this XML so it can't accidentally use WiFi.
-    # Local ROS2 nodes (FastDDS) are restricted separately via
-    # FASTRTPS_DEFAULT_PROFILES_FILE in robot.env.
-    - export CYCLONEDDS_URI="file://${ROS2_WORKSPACE}/drone_config/dds/cyclonedds_local_only.xml"
   panes:
+    # CYCLONEDDS_URI is exported globally in drone_config/robot.env now —
+    # local ROS2 nodes use the same XML as the bridge (RMW switched to
+    # rmw_cyclonedds_cpp), so no per-window override is needed.
     # Direct Jetson↔Jetson cross-vehicle topic bridge. See ticket 039.
     # The only thing carrying cross-vehicle traffic over WiFi
     # (TCP/7447, allowlisted in iptables on each Jetson).
-    - /home/usrg/thirdparty/zenoh-plugin-ros2dds/zenoh-bridge-ros2dds -c ${ROS2_WORKSPACE}/drone_config/zenoh/zenoh_bridge_${ROBOT_NAME}.json5
+    # Per-vehicle WiFi IPs (these are the only inter-Jetson IPs at iptables-allowed TCP/7447).
+    # px4_1 = 192.168.0.14, px4_2 = 192.168.0.8.
+    # JSON5 config file path was abandoned — zenoh_bridge_dds v0.5.x ignores
+    # `listen.endpoints`/`connect.endpoints` schema (see ticket 039). CLI flags
+    # are the only reliable way in this version.
+    - |
+      if [ "$ROBOT_NAME" = "px4_1" ]; then SELF=192.168.0.14; PEER=192.168.0.8; DOMAIN=1; fi
+      if [ "$ROBOT_NAME" = "px4_2" ]; then SELF=192.168.0.8;  PEER=192.168.0.14; DOMAIN=2; fi
+      ros2 run zenoh_bridge_dds zenoh_bridge_dds \
+        --listener "tcp/${SELF}:7447" \
+        --peer "tcp/${PEER}:7447" \
+        --no-multicast-scouting \
+        --domain "${DOMAIN}" \
+        --allow "^/(px4_1|px4_2)/(mavros/state|mavros/imu/data|common_frame/odom|combined_ang_vel_w|yolo_result_active|camera/zoom_level|policy/observation)$"
 
 - window_name: mavros
   focus: true

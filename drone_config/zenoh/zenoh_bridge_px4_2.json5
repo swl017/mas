@@ -1,13 +1,9 @@
-// zenoh-bridge-ros2dds v1.9.0 config for vehicle2 (px4_2, ROS_DOMAIN_ID=2).
-// Background: src/doc/active/tickets/039-zenoh-direct-cross-vehicle-bridge/ticket.md
-//
-// Symmetric counterpart of drone_config/zenoh/zenoh_bridge_px4_1.json5.
-//
-// Run via:
-//   /home/usrg/thirdparty/zenoh-plugin-ros2dds/zenoh-bridge-ros2dds \
-//     -c /home/usrg/mas/drone_config/zenoh/zenoh_bridge_px4_2.json5
+// zenoh-bridge-dds v0.5.x config for vehicle2 (px4_2, ROS_DOMAIN_ID=2).
+// See zenoh_bridge_px4_1.json5 for full rationale.
 
 {
+  mode: "peer",
+
   listen: {
     endpoints: ["tcp/192.168.0.8:7447"]
   },
@@ -22,29 +18,9 @@
   },
 
   plugins: {
-    ros2dds: {
+    dds: {
       domain: 2,
-
-      allow: {
-        publishers: [
-          "/px4_2/common_frame/odom",
-          "/px4_2/combined_ang_vel_w",
-          "/px4_2/yolo_result_active",
-          "/px4_2/camera/zoom_level",
-          "/px4_2/policy/observation"
-        ],
-        subscribers: [
-          "/px4_1/common_frame/odom",
-          "/px4_1/combined_ang_vel_w",
-          "/px4_1/yolo_result_active",
-          "/px4_1/camera/zoom_level",
-          "/px4_1/policy/observation"
-        ],
-        service_servers: [],
-        service_clients: [],
-        action_servers: [],
-        action_clients: []
-      }
+      allow: "^/(px4_1|px4_2)/(mavros/state|mavros/imu/data|common_frame/odom|combined_ang_vel_w|yolo_result_active|camera/zoom_level|policy/observation)$"
     }
   }
 }

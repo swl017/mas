@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  CycloneDDS profile for vehicle1 — used by zenoh-bridge-ros2dds (which
+  embeds CycloneDDS internally; local ROS2 nodes still use FastDDS via
+  drone_config/dds/fastdds_local_only.xml).
+
+  Restricts the bridge's CycloneDDS to the gimbal-side Ethernet on this
+  Jetson — never WiFi. Same intent as the FastDDS profile.
+
+  CycloneDDS treats every listed NetworkInterface as required and panics
+  if any can't be matched locally — so unlike the FastDDS XML, this file
+  is per-vehicle. Pair: cyclonedds_local_only_px4_2.xml on the other
+  Jetson. Selection is via $ROBOT_NAME substitution in the
+  CYCLONEDDS_URI export in src/tmux/drone.tmuxp.yaml.
+-->
+<CycloneDDS xmlns="https://cdds.io/config"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="https://cdds.io/config
+              https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+  <Domain id="any">
+    <General>
+      <Interfaces>
+        <NetworkInterface address="192.168.144.101" multicast="default" />
+      </Interfaces>
+      <AllowMulticast>spdp</AllowMulticast>
+    </General>
+  </Domain>
+</CycloneDDS>
