@@ -16,15 +16,26 @@
 #
 # Idempotent: safe to re-run. Rules are inserted in a fixed order so that
 # ACCEPT sits above DROP in the chain.
-set -euo pipefail
+# Note: `set -e` only after IP detection — at boot the WiFi may not have an
+# IPv4 address yet, and the `ip ... | awk ... | cut ...` pipe with pipefail
+# would propagate non-zero and exit the script before reaching the friendly
+# "skip" branch below. We wait up to ~30s for an IP, then fall through.
 
 VEH1_WIFI=192.168.0.14   # jetsonnx-jp62-01
 VEH2_WIFI=192.168.0.8    # jetsonnx-jp62-02
 ZENOH_PORT=7447
 
 WIFI_IFACE=wlP1p1s0
-SELF_IP=$(ip -4 addr show "$WIFI_IFACE" 2>/dev/null \
-            | awk '/inet /{print $2}' | cut -d/ -f1)
+SELF_IP=""
+for _ in $(seq 1 30); do
+  SELF_IP=$(ip -4 addr show "$WIFI_IFACE" 2>/dev/null \
+              | awk '/inet /{print $2}' | cut -d/ -f1 \
+              || true)
+  [ -n "$SELF_IP" ] && break
+  sleep 1
+done
+
+set -euo pipefail
 
 case "$SELF_IP" in
   "$VEH1_WIFI") PEER_IP="$VEH2_WIFI" ;;

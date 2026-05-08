@@ -1,7 +1,47 @@
 ## Ticket: Direct Jetson↔Jetson cross-vehicle topic bridge via Zenoh (remove third-PC hop)
 
-**Status**: Files written, install + test pending
+**Status**: PAUSED — pivoting to uxrce-DDS + custom MAVROS replicator (see ticket 040)
 **Created**: 2026-05-07
+**Paused**: 2026-05-08
+
+### Why paused (2026-05-08)
+
+The Zenoh-bridge approach was taken to its current limit on this hardware/ROS-distro stack and stalled at the **last mile**: bridges run cleanly, peer-to-peer TCP/7447 link looks correct from CLI, iptables ACCEPT is in place — but cross-vehicle topics never get a real Publisher on the receiving side (`ros2 topic info` shows `Publisher count: 0` for `/px4_2/...` on veh1 and vice versa, with only local subscribers). Without an `--allow` filter the same symptom persists, so it's not a regex format issue.
+
+What's left to triage if anyone returns to this approach:
+- `ss -tn | grep -E '192.168.0.8|7447'` to confirm an actual ESTABLISHED TCP session between the two bridges (could be silently failing despite ACCEPT rules).
+- `nc -zv 192.168.0.8 7447` from veh1 to confirm raw TCP reachability outside Zenoh's stack.
+- `RUST_LOG=info` bridge log filtered for `transport|opened|connect|Failed|Error` — should show "New transport opened with <zid>" if the peer was accepted; otherwise it's a Zenoh-layer issue (handshake, version, congestion).
+- If TCP is healthy but Zenoh handshake fails: zenoh-bridge-dds v0.5.x may be too old. The newer prebuilt zenoh-bridge-ros2dds v1.9.0 we tried earlier needed CycloneDDS interop that broke the other end. So the workable Zenoh path on Humble may require either building zenoh-plugin-ros2dds from source against the apt CycloneDDS version, or moving to ROS2 Iron+ where these versions converge.
+
+### Pivot direction
+
+User is moving to **uxrce-DDS + a custom MAVROS replicator node** (ticket 040). That bypasses both DDS-bridge and DDS-interop questions entirely — a small ROS2 node subscribes to local MAVROS topics and republishes them on a controlled cross-vehicle channel (DDS or otherwise), with explicit topic + QoS handling per `mas_policy/CONTEXT.md`. Estimated to be much less yak-shaving than fighting Zenoh-bridge versions.
+
+### Sunk progress that DOES carry forward (don't redo)
+
+These changes are useful regardless of which cross-vehicle bridge approach wins:
+- [drone_config/network/inter-jetson-block.sh](/home/usrg/mas/drone_config/network/inter-jetson-block.sh) and [.service](/home/usrg/mas/drone_config/network/inter-jetson-block.service) — IMU-throttle fix from ticket 038, with TCP/7447 hole punched, boot-race-safe (waits up to 30s for WiFi IP), `network-online + NetworkManager-wait-online` ordering.
+- Pixhawk firmware upgraded to PX4 v1.15.4 on both vehicles (gives configurable Ethernet IP).
+- Pixhawk Ethernet MAVLink configured: vehicle1 = `192.168.144.10:14550`, vehicle2 = `192.168.144.20:14551`. SD-card `net.cfg` per-vehicle. `MAV_2_CONFIG=1000`, `MAV_2_MODE=2` (Onboard), `MAV_2_BROADCAST=0`, `MAV_1_CONFIG=0` (TELEM2 instance disabled).
+- [drone_config/robot.env](/home/usrg/mas/drone_config/robot.env) — `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`, `unset` of stale FastDDS / Discovery-Server / CycloneDDS-URI vars, and `FCU_URL` matching bind/remote port for safety.
+- ROS GPG key refresh (`/usr/share/keyrings/ros-archive-keyring.gpg`) — required for any apt install on Humble at this point in 2026.
+- `ros-humble-rmw-cyclonedds-cpp` and `ros-humble-zenoh-bridge-dds` installed on each Jetson via apt.
+
+### Sunk progress that does NOT carry forward
+
+- The Zenoh JSON5 configs at [drone_config/zenoh/](/home/usrg/mas/drone_config/zenoh/) — schema mismatch with v0.5.x; left on disk for the record.
+- The CycloneDDS XML profiles at [drone_config/dds/cyclonedds_local_only_*.xml](/home/usrg/mas/drone_config/dds/) — apt's 0.10.5 rejects the modern `<Interfaces>` schema; left on disk.
+- The FastDDS XML profile at [drone_config/dds/fastdds_local_only.xml](/home/usrg/mas/drone_config/dds/fastdds_local_only.xml) — `useBuiltinTransports=false` broke local IPC; abandoned.
+- The third-PC `domain_bridge` files at [src/tmux/cross_vehicle_bridge.{yaml,tmuxp.yaml}](/home/usrg/mas/src/tmux/) — the original "option A" path, kept as fallback but never installed/run.
+- The prebuilt zenoh-bridge-ros2dds v1.9.0 binary at `/home/usrg/thirdparty/zenoh-plugin-ros2dds/` — bundled CycloneDDS version mismatched with apt's; superseded by the apt zenoh_bridge_dds.
+
+### Loose ends to clean up if/when ticket 040 succeeds
+
+- Remove the `zenoh-bridge` window from [src/tmux/drone.tmuxp.yaml](/home/usrg/mas/src/tmux/drone.tmuxp.yaml).
+- Decide whether to remove the unused JSON5/XML config files from `drone_config/`.
+- Update [src/ARCHITECTURE.md](/home/usrg/mas/src/ARCHITECTURE.md) with whatever the final cross-vehicle topic flow ends up being.
+
 
 ### Implementation note (2026-05-07)
 
@@ -42,6 +82,14 @@ Net effect: the iptables block is doing the same job as the XML would, at the ke
 Files updated:
 - [drone_config/robot.env](/home/usrg/mas/drone_config/robot.env): `unset CYCLONEDDS_URI` with explanatory comment
 - The XML files under `drone_config/dds/` stay on disk for the record.
+
+### Allow regex format mismatch — filter dropped for now (2026-05-08)
+
+After getting the bridge listening + connected, cross-vehicle topics appeared in `ros2 topic list` but `Publisher count: 0` (only local subscribers) — the bridge wasn't actually republishing peer data.
+
+Root cause: `zenoh_bridge_dds` v0.5.x's `--allow` regex matches against the **DDS topic name** (which for ROS2 has the `rt/` prefix internally — e.g. `rt/px4_2/camera/zoom_level`), not the ROS path with leading `/`. Our regex `^/(px4_1|px4_2)/...$` matched nothing → bridge routed nothing.
+
+Decision: **drop the allowlist for now**. iptables already blocks all peer-to-peer WiFi traffic except TCP/7447, so the bridge is the only cross-vehicle channel — bandwidth gating happens there. Re-adding a correctly-formatted allowlist (probably with `rt/` prefix) can be done later if WiFi bandwidth becomes a concern with all topics flowing.
 
 ### zenoh_bridge_dds v0.5.x uses CLI flags, not JSON5 config (2026-05-08)
 
