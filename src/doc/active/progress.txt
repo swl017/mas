@@ -975,3 +975,78 @@ Next (outside this ticket):
   of bench time).
 - Optional: rate-clip-before-integrate fix in siyi_ros_node
   if a future task drives max_zoom_rate toward v_max.
+
+
+====================================================================
+2026-05-08  Ticket 040: uXRCE-DDS bridge + mavros_replicator (v1)
+====================================================================
+
+Done:
+- Confirmed uXRCE-DDS pairing for PX4 v1.15.4 + Humble:
+  - PX4 1.15.4 vendors Micro-XRCE-DDS-Client at SHA 711aef4
+    (carries internal version 2.4.0).
+  - Matching agent line is v2.4.x; recommended path is the
+    apt package `ros-humble-micro-xrce-dds-agent` or source
+    tag v2.4.3. v3.0.x is Iron/Jazzy and must be avoided on
+    Humble. Documented in conversation, not in tree.
+- Added drone_config/px4/calc_ag_ip.py — converts an IPv4
+  address into PX4's int32 UXRCE_DDS_AG_IP value (signed/
+  unsigned/hex). For this Jetson at 192.168.144.101 the
+  value is -1062694811.
+- Added drone_config/px4/measure_uxrce.sh + measurements/
+  for capturing topic rates and per-interface byte deltas.
+- Cross-vehicle interference check (60 s windows):
+  veh1 uXRCE topics held 99.99 Hz before and after veh2
+  brought up its full stack. WiFi traffic delta from veh2
+  was only +4 KB/s RX / +3 KB/s TX (DDS discovery only).
+  enP8p1s0 jump from 72→278 KB/s was veh1's own stack, not
+  cross-talk. No MAVROS-style throttling.
+- Wrote spec at src/doc/mavros_replicator_spec.md:
+  - 7 outbound topics (mavros/state, local_position/{pose,
+    pose_cov,velocity_local,odom}, imu/data, home_position/
+    home) + 1 inbound (setpoint_velocity/cmd_vel).
+  - Unified vehicle_odometry as the single source for pose/
+    cov/velocity/odom (100 Hz measured; time-aligned by
+    construction).
+  - vehicle_angular_velocity is NOT in PX4's dds_topics
+    whitelist — body rates come from vehicle_odometry.
+    angular_velocity instead.
+  - Frame conventions, covariance propagation, mode mapping
+    (nav_state → MAVROS strings), QoS profiles all locked.
+- Implemented src/mavros_replicator/:
+  - frames.py: pure-Python NED↔ENU / FRD↔FLU / quaternion
+    math. 10/10 unit tests pass.
+  - replicator_node.py: rclpy node, cached q for IMU
+    pairing, 5 Hz state timer with link-freshness check.
+  - launch/replicator.launch.py + CONTEXT.md.
+- Smoke-tested under sidecar namespace /px4_1_repl/:
+  - Output rates: pose/odom/velocity_local/imu = 100 Hz,
+    state = 5 Hz.
+  - Quaternion math hand-traced and matched bytes.
+  - Mode mapping: nav_state=4 → AUTO.LOITER. Connected
+    flag tracks freshness as designed.
+- Cut over src/tmux/drone.tmuxp.yaml: replaced the
+  commented-out mavros window with a mavros_replicator
+  window (launches the new node via robot_name=$ROBOT_NAME).
+
+Next:
+- Live integration test: launch drone.tmuxp.yaml on a
+  vehicle and verify mas_common_frame still produces
+  /{ns}/common_frame/odom at the same rate it did under
+  MAVROS (spec acceptance §11.2).
+- Setpoint round-trip in sim: arm + OFFBOARD, publish
+  TwistStamped to mavros/setpoint_velocity/cmd_vel,
+  confirm vehicle_local_position responds (§11.5).
+- Two-vehicle isolation re-run: same measurement script
+  but with replicator on both sides; confirm no DDS
+  graph cross-talk (§11.7).
+- Decide on arming/set_mode services: mas_offboard (when
+  re-enabled) currently calls mavros/cmd/arming and
+  mavros/set_mode; the replicator does not implement these
+  yet (deferred to v2). Either re-enable the path through
+  fmu/in/vehicle_command in the replicator or move arming
+  responsibility elsewhere before re-enabling mas_offboard.
+- Stop the legacy MAVROS process that's still running on
+  veh1 from a prior tmux session — it advertises stale
+  /px4_1/mavros/* topics with no publisher flow. Identified
+  during smoke test but not killed.

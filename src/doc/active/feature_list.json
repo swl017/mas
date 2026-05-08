@@ -1,6 +1,6 @@
 {
   "project": "mas",
-  "last_updated": "2026-05-05",
+  "last_updated": "2026-05-08",
   "features": [
     {
       "id": "multiview-triangulation",
@@ -171,6 +171,14 @@
       "spec": "doc/active/tickets/037-zoom-response-characterization-DONE/ticket.md",
       "notes": "Found and fixed: /zoom_rate_cmd magnitude was discarded because the SDK used 0x05 MANUAL_ZOOM (direction-only int8). Replaced with a software rate integrator at 50 Hz in siyi_ros_node.zoom_rate_step_callback that integrates rate·dt into a clamped target and dispatches via 0x0F ABSOLUTE_ZOOM whenever the 0.1-quantized target advances. Throttled zoom_level_callback to dispatch only on quantum transitions (rapid 0x0F at 25 Hz stalls the lens). Watchdog (zoom_rate_timeout_s=0.5) freezes the integrator on stuck publishers. New params: zoom_rate_step_hz=50.0, zoom_rate_timeout_s=0.5, zoom_min=1.0, zoom_max=6.0. Bench tooling at src/scripts/zoom_response/ (test + plot, profiles step/sine/const/chirp at 25 Hz). Fitter at src/scripts/sim2real_model_fitting/fit_zoom_model.py emits zoom_model.json. Acceptance via compare_zoom.py (--plot for reference/response/model overlay). Headline params: τ_d=0.10s (std 0.018), v_max in/out=3.16/3.16 levels/s (0.2 % asymmetric), τ₁=0.091s, quantum=0.1, bandwidth_3dB≈0.385 Hz. PASSED median ≤ 0.15 levels on 3 linear-regime runs; rate_sine_saturated diverges informationally — at amp >> v_max the integrator dispatches 0x0F faster than the firmware reacts, so consecutive commands preempt each other and net motion stalls. Model is symmetric in v_max because the policy never operates in saturation (mas_policy max_zoom_rate=2.0/s < v_max=3.16/s). RL training tips embedded in the ticket — quantize at output only, no smoothing, dead-time as input-side buffer matching mas/035 / mas/036 pattern. Sim port deferred to follow-up. (2026-05-05)",
       "last_updated": "2026-05-05"
+    },
+    {
+      "id": "uxrce-mavros-replicator",
+      "name": "uXRCE-DDS + mavros_replicator transport (ticket #040)",
+      "status": "in_progress",
+      "spec": "doc/mavros_replicator_spec.md",
+      "notes": "Replaces MAVROS with uXRCE-DDS as the PX4↔Jetson bridge plus a custom mavros_replicator that translates px4_msgs (NED/FRD) into MAVROS-shaped ROS topics (ENU/FLU). Goal: scope px4_msgs to a single node so downstream MAS packages (mas_common_frame, mas_policy, mas_operator) keep their MAVROS interface. PX4 v1.15.4 + Micro-XRCE-DDS-Client 2.4.0 (SHA 711aef4); recommended agent is apt ros-humble-micro-xrce-dds-agent (or source v2.4.3). Helpers added: drone_config/px4/calc_ag_ip.py (IPv4 ↔ PX4 int32 UXRCE_DDS_AG_IP), drone_config/px4/measure_uxrce.sh (topic rates + per-iface byte deltas). Cross-vehicle interference test: veh1's local uXRCE held 99.99 Hz on all five fmu/out topics with veh2 powered on and full stack up; only DDS-discovery chatter on WiFi (+4 KB/s RX), no MAVROS-style throttling. Spec at src/doc/mavros_replicator_spec.md: 7 outbound topics + 1 inbound, vehicle_odometry as unified pose/cov/velocity/odom source (100 Hz, time-aligned), vehicle_angular_velocity NOT in dds_topics whitelist so body rates come from vehicle_odometry.angular_velocity. Implementation at src/mavros_replicator/: pure-Python frames.py (NED↔ENU, FRD↔FLU, quaternion math, 10/10 unit tests), rclpy replicator_node with cached q for IMU pairing, 5 Hz state timer with link-freshness check. Smoke test under sidecar /px4_1_repl/ namespace: pose/odom/velocity_local/imu at 100 Hz, state at 5 Hz, quaternion math hand-traced and verified, mode mapping nav_state=4→AUTO.LOITER. Cut over src/tmux/drone.tmuxp.yaml (mavros window → mavros_replicator window). PENDING acceptance: §11.2 mas_common_frame compat (live drone.tmuxp.yaml run), §11.5 cmd_vel round-trip in armed offboard, §11.7 two-vehicle isolation re-run with replicator on both sides. DEFERRED v2: mavros/cmd/arming + mavros/set_mode services (currently consumed by mas_offboard, which is itself commented out in drone.tmuxp.yaml); mavros/imu/mag, mavros/rc/{in,out}, mavros/global_position/global, mavros/set_message_interval. Stale legacy MAVROS still running on veh1 from a prior tmux session — needs to be killed before the cutover is operationally clean. (2026-05-08)",
+      "last_updated": "2026-05-08"
     }
   ]
 }

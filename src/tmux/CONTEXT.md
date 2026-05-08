@@ -20,7 +20,7 @@ Mavros SITL ports follow PX4 multi-instance convention:
 Multi-vehicle nodes (offboard, policy, tracker) run **once** in simdrone1. They manage all vehicles via config files or global topics.
 
 ### Per-Drone (Hardware)
-- `drone.tmuxp.yaml` — single physical drone session (sources `drone_config/robot.env`)
+- `drone.tmuxp.yaml` — single physical drone session (sources `drone_config/robot.env`). Bridge is **uXRCE-DDS + mavros_replicator** (no MAVROS): `MicroXRCEAgent` window publishes `/{ROBOT_NAME}/fmu/...` from PX4; `mavros_replicator` window translates that into `/{ROBOT_NAME}/mavros/...` (ENU/FLU) for downstream MAS nodes. Spec: `doc/mavros_replicator_spec.md`. Set `UXRCE_DDS_*` params on the autopilot per `drone_config/px4/calc_ag_ip.py`.
 
 ### Multi-Node / Shared
 - `mas_core_multi.tmuxp.yaml` — multi-vehicle core (common_frame, multiview, tracker)
@@ -30,8 +30,10 @@ Multi-vehicle nodes (offboard, policy, tracker) run **once** in simdrone1. They 
 - `monitor_topics.tmuxp.yaml` — topic monitoring utilities
 
 ### Micro-XRCE / Bridge
-- `bridge.tmux.yaml` — micro-XRCE-DDS agent bridge
+- `bridge.tmux.yaml` — micro-XRCE-DDS agent bridge (standalone, for testing the agent without the rest of the stack)
 - `bridge_topics_px4_1.yaml` / `bridge_topics_px4_2.yaml` — per-drone bridge topic configs
+
+For the operational PX4↔ROS bridge see `drone.tmuxp.yaml` above (uxrce-agent + mavros_replicator windows). The bridge.tmux.yaml file is kept for ad-hoc agent testing.
 
 ### Other
 - `zoom.tmux.yaml` — zoom/gimbal utilities

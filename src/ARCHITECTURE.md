@@ -50,20 +50,22 @@ All topics below are per-vehicle, resolved within `/{veh}/` namespace unless not
 | `policy/cmd_vel` | geometry_msgs/TwistStamped | mas_policy | mas_mission | BEST_EFFORT |
 | `policy/gimbal_cmd_los_rate` | geometry_msgs/Vector3 | mas_policy | mas_mission | default |
 | `policy/zoom_rate_cmd` | std_msgs/Float32 | mas_policy | mas_mission | default |
-| `mavros/state` | mavros_msgs/State | MAVROS | offboard_control | RELIABLE |
-| `mavros/local_position/pose` | geometry_msgs/PoseStamped | MAVROS | offboard_control | RELIABLE |
-| `mavros/local_position/odom` | nav_msgs/Odometry | MAVROS | offboard_control | RELIABLE |
-| `mavros/setpoint_velocity/cmd_vel` | geometry_msgs/TwistStamped | offboard_control | MAVROS | default |
-| `mavros/setpoint_position/local` | geometry_msgs/PoseStamped | offboard_control | MAVROS | default |
-| `mavros/imu/data` | sensor_msgs/Imu | MAVROS | mas_policy, siyi_gimbal_node (joint derivation) | BEST_EFFORT |
-| `mavros/global_position/global` | sensor_msgs/NavSatFix | MAVROS | siyi_gimbal_node (0x3E GPS) | BEST_EFFORT |
+| `mavros/state` | mavros_msgs/State | mavros_replicator | offboard_control | RELIABLE |
+| `mavros/local_position/pose` | geometry_msgs/PoseStamped | mavros_replicator | mas_common_frame | RELIABLE |
+| `mavros/local_position/pose_cov` | geometry_msgs/PoseWithCovarianceStamped | mavros_replicator | mas_common_frame | RELIABLE |
+| `mavros/local_position/velocity_local` | geometry_msgs/TwistStamped | mavros_replicator | mas_common_frame | RELIABLE |
+| `mavros/local_position/odom` | nav_msgs/Odometry | mavros_replicator | mas_policy.observation_assembler | RELIABLE |
+| `mavros/setpoint_velocity/cmd_vel` | geometry_msgs/TwistStamped | offboard_control / mas_mission | mavros_replicator | default |
+| `mavros/imu/data` | sensor_msgs/Imu | mavros_replicator | mas_policy, siyi_gimbal_node (joint derivation) | BEST_EFFORT |
+| `mavros/home_position/home` | mavros_msgs/HomePosition | mavros_replicator | mas_common_frame | RELIABLE, transient local |
+| `mavros/global_position/global` | sensor_msgs/NavSatFix | (deferred) | siyi_gimbal_node (0x3E GPS) | BEST_EFFORT |
 
 ### Services
 
 | Service | Type | Node | Notes |
 |---------|------|------|-------|
-| `mavros/cmd/arming` | mavros_msgs/CommandBool | offboard_control (client) | Arm/disarm |
-| `mavros/set_mode` | mavros_msgs/SetMode | offboard_control (client) | Set OFFBOARD mode |
+| `mavros/cmd/arming` | mavros_msgs/CommandBool | offboard_control (client) | Arm/disarm — **deferred in mavros_replicator v1**, see ticket 040 |
+| `mavros/set_mode` | mavros_msgs/SetMode | offboard_control (client) | Set OFFBOARD mode — **deferred in mavros_replicator v1**, see ticket 040 |
 | `~/reset_hidden_state` | std_srvs/Trigger | mas_policy | Reset GRU hidden states |
 
 ## Parameters
@@ -130,6 +132,7 @@ All topics below are per-vehicle, resolved within `/{veh}/` namespace unless not
 | `mas_mission` | ament_python | mission_node | Mission state machine + command routing |
 | `mas_offboard` | ament_python | offboard_control | Per-vehicle PX4 offboard controller |
 | `mas_operator` | ament_python | operator_node | Operator monitoring, alerts, mission commands (ground station) |
+| `mavros_replicator` | ament_python | mavros_replicator | px4_msgs (NED/FRD) → MAVROS-shaped (ENU/FLU); replaces MAVROS over uXRCE-DDS bridge. Spec: `doc/mavros_replicator_spec.md` |
 
 ## Launch System
 

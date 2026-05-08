@@ -22,13 +22,15 @@ windows:
     # name, so the XML reference file must be loaded with -r.
     - MicroXRCEAgent udp4 -p 8888 -r ${ROS2_WORKSPACE}/drone_config/px4/dds_xrce_profile.xml -v 4
 
-- window_name: mavros
+- window_name: mavros_replicator
   focus: true
   layout: tiled
   panes:
-    - ros2 run mavros mavros_node --ros-args -p fcu_url:=${FCU_URL} -p tgt_system:=${TGT_SYSTEM} -p local_position.tf.frame_id:=${ROBOT_NAME}/map -p local_position.tf.child_frame_id:=${ROBOT_NAME}/base_link -p global_position.frame_id:=${ROBOT_NAME}/map -p global_position.child_frame_id:=${ROBOT_NAME}/base_link -p plugin_denylist:='[param, ftp, waypoint, rallypoint, geofence, wheel_odometry, vision_pose, vision_speed, mocap_pose_estimate]' -r __ns:=/${ROBOT_NAME}/mavros
-    - |
-      sleep 5 && ros2 service call /${ROBOT_NAME}/mavros/set_message_interval mavros_msgs/srv/MessageInterval "{message_id: 31, message_rate: 200.0}" # `ATTITUDE_QUATERNION` (msg 31) bumps `mavros/imu/data` topic
+    # Translates /${ROBOT_NAME}/fmu/out/* (px4_msgs, NED/FRD) to MAVROS-shaped
+    # /${ROBOT_NAME}/mavros/* (ENU/FLU). Replaces the previous MAVROS node so
+    # px4_msgs stays scoped to this single package. See
+    # src/doc/mavros_replicator_spec.md and ticket 040.
+    - ros2 launch mavros_replicator replicator.launch.py robot_name:=${ROBOT_NAME}
 
 - window_name: frame
   focus: false
