@@ -20,8 +20,12 @@ import rclpy
 from rclpy.node import Node
 from std_srvs.srv import Trigger
 
-from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
-from std_msgs.msg import Float32, Float32MultiArray
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
+from std_msgs.msg import Float32, Float32MultiArray, Int8
+
+# mas_mission state machine constants (mirrors mas_mission/mission_node.py).
+# Inlined to avoid a cross-package import dependency.
+_MISSION_STATE_MISSION = 2
 from .policy_loader import load_checkpoint, PolicyNetRNN, ValueNetRNN
 from .observation_assembler import ObservationAssembler
 from .action_publisher import ActionPublisher
@@ -54,6 +58,7 @@ class PolicyDeployNode(Node):
         self.declare_parameter('max_zoom_rate', 2.0)
         self.declare_parameter('enable_cbf', True)
         self.declare_parameter('enable_triangulation', False)
+        self.declare_parameter('enable_value_net', False)
         self.declare_parameter('image_width', 640)
         self.declare_parameter('image_height', 480)
         self.declare_parameter('max_bbox_aoi', 20.0)
@@ -69,6 +74,26 @@ class PolicyDeployNode(Node):
         self.declare_parameter('cbf_tau_px4', 0.3)
         self.declare_parameter('cbf_gamma_deploy', 1.0)
         self.declare_parameter('cbf_num_iters', 2)
+
+        # --- Action slew-rate clip (training ticket 044) ---
+        # Per-channel hard clip on |Δaction| (normalized [-1,1] units) per
+        # control step, mirroring iris_ma_env6_test._pre_physics_step. Defaults
+        # match IrisMA6TestEnvCfg.action_slew_* at dt = sim.dt × decimation = 0.04 s.
+        self.declare_parameter('enable_action_slew_clip', True)
+        self.declare_parameter('action_slew_vel_xy', 0.040)
+        self.declare_parameter('action_slew_vel_z', 0.053)
+        self.declare_parameter('action_slew_yaw_rate', 0.30)
+        self.declare_parameter('action_slew_gimbal_yaw_rate', 0.40)
+        self.declare_parameter('action_slew_gimbal_pitch_rate', 0.40)
+        self.declare_parameter('action_slew_zoom_rate', 0.20)
+
+        # --- Prev-action obs tail (training ticket 043) ---
+        self.declare_parameter('enable_prev_action_obs', True)
+
+        # --- Asymmetric vertical velocity envelope (training ticket 039) ---
+        self.declare_parameter('enable_asymmetric_z_envelope', True)
+        self.declare_parameter('max_vel_z_up', 3.0)
+        self.declare_parameter('max_vel_z_dn', 1.5)
 
         # --- Read parameters ---
         self._vehicle_name = self.get_parameter('vehicle_name').get_parameter_value().string_value
@@ -91,6 +116,7 @@ class PolicyDeployNode(Node):
         max_zoom_rate = self.get_parameter('max_zoom_rate').get_parameter_value().double_value
         enable_cbf = self.get_parameter('enable_cbf').get_parameter_value().bool_value
         enable_tri = self.get_parameter('enable_triangulation').get_parameter_value().bool_value
+        enable_value_net = self.get_parameter('enable_value_net').get_parameter_value().bool_value
         image_w = self.get_parameter('image_width').get_parameter_value().integer_value
         image_h = self.get_parameter('image_height').get_parameter_value().integer_value
         max_bbox_aoi = self.get_parameter('max_bbox_aoi').get_parameter_value().double_value
@@ -99,13 +125,50 @@ class PolicyDeployNode(Node):
         use_common_frame = self.get_parameter('use_common_frame').get_parameter_value().bool_value
         self._stale_timeout = self.get_parameter('stale_timeout').get_parameter_value().double_value
 
+        # Action slew-rate clip (training ticket 044). Channel order:
+        # [vx, vy, vz, yaw_rate, gimbal_yaw_rate, gimbal_pitch_rate, zoom_rate].
+        self._enable_action_slew_clip = (
+            self.get_parameter('enable_action_slew_clip').get_parameter_value().bool_value
+        )
+        self._action_slew_max = np.array([
+            self.get_parameter('action_slew_vel_xy').get_parameter_value().double_value,
+            self.get_parameter('action_slew_vel_xy').get_parameter_value().double_value,
+            self.get_parameter('action_slew_vel_z').get_parameter_value().double_value,
+            self.get_parameter('action_slew_yaw_rate').get_parameter_value().double_value,
+            self.get_parameter('action_slew_gimbal_yaw_rate').get_parameter_value().double_value,
+            self.get_parameter('action_slew_gimbal_pitch_rate').get_parameter_value().double_value,
+            self.get_parameter('action_slew_zoom_rate').get_parameter_value().double_value,
+        ], dtype=np.float32)
+        # Previous applied (clipped) action; reset to zero on MISSION entry and
+        # on stale-data zero-publish, mirroring the env's _last_actions reset.
+        self._last_action = np.zeros(self._action_dim, dtype=np.float32)
+
+        # Prev-action obs tail (ticket 043) + asymmetric z envelope (ticket 039).
+        # The tail is the previous cmd_vel built from the slew-clipped action; its
+        # vz uses the same asymmetric scaling as the published command.
+        self._enable_prev_action_obs = (
+            self.get_parameter('enable_prev_action_obs').get_parameter_value().bool_value
+        )
+        self._enable_asymmetric_z_envelope = (
+            self.get_parameter('enable_asymmetric_z_envelope').get_parameter_value().bool_value
+        )
+        self._max_vel_z_up = self.get_parameter('max_vel_z_up').get_parameter_value().double_value
+        self._max_vel_z_dn = self.get_parameter('max_vel_z_dn').get_parameter_value().double_value
+        self._max_yaw_rate = max_yaw_rate
+
         self._device = torch.device(device_str)
         self._architecture = architecture
         self._max_lin_vel = max_lin_vel
         self._num_agents = 1 + len(self._peer_names)
 
-        # Compute obs_dim from num_agents: 31 ego + 16*(N-1) inter-agent [+ 6 tri]
-        self._obs_dim = 31 + 16 * (num_agents - 1) + (6 if enable_tri else 0)
+        # Compute obs_dim from num_agents: 31 ego [+ 7 prev-action] + 16*(N-1)
+        # inter-agent [+ 6 tri]
+        self._obs_dim = (
+            31
+            + (7 if self._enable_prev_action_obs else 0)
+            + 16 * (num_agents - 1)
+            + (6 if enable_tri else 0)
+        )
 
         # Validate peer count matches num_agents
         if self._num_agents != num_agents:
@@ -143,6 +206,7 @@ class PolicyDeployNode(Node):
                 num_agents=num_agents,
                 device=self._device,
                 agent_id=agent_id,
+                enable_value_net=enable_value_net,
             )
             self.get_logger().info(
                 f"Policy loaded: {architecture}, obs={self._obs_dim} "
@@ -170,6 +234,7 @@ class PolicyDeployNode(Node):
             enable_triangulation=enable_tri,
             use_common_frame=use_common_frame,
             max_bbox_aoi=max_bbox_aoi,
+            enable_prev_action_obs=self._enable_prev_action_obs,
         )
 
         # Validate obs_dim consistency between node formula and assembler
@@ -184,6 +249,9 @@ class PolicyDeployNode(Node):
             max_yaw_rate=max_yaw_rate,
             max_gimbal_rate=max_gimbal_rate,
             max_zoom_rate=max_zoom_rate,
+            enable_asymmetric_z_envelope=self._enable_asymmetric_z_envelope,
+            max_vel_z_up=self._max_vel_z_up,
+            max_vel_z_dn=self._max_vel_z_dn,
         )
 
         # --- Value publisher ---
@@ -225,6 +293,23 @@ class PolicyDeployNode(Node):
         # --- Hidden state reset service ---
         self.create_service(Trigger, '~/reset_hidden_state', self._reset_hidden_callback)
 
+        # --- Mission state subscription (in-process RNN reset on MISSION entry) ---
+        # Race-free counterpart to the operator-side `call_reset_hidden()` keypress.
+        # We detect the IDLE/TRACKING → MISSION rising edge inside _control_loop
+        # *before* inference, so the first MISSION-gated cmd_vel always uses
+        # a freshly initialized GRU hidden state.
+        self._latest_mission_state: int | None = None
+        self._prev_mission_state: int | None = None
+        mission_qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,  # match mas_mission latched publisher
+        )
+        self.create_subscription(
+            Int8, 'mission_state', self._mission_state_cb, mission_qos,
+        )
+
         # --- Control timer ---
         timer_period = 1.0 / control_freq
         self._timer = self.create_timer(timer_period, self._control_loop)
@@ -235,12 +320,41 @@ class PolicyDeployNode(Node):
             f"{control_freq} Hz, dry_run={self._dry_run}, cbf={enable_cbf}"
         )
 
+    def _compute_cmd_vel_obs(self, action_np: np.ndarray) -> np.ndarray:
+        """Replicate the env cmd_vel for the prev-action obs tail (ticket 043).
+
+        Mirrors iris_ma_env6_test._pre_physics_step: vx/vy scaled by max_lin_vel,
+        vz by the asymmetric z envelope, yaw_rate by max_yaw_rate, and gimbal/zoom
+        left normalized. Input is the slew-clipped (pre-CBF) action, matching the
+        env where _cmd_vel_filt is built from the same action that feeds
+        _last_actions.
+
+        Returns:
+            7D array [vx,vy,vz (m/s), yaw_rate (rad/s), g_yaw, g_pitch, zoom].
+        """
+        cmd = np.zeros(7, dtype=np.float32)
+        cmd[0] = action_np[0] * self._max_lin_vel
+        cmd[1] = action_np[1] * self._max_lin_vel
+        if self._enable_asymmetric_z_envelope:
+            z = float(action_np[2])
+            cmd[2] = z * (self._max_vel_z_up if z >= 0.0 else self._max_vel_z_dn)
+        else:
+            cmd[2] = action_np[2] * self._max_lin_vel
+        cmd[3] = action_np[3] * self._max_yaw_rate
+        cmd[4] = action_np[4]  # gimbal yaw rate (normalized)
+        cmd[5] = action_np[5]  # gimbal pitch rate (normalized)
+        cmd[6] = action_np[6]  # zoom rate (normalized)
+        return cmd
+
     def _reset_hidden_callback(self, request, response):
         """Service callback to reset GRU hidden state."""
         if isinstance(self._policy, PolicyNetRNN):
             self._hidden_state = self._policy.init_hidden(self._device)
         if isinstance(self._value_net, ValueNetRNN):
             self._value_hidden_state = self._value_net.init_hidden(self._device)
+        # Treat as an episode reset: clear slew + prev-action buffers too.
+        self._last_action = np.zeros(self._action_dim, dtype=np.float32)
+        self._assembler.set_prev_action(np.zeros(7, dtype=np.float32))
         response.success = True
         response.message = "Hidden state reset"
         self.get_logger().info("GRU hidden state reset via service call")
@@ -250,9 +364,29 @@ class PolicyDeployNode(Node):
         """Cache peer's assembled observation vector for value network."""
         self._peer_obs[veh] = np.array(msg.data, dtype=np.float32)
 
+    def _mission_state_cb(self, msg: Int8):
+        """Cache latest mission state; rising-edge transition handled in _control_loop."""
+        self._latest_mission_state = int(msg.data)
+
     def _control_loop(self):
         """Main control loop running at policy frequency (25 Hz)."""
         now = self.get_clock().now().nanoseconds / 1e9
+
+        # Rising-edge into MISSION → reset GRU hidden state in-process so the
+        # first MISSION-gated action uses a fresh hidden state. This eliminates
+        # the cross-node service round-trip race from operator_node.call_reset_hidden
+        # (~360ms in bag_20260511_225620_2f8907ebed) which let stale-state
+        # actions reach PX4 before the reset landed.
+        if (self._latest_mission_state == _MISSION_STATE_MISSION
+                and self._prev_mission_state != _MISSION_STATE_MISSION):
+            if isinstance(self._policy, PolicyNetRNN):
+                self._hidden_state = self._policy.init_hidden(self._device)
+            if isinstance(self._value_net, ValueNetRNN):
+                self._value_hidden_state = self._value_net.init_hidden(self._device)
+            self._last_action = np.zeros(self._action_dim, dtype=np.float32)
+            self._assembler.set_prev_action(np.zeros(7, dtype=np.float32))
+            self.get_logger().info("GRU hidden state reset on MISSION entry (in-process)")
+        self._prev_mission_state = self._latest_mission_state
 
         # Check if ego has data
         ego_state = self._assembler.ego_state
@@ -278,6 +412,9 @@ class PolicyDeployNode(Node):
                 self._value_hidden_state = self._value_net.init_hidden(self._device)
             if not self._dry_run:
                 self._action_pub.publish_zero()
+            # Commanded zero → next live action slews from zero (env reset parity).
+            self._last_action = np.zeros(self._action_dim, dtype=np.float32)
+            self._assembler.set_prev_action(np.zeros(7, dtype=np.float32))
             self._tick_count += 1
             return
 
@@ -326,6 +463,23 @@ class PolicyDeployNode(Node):
                     value_msg = Float32()
                     value_msg.data = float(value_tensor.item())
                     self._value_pub.publish(value_msg)
+
+        # 3c. Per-channel slew-rate clip on raw normalized actions (ticket 044).
+        # Mirrors iris_ma_env6_test._pre_physics_step: bound |Δaction| ≤ δ_max
+        # per channel against the previous applied action, in [-1,1] units,
+        # BEFORE scaling and the CBF filter. _last_action tracks the slew-clipped
+        # (pre-CBF) action, matching the env's _last_actions semantics.
+        if self._enable_action_slew_clip:
+            lo = self._last_action - self._action_slew_max
+            hi = self._last_action + self._action_slew_max
+            action_np = np.clip(action_np, lo, hi)
+        self._last_action = action_np.copy()
+
+        # 3d. Cache this step's cmd_vel for next loop's prev-action obs tail
+        # (ticket 043). Built from the slew-clipped (pre-CBF) action, matching
+        # the env where _cmd_vel_filt derives from the same action as _last_actions.
+        if self._enable_prev_action_obs:
+            self._assembler.set_prev_action(self._compute_cmd_vel_obs(action_np))
 
         # 4. Apply CBF safety filter to velocity portion
         if self._cbf_filter is not None:

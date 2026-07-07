@@ -1,6 +1,10 @@
 # MAS
 Multi-Agent Antidrone System
 
+## Version Info
+- PX4: v1.15
+- ROS2: humble
+
 ## Installation
 ### Network Setting
 Needed for controlling gimbal in different local IP (192.168.144.x)

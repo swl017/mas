@@ -18,8 +18,9 @@ Replaces MAVROS on each vehicle so downstream MAS nodes (`mas_common_frame`, `ma
 | `/{robot_name}/fmu/out/sensor_combined` | `px4_msgs/SensorCombined` |
 | `/{robot_name}/fmu/out/vehicle_status` | `px4_msgs/VehicleStatus` |
 | `/{robot_name}/fmu/out/vehicle_control_mode` | `px4_msgs/VehicleControlMode` |
-| `/{robot_name}/fmu/out/home_position` | `px4_msgs/HomePosition` |
+| `/{robot_name}/fmu/out/vehicle_local_position` | `px4_msgs/VehicleLocalPosition` (source for `mavros/home_position/home`; PX4 does not export `home_position` over uXRCE-DDS) |
 | `/{robot_name}/mavros/setpoint_velocity/cmd_vel` | `geometry_msgs/TwistStamped` |
+| `/{robot_name}/mavros/setpoint_position/local` | `geometry_msgs/PoseStamped` (ENU position + FLU→ENU quaternion; converted to NED + yaw scalar) |
 
 ### Publishes (MAVROS side, RELIABLE KEEP_LAST 10 unless noted)
 
@@ -31,7 +32,7 @@ Replaces MAVROS on each vehicle so downstream MAS nodes (`mas_common_frame`, `ma
 | `/{robot_name}/mavros/local_position/odom` | `nav_msgs/Odometry` | pose ENU world, twist FLU body |
 | `/{robot_name}/mavros/imu/data` | `sensor_msgs/Imu` | |
 | `/{robot_name}/mavros/state` | `mavros_msgs/State` | 5 Hz (timer-driven, freshness-checked) |
-| `/{robot_name}/mavros/home_position/home` | `mavros_msgs/HomePosition` | TRANSIENT_LOCAL depth=1 |
+| `/{robot_name}/mavros/home_position/home` | `mavros_msgs/HomePosition` | TRANSIENT_LOCAL depth=1, derived from `vehicle_local_position.ref_*`; republished only when EKF origin changes |
 | `/{robot_name}/fmu/in/offboard_control_mode` | `px4_msgs/OffboardControlMode` | per cmd_vel arrival |
 | `/{robot_name}/fmu/in/trajectory_setpoint` | `px4_msgs/TrajectorySetpoint` | per cmd_vel arrival |
 
@@ -47,6 +48,15 @@ Replaces MAVROS on each vehicle so downstream MAS nodes (`mas_common_frame`, `ma
 ### Dependencies
 
 `rclpy`, `numpy`, `geometry_msgs`, `geographic_msgs`, `nav_msgs`, `sensor_msgs`, `mavros_msgs`, `px4_msgs`.
+
+### px4_msgs branch must match firmware
+
+`src/px4_msgs/` is vendored; check out the branch that matches the running PX4:
+
+- **Pegasus simulation** (PX4 v1.14.x) → `git -C src/px4_msgs checkout release/1.14`
+- **Real hardware** (PX4 v1.15.x) → `git -C src/px4_msgs checkout release/1.15`
+
+A mismatch shows up as a stream of `Fast CDR exception deserializing message of type px4_msgs::msg::dds_::VehicleStatus_./VehicleLocalPosition_.` warnings on the replicator, with `ros2 topic echo /{robot}/fmu/out/...` returning nothing. Several layouts changed between 1.14 and 1.15 (incl. `VehicleStatus`, `VehicleLocalPosition`, and `OffboardControlMode`). The replicator code is written to be neutral across branches (e.g. it never sets the 1.14-only `OffboardControlMode.actuator` or the 1.15-only `thrust_and_torque`/`direct_actuator`).
 
 ## Files
 

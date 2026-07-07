@@ -1,0 +1,37 @@
+# Ticket 004 engagement initial conditions (50 m). Used via
+#   offboard.launch.py config_file:=config/vehicles_engagement.yaml
+# so the shared vehicles.yaml is untouched. px4_1 = interceptor, px4_2 = target.
+#
+# CROSSING geometry (contained + best ego-only observability): target at origin
+# flying +x (east, the target_maneuver default heading); interceptor 50 m to the
+# −y side facing +y (north) at the target, so the target's forward motion is
+# perpendicular to the LOS → strong, sustained LOS rotation (parallax).
+# Range(px4_1, px4_2) = 50 m. The conductor (Slice 5) will override per-trial for
+# the geometry axis (tail_chase needs ~100 m of space; size the world for it).
+vehicles:
+  - namespace: "px4_1"          # interceptor — 50 m south, facing north at target
+    target_system: 2
+    position:
+      x: 0.0
+      y: -50.0
+      z: 28.0
+      yaw_deg: 90.0
+  - namespace: "px4_2"          # target — origin, flies +x (east)
+    target_system: 3
+    position:
+      x: 0.0
+      y: 0.0
+      z: 30.0
+      yaw_deg: 0.0
+  - namespace: "px4_3"
+    target_system: 4
+    position: {x: 3.0, y: 3.0, z: 32.0, yaw_deg: -45.0}
+  - namespace: "px4_4"
+    target_system: 5
+    position: {x: 1.0, y: 1.0, z: 18.0, yaw_deg: 0.0}
+  - namespace: "px4_5"
+    target_system: 6
+    position: {x: 2.0, y: 1.0, z: 20.0, yaw_deg: 0.0}
+  - namespace: "px4_6"
+    target_system: 7
+    position: {x: 3.0, y: 1.0, z: 22.0, yaw_deg: 0.0}

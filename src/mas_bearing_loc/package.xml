@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>mas_bearing_loc</name>
+  <version>0.0.1</version>
+  <description>
+    Single-view monocular bearing-only target localization via a Delay-Compensated
+    Extended Kalman Filter (DC-EKF), reproducing Liu et al. (arXiv 2606.10639,
+    "Planar-Sector LOS Guidance"), Section III-E.
+
+    The 18D state EKF fuses high-rate IMU with delayed normalized image features
+    (gimbal + YOLO bbox center) using IMU buffering and backward-update/forward-replay
+    delay compensation. Intended primarily as a single-agent baseline for comparison
+    against cooperative multi-view triangulation.
+  </description>
+  <maintainer email="seungwook1024@gmail.com">usrg</maintainer>
+  <license>BSD-3-Clause</license>
+
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>vision_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>tf_transformations</depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

@@ -257,6 +257,7 @@ def load_checkpoint(
     num_agents: int = 1,
     device: torch.device = torch.device("cpu"),
     agent_id: str = "",
+    enable_value_net: bool = False,
 ) -> tuple[nn.Module, ScalerState, ValueNetRNN | None, ScalerState | None]:
     """Load SKRL checkpoint and construct standalone policy + value networks.
 
@@ -367,7 +368,7 @@ def load_checkpoint(
     # --- Construct and load value network (optional) ---
     value_net = None
     shared_scaler = None
-    if value_state_dict is not None and architecture == "mappo_rnn":
+    if value_state_dict is not None and architecture == "mappo_rnn" and enable_value_net is True:
         # Infer shared state dim from value network's first layer
         first_weight = value_state_dict.get("net.0.weight")
         if first_weight is not None:

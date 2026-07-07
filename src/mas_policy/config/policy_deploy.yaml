@@ -9,25 +9,51 @@
     num_agents: 2        # obs_dim computed: 31 + 16*(num_agents-1) [+ 6 triangulation]
     action_dim: 7        # vx, vy, vz, yaw_rate, gimbal_az_rate, gimbal_el_rate, zoom_rate
     architecture: "mappo_rnn"  # "mappo_rnn" or "ppo_mlp"
-    hidden_size: 64
-    gru_hidden_size: 64
+    hidden_size: 256
+    gru_hidden_size: 256
     gru_num_layers: 1
 
     # --- Control ---
     control_frequency: 25.0  # Hz (must match training decimation)
-    max_lin_vel: 10.0        # m/s
+    max_lin_vel: 5.0         # m/s (matches training IrisMA6TestEnvCfg.max_lin_vel, post-t045)
     max_yaw_rate: 0.7854     # rad/s (45 deg/s)
-    max_gimbal_rate: 3.141592653589793  # rad/s (180 deg/s, must match training env)
+    max_gimbal_rate: 1.28  # rad/s (180 deg/s, must match training env)
     max_zoom_rate: 2.0       # zoom-levels/s (must match training env ZoomControllerCfg)
     device: "cuda:0"
 
+    # --- Asymmetric vertical envelope (training ticket 039) ---
+    # vz scaled by max_vel_z_up (climb) / max_vel_z_dn (descend) instead of the
+    # symmetric max_lin_vel. Matches IrisMA6TestEnvCfg (MPC_Z_VEL_MAX_UP/DN).
+    enable_asymmetric_z_envelope: true
+    max_vel_z_up: 3.0        # m/s climb  (action[2] >= 0)
+    max_vel_z_dn: 1.5        # m/s descend (action[2] < 0)
+
+    # --- Prev-action observation tail (training ticket 043) ---
+    # Append the previous cmd_vel (7D) to each ego observation. Must be ON to
+    # match the agent_400000.pt checkpoint (trained with enable_prev_action_obs=True).
+    enable_prev_action_obs: true
+
     # --- Observation ---
-    image_width: 640
-    image_height: 480
+    image_width: 1920
+    image_height: 1080
     max_bbox_aoi: 20.0       # clip bbox age-of-information (s), matches training episode length
     enable_triangulation: false
     use_common_frame: true
     stale_timeout: 2.0
+
+    # --- Action slew-rate clip (training ticket 044) ---
+    # Hard per-channel clip on |Δaction| per control step in normalized [-1,1]
+    # units, replicating IrisMA6TestEnvCfg.action_slew_*. Defaults assume
+    # dt = 0.04 s (25 Hz). Channel order matches action_dim.
+    # Defaults match the 2026-06-04 ticket047_D_curriculum_cold run (agent_400000.pt
+    # deployment baseline), which trained with the clip ON at the cfg defaults below.
+    enable_action_slew_clip: true
+    action_slew_vel_xy: 0.040           # MPC_ACC_HOR_MAX (5 m/s²) × 0.04 / max_lin_vel (5)
+    action_slew_vel_z: 0.053            # MPC_ACC_UP_MAX (4 m/s²) × 0.04 / max_vel_z_up (3)
+    action_slew_yaw_rate: 0.30
+    action_slew_gimbal_yaw_rate: 0.40
+    action_slew_gimbal_pitch_rate: 0.40
+    action_slew_zoom_rate: 0.20
 
     # --- Safety ---
     enable_cbf: false

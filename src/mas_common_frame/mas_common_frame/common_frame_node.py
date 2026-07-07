@@ -1,7 +1,7 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
-from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, TwistStamped
+from geometry_msgs.msg import PointStamped, PoseStamped, PoseWithCovarianceStamped, TwistStamped
 from nav_msgs.msg import Odometry
 from mavros_msgs.msg import HomePosition
 from tf2_ros import TransformBroadcaster
@@ -45,8 +45,30 @@ class CommonFrameNode(Node):
             depth=1
         )
 
+        # MAVROS publishes home_position as latched (TRANSIENT_LOCAL + RELIABLE);
+        # subscribers must match TRANSIENT_LOCAL to pick up the retained message
+        # when starting after the home has already been set.
+        home_position_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+
         # Initialize transform broadcaster for tf2
         self.tf_broadcaster = TransformBroadcaster(self)
+
+        # Latched QoS for the static common→local offset publisher (matches
+        # the home_position latching pattern; one-shot on EKF init).
+        latched_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+
+        # Per-vehicle publisher for common_frame/local_origin
+        self.local_origin_pubs: dict[str, rclpy.publisher.Publisher] = {}
 
         # Create publishers and subscribers for each vehicle
         self.gp_origin_subs = []
@@ -69,7 +91,7 @@ class CommonFrameNode(Node):
                     HomePosition,
                     f'/{vehicle_name}/mavros/home_position/home',
                     lambda msg, vn=vehicle_name: self.home_position_callback(msg, vn),
-                    qos_profile
+                    home_position_qos
                 )
             )
 
@@ -116,6 +138,13 @@ class CommonFrameNode(Node):
                 qos_profile
             )
 
+            # Static common→local offset, latched (see single-vehicle node).
+            self.local_origin_pubs[vehicle_name] = self.create_publisher(
+                PointStamped,
+                f'/{vehicle_name}/common_frame/local_origin',
+                latched_qos,
+            )
+
         self.get_logger().info(f'CommonFrameNode initialized with {self.num_vehicles} vehicles (EKF-direct, callback-driven)')
 
     def home_position_callback(self, msg: HomePosition, vehicle_name):
@@ -139,6 +168,15 @@ class CommonFrameNode(Node):
             f"offset=({robot.mission_frame_offset[0]:.2f}, {robot.mission_frame_offset[1]:.2f}, {robot.mission_frame_offset[2]:.2f})m",
             once=True
         )
+
+        # Latched broadcast of the constant common→local offset.
+        origin_msg = PointStamped()
+        origin_msg.header.stamp = self.get_clock().now().to_msg()
+        origin_msg.header.frame_id = 'common_frame'
+        origin_msg.point.x = float(robot.mission_frame_offset[0])
+        origin_msg.point.y = float(robot.mission_frame_offset[1])
+        origin_msg.point.z = float(robot.mission_frame_offset[2])
+        self.local_origin_pubs[vehicle_name].publish(origin_msg)
 
     def local_position_callback(self, msg: PoseStamped, vehicle_name):
         """Cache EKF local position and orientation, then publish immediately."""

@@ -32,11 +32,11 @@ from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Imu
 
 from px4_msgs.msg import (
-    HomePosition as Px4HomePosition,
     OffboardControlMode,
     SensorCombined,
     TrajectorySetpoint,
     VehicleControlMode,
+    VehicleLocalPosition,
     VehicleOdometry,
     VehicleStatus,
 )
@@ -111,6 +111,9 @@ class MavrosReplicator(Node):
         self._latest_status: VehicleStatus | None = None
         self._latest_status_recv_time: float = 0.0
         self._latest_control_mode: VehicleControlMode | None = None
+        # Last EKF origin (ref_lat, ref_lon, ref_alt) we have already published as
+        # mavros home_position — used to latch one-shot republishes on origin change.
+        self._last_ref_lla: tuple[float, float, float] | None = None
         self._warned_pose_frame = False
         self._warned_velocity_frame = False
         self._warned_q_invalid = False
@@ -132,10 +135,14 @@ class MavrosReplicator(Node):
             self._on_control_mode,
             be,
         )
+        # PX4's stock uXRCE-DDS topic whitelist does not include `home_position`,
+        # so we derive the MAVROS home_position from `vehicle_local_position.ref_*`
+        # (the EKF local-frame origin in LLH) — that is the same quantity
+        # `mas_common_frame` consumes from `home_position.geo.*`.
         self.create_subscription(
-            Px4HomePosition,
-            f"{self.fmu_out}/home_position",
-            self._on_home_position,
+            VehicleLocalPosition,
+            f"{self.fmu_out}/vehicle_local_position",
+            self._on_local_position,
             be,
         )
 
@@ -161,11 +168,22 @@ class MavrosReplicator(Node):
             _mavros_latched_qos(),
         )
 
-        # Setpoint pipeline (ROS → PX4).
+        # Setpoint pipeline (ROS → PX4). Both velocity and position MAVROS
+        # topics feed the same /fmu/in/trajectory_setpoint + offboard_control_mode
+        # pair; the latest message on either topic wins. The OffboardControlMode
+        # flags tell PX4 which fields of TrajectorySetpoint are authoritative,
+        # so callers can freely alternate between position and velocity
+        # commands without dropping out of OFFBOARD.
         self.create_subscription(
             TwistStamped,
             f"{self.mavros_ns}/setpoint_velocity/cmd_vel",
             self._on_cmd_vel,
+            rel,
+        )
+        self.create_subscription(
+            PoseStamped,
+            f"{self.mavros_ns}/setpoint_position/local",
+            self._on_setpoint_position,
             rel,
         )
         self.pub_offboard_mode = self.create_publisher(
@@ -239,9 +257,6 @@ class MavrosReplicator(Node):
         velocity_world_enu = frames.vector_world_ned_to_enu(msg.velocity)
         # Body-frame angular velocity from PX4 is in FRD (per VehicleOdometry.msg comment).
         angular_velocity_flu = frames.vector_body_frd_to_flu(msg.angular_velocity)
-        # World ENU → body FLU for odom.twist.linear.
-        R_world_body = frames.quat_to_matrix_xyzw(q_enu_flu)
-        velocity_body_flu = R_world_body.T @ velocity_world_enu
 
         stamp = self._now_stamp()
 
@@ -273,9 +288,11 @@ class MavrosReplicator(Node):
         odom.child_frame_id = self.frame_id_body
         odom.pose.pose = pose.pose
         odom.pose.covariance = pose_cov.pose.covariance
-        odom.twist.twist.linear = self._vec_to_vector3(velocity_body_flu)
+        # REP-147 aerial convention: linear in world ENU (deviates from nav_msgs/Odometry
+        # child_frame doc string), angular in body FLU. Matches PX4 VehicleOdometry.
+        odom.twist.twist.linear = self._vec_to_vector3(velocity_world_enu)
         odom.twist.twist.angular = self._vec_to_vector3(angular_velocity_flu)
-        odom.twist.covariance = frames.odom_twist_covariance(msg.velocity_variance, q_enu_flu)
+        odom.twist.covariance = frames.velocity_local_covariance_ned_to_enu(msg.velocity_variance)
         self.pub_odom.publish(odom)
 
     def _on_sensor_combined(self, msg: SensorCombined) -> None:
@@ -321,30 +338,37 @@ class MavrosReplicator(Node):
         st.system_status = 0  # PX4 doesn't expose MAVLink MAV_STATE; leave UNINIT
         self.pub_state.publish(st)
 
-    def _on_home_position(self, msg: Px4HomePosition) -> None:
-        if not (msg.valid_hpos and msg.valid_lpos):
-            return  # do not publish until PX4 gives a valid home (per spec §12)
+    def _on_local_position(self, msg: VehicleLocalPosition) -> None:
+        # Wait until the EKF declares both horizontal and vertical global refs valid.
+        if not (msg.xy_global and msg.z_global):
+            return
+
+        ref_lla = (float(msg.ref_lat), float(msg.ref_lon), float(msg.ref_alt))
+        # Latch: republish only when the EKF origin actually changes (e.g. on
+        # EKF reset). vehicle_local_position arrives at ~100 Hz; we don't want to
+        # spam the TRANSIENT_LOCAL home_position topic at that rate.
+        if self._last_ref_lla == ref_lla:
+            return
+        self._last_ref_lla = ref_lla
 
         out = MavrosHomePosition()
         out.header.stamp = self._now_stamp()
         out.header.frame_id = self.frame_id_world
         out.geo = GeoPoint()
-        out.geo.latitude = float(msg.lat)
-        out.geo.longitude = float(msg.lon)
-        out.geo.altitude = float(msg.alt) if msg.valid_alt else 0.0
+        out.geo.latitude = ref_lla[0]
+        out.geo.longitude = ref_lla[1]
+        out.geo.altitude = ref_lla[2]
 
-        # Local position is NED in PX4 — convert to ENU.
-        position_enu = frames.position_ned_to_enu([msg.x, msg.y, msg.z])
-        out.position = self._vec_to_point(position_enu)
+        # The EKF reference IS the local-frame origin, so the home's local-frame
+        # position is identically zero (in either NED or ENU).
+        out.position = self._vec_to_point(np.zeros(3))
 
-        # Build orientation from PX4 home yaw (NED) → ENU yaw quaternion (FLU body, level).
-        # NED yaw ψ measured CW from north (i.e., about +Z down). ENU yaw ψ' = π/2 - ψ
-        # (rotate from "from north CW" to "from east CCW"). Build q from yaw only.
-        yaw_enu = math.pi / 2.0 - float(msg.yaw)
+        # Real MAVROS leaves HOME_POSITION.orientation at identity (the heading
+        # at the moment home was set is reported through `approach`, which we
+        # also leave zero — PX4's uXRCE-DDS does not export that snapshot).
+        # mas_common_frame ignores this field; identity is the safe default.
         out.orientation = Quaternion()
-        out.orientation.z = math.sin(yaw_enu / 2.0)
-        out.orientation.w = math.cos(yaw_enu / 2.0)
-        # approach: not provided by PX4 home_position → leave zero.
+        out.orientation.w = 1.0
         self.pub_home.publish(out)
 
     def _on_cmd_vel(self, msg: TwistStamped) -> None:
@@ -363,8 +387,9 @@ class MavrosReplicator(Node):
         ocm.acceleration = False
         ocm.attitude = False
         ocm.body_rate = False
-        ocm.thrust_and_torque = False
-        ocm.direct_actuator = False
+        # Do not set actuator / thrust_and_torque / direct_actuator: PX4 1.14 has
+        # `actuator`, 1.15 split it into `thrust_and_torque` + `direct_actuator`.
+        # All default to False in either schema, which is what we want.
         self.pub_offboard_mode.publish(ocm)
 
         nan = float("nan")
@@ -376,6 +401,44 @@ class MavrosReplicator(Node):
         ts.jerk = [nan, nan, nan]
         ts.yaw = nan
         ts.yawspeed = float(yawspeed_ned)
+        self.pub_trajectory_setpoint.publish(ts)
+
+    def _on_setpoint_position(self, msg: PoseStamped) -> None:
+        position_enu = [
+            msg.pose.position.x,
+            msg.pose.position.y,
+            msg.pose.position.z,
+        ]
+        q_xyzw = [
+            msg.pose.orientation.x,
+            msg.pose.orientation.y,
+            msg.pose.orientation.z,
+            msg.pose.orientation.w,
+        ]
+        position_ned, yaw_ned = frames.position_setpoint_enu_flu_to_ned(
+            position_enu, q_xyzw
+        )
+
+        ts_us = int(self.get_clock().now().nanoseconds // 1000)
+
+        ocm = OffboardControlMode()
+        ocm.timestamp = ts_us
+        ocm.position = True
+        ocm.velocity = False
+        ocm.acceleration = False
+        ocm.attitude = False
+        ocm.body_rate = False
+        self.pub_offboard_mode.publish(ocm)
+
+        nan = float("nan")
+        ts = TrajectorySetpoint()
+        ts.timestamp = ts_us
+        ts.position = [float(position_ned[0]), float(position_ned[1]), float(position_ned[2])]
+        ts.velocity = [nan, nan, nan]
+        ts.acceleration = [nan, nan, nan]
+        ts.jerk = [nan, nan, nan]
+        ts.yaw = float(yaw_ned)
+        ts.yawspeed = nan
         self.pub_trajectory_setpoint.publish(ts)
 
 

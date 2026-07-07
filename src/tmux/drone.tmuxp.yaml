@@ -49,6 +49,8 @@ windows:
   focus: false
   layout: tiled
   shell_command_before:
+    - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
+    - source ${ROS2_WORKSPACE}/drone_config/robot.env
     # Camera resolution preset (ticket 032 / Phase 6 table).
     # Override per-session with e.g. `CAMERA_RES=mid tmuxp load ...`.
     #   low  → rtsp  640×360,  engine dronecop9-2-384x640   (winner; ~47 ms age p50, 24 Hz)
@@ -77,8 +79,8 @@ windows:
         -p use_tcp:=false \
         -p do_retransmission:=false \
         -p codec:=h264 \
-        -p decoder:=avdec_h264
-    - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/${ROBOT_NAME} input_topic:=camera/color/image_raw/compressed yolo_model:=${YOLO_MODEL}
+        -p decoder:=avdec_h264 # nvv4l2decoder, avdec_h264, avdec_h265
+    - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/${ROBOT_NAME} input_topic:=camera/color/image_raw yolo_model:=${YOLO_MODEL}
 
 
 - window_name: triangulation
@@ -115,4 +117,4 @@ windows:
   focus: false
   layout: tiled
   panes:
-    - ros2 launch mas_policy policy_deploy.launch.py use_mission_gate:=true use_sim_time:=${USE_SIM_TIME} vehicle_filter:=${ROBOT_NAME} checkpoint_path:=/home/usrg/mas/src/mas_policy/models/2026-04-20_15-25-00_mappo_rnn_torch_e72c116d6b_obs_wo_tri_action_penalty_tuning/checkpoints/agent_160000.pt
+    - ros2 launch mas_policy policy_deploy.launch.py use_mission_gate:=true use_sim_time:=${USE_SIM_TIME} vehicle_filter:=${ROBOT_NAME} checkpoint_path:=2026-05-08_01-25-46_mappo_rnn_torch_2f8907ebed_siyi_a8_mini_siyi_zoom_continuous_critic_on/checkpoints/agent_160000.pt

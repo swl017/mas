@@ -11,10 +11,13 @@ def generate_launch_description():
             parameters=[
                 {'vehicle_name_prefix': 'px4_'},
                 {'num_vehicles': 6},
+                # Altitude is AMSL, same convention as MAVROS HOME_POSITION.
+                # geo.altitude / PX4 VehicleLocalPosition.ref_alt. Pegasus's
+                # default sim world origin is AMSL 90.0 (configs.yaml).
                 {'common_frame_origin': [
                     38.7368498, #37.7749,
                     -9.1379544, #-122.4194,
-                    143.8116477874506, #0.0
+                    90.0,       #0.0
                     ]},
             ]
         )

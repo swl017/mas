@@ -41,9 +41,18 @@ class MissionNode(Node):
         # -- Parameters --
         self.declare_parameter('heartbeat_rate_hz', 1.0)
         self.declare_parameter('initial_state', IDLE)
+        # Velocity source forwarded as cmd_vel in MISSION: 'policy' (default,
+        # mas_policy/cmd_vel) or 'pn' (mas_pn_guidance/pn/cmd_vel). Ticket 004.
+        self.declare_parameter('engagement_source', 'policy')
 
         heartbeat_rate = self.get_parameter('heartbeat_rate_hz').value
         self.state = self.get_parameter('initial_state').value
+        self._engagement_source = str(self.get_parameter('engagement_source').value)
+        _engagement_cmd_topic = {
+            'policy': 'policy/cmd_vel',
+            'pn': 'pn/cmd_vel',            # interceptor (mas_pn_guidance)
+            'maneuver': 'maneuver/cmd_vel',  # target (mas_offboard target_maneuver)
+        }.get(self._engagement_source, 'policy/cmd_vel')
 
         # -- QoS profiles --
         qos_reliable_latched = QoSProfile(
@@ -71,9 +80,10 @@ class MissionNode(Node):
             qos_reliable_latched,
         )
 
-        # -- Upstream: policy commands (MISSION state) --
+        # -- Upstream: engagement velocity (MISSION state). Source selected by
+        #    `engagement_source` (policy/cmd_vel or pn/cmd_vel). --
         self.create_subscription(
-            TwistStamped, 'policy/cmd_vel', self._policy_cmd_vel_cb,
+            TwistStamped, _engagement_cmd_topic, self._policy_cmd_vel_cb,
             qos_best_effort,
         )
         self.create_subscription(

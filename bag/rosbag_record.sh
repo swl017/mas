@@ -12,5 +12,5 @@ BAG_NAME="bag_$(date +%Y%m%d_%H%M%S)${SUFFIX:+_${SUFFIX}}"
 
 ros2 bag record -a -o "${SCRIPT_DIR}/${BAG_NAME}" \
   --qos-profile-overrides-path "${SCRIPT_DIR}/rosbag_qos_overrides.yaml" \
-  --exclude '/px4_.*/image_raw|/px4_.*/camera/color/image_raw' \
+  --exclude '/px4_.*/image_raw|/px4_.*/camera/color/image_raw|/px4_.*/yolo_image' \
   --use-sim-time

@@ -5,4 +5,7 @@ bag/
 drone_config/robot.env
 resources/
 datasets/camera_calibration/
+datasets/coco8/
+build_test/
+*.pyc
 # drone_config/network/01-netcfg.yaml

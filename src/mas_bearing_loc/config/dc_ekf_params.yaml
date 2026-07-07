@@ -1,0 +1,17 @@
+/**:
+  ros__parameters:
+    # Detection input
+    target_class_name: ""          # accept any class; set to 'drone' to filter
+    min_confidence: 0.25
+
+    # EKF tuning
+    sigma_pix: 60.0                 # pixel-noise std (1σ)
+    sigma_target_acc: 1.5          # m/s^2/√Hz, lumped unmodeled target accel
+    reject_mahalanobis: 16.0
+
+    # Initialization
+    use_odom_attitude_seed: true
+    init_range_guess: 30.0         # m
+
+    # Publishing
+    publish_rate_hz: 25.0

@@ -1,7 +1,14 @@
 session_name: multiview
 
+# Standalone multiview session — runs detection, triangulation, tracking, and
+# gimbal pointing for all drones in one session. Use this as an alternative to
+# the per-drone simdrone sessions when you want a single tmux session for the
+# full perception pipeline.
+#
+# Normal deployment: use simdrone1/2/3 instead (each drone self-contained).
+
 environment:
-  ROS2_INSTALL_PATH: /opt/ros/galactic
+  ROS2_INSTALL_PATH: /home/usrg/ros2_humble/install
   ROS2_WORKSPACE: /home/usrg/mas
 
 options:
@@ -12,20 +19,25 @@ windows:
   focus: false
   layout: tiled
   shell_command_before:
-    - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
-    - source ${ROS2_INSTALL_PATH}/setup.bash;
-    - source ${ROS2_WORKSPACE}/install/setup.bash;
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
-    - ros2 launch mas_multiview triangulation.launch.py num_camera:=3 publish_rate:=0.5 gimbal_angle_order:=zxy
-    - ros2 launch mas_tracker sort3d.launch.py min_tracker_hits_for_valid:=5
+    - ros2 launch mas_multiview triangulation.launch.py ns:=/px4_1 num_camera:=3 publish_rate:=0.5 gimbal_angle_order:=zxy
+    - ros2 launch mas_multiview triangulation.launch.py ns:=/px4_2 num_camera:=3 publish_rate:=0.5 gimbal_angle_order:=zxy
+
+- window_name: tracking
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mas_tracker sort3d.launch.py ns:=/px4_1 self_camera_index:=1
+    - ros2 launch mas_tracker sort3d.launch.py ns:=/px4_2 self_camera_index:=2
 
 - window_name: detection
   focus: false
   layout: tiled
   shell_command_before:
-    - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
-    - source ${ROS2_INSTALL_PATH}/setup.bash;
-    - source ${ROS2_WORKSPACE}/install/setup.bash;
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
     - ros2 launch mas_common_frame common_frame.launch.py
     - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/px4_1 yolo_model:=yolov11m-drone.pt
@@ -36,10 +48,7 @@ windows:
   focus: false
   layout: tiled
   shell_command_before:
-    - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
-    - source ${ROS2_INSTALL_PATH}/setup.bash;
-    - source ${ROS2_WORKSPACE}/install/setup.bash;
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
-    - ros2 run gimbal_controller point_to_region_node --ros-args -r __ns:=/px4_1 -r gimbal_command_rpy_deg:=tracking/gimbal_cmd_rpy_deg
-    - ros2 run gimbal_controller point_to_region_node --ros-args -r __ns:=/px4_2 -r gimbal_command_rpy_deg:=tracking/gimbal_cmd_rpy_deg
-    - ros2 run gimbal_controller point_to_region_node --ros-args -r __ns:=/px4_3 -r gimbal_command_rpy_deg:=tracking/gimbal_cmd_rpy_deg
+    - ros2 run gimbal_controller point_to_region_node --ros-args -r __ns:=/px4_1 -r gimbal_command_los_world_deg:=tracking/gimbal_command_los_world_deg -p use_sim_time:=true
+    - ros2 run gimbal_controller point_to_region_node --ros-args -r __ns:=/px4_2 -r gimbal_command_los_world_deg:=tracking/gimbal_command_los_world_deg -p use_sim_time:=true

@@ -18,8 +18,9 @@ windows:
   shell_command_before:
     - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
-    - ros2 run mavros mavros_node --ros-args -p fcu_url:=udp://:14542@localhost:14552 -p tgt_system:=3 -p local_position.tf.frame_id:=${ROBOT_NAME}/map -p local_position.tf.child_frame_id:=${ROBOT_NAME}/base_link -p global_position.frame_id:=${ROBOT_NAME}/map -p global_position.child_frame_id:=${ROBOT_NAME}/base_link -p use_sim_time:=${USE_SIM_TIME} -r __ns:=/${ROBOT_NAME}/mavros
-    - 'sleep 5 && ros2 service call /${ROBOT_NAME}/mavros/set_message_interval mavros_msgs/srv/MessageInterval "{message_id: 31, message_rate: 250.0}" && ros2 service call /${ROBOT_NAME}/mavros/set_message_interval mavros_msgs/srv/MessageInterval "{message_id: 32, message_rate: 100.0}" && ros2 service call /${ROBOT_NAME}/mavros/set_message_interval mavros_msgs/srv/MessageInterval "{message_id: 33, message_rate: 50.0}" && ros2 service call /${ROBOT_NAME}/mavros/set_message_interval mavros_msgs/srv/MessageInterval "{message_id: 105, message_rate: 250.0}" && ros2 service call /${ROBOT_NAME}/mavros/set_message_interval mavros_msgs/srv/MessageInterval "{message_id: 27, message_rate: 250.0}"'
+    - ros2 launch mavros_replicator replicator.launch.py robot_name:=${ROBOT_NAME} use_sim_time:=${USE_SIM_TIME}
+    # - ros2 run mavros mavros_node --ros-args -p fcu_url:=udp://:14542@localhost:14552 -p tgt_system:=3 -p local_position.tf.frame_id:=${ROBOT_NAME}/map -p local_position.tf.child_frame_id:=${ROBOT_NAME}/base_link -p global_position.frame_id:=${ROBOT_NAME}/map -p global_position.child_frame_id:=${ROBOT_NAME}/base_link -p use_sim_time:=${USE_SIM_TIME} -r __ns:=/${ROBOT_NAME}/mavros
+    # - 'sleep 5 && ros2 service call /${ROBOT_NAME}/mavros/set_message_interval mavros_msgs/srv/MessageInterval "{message_id: 31, message_rate: 250.0}" && ros2 service call /${ROBOT_NAME}/mavros/set_message_interval mavros_msgs/srv/MessageInterval "{message_id: 32, message_rate: 100.0}" && ros2 service call /${ROBOT_NAME}/mavros/set_message_interval mavros_msgs/srv/MessageInterval "{message_id: 33, message_rate: 50.0}" && ros2 service call /${ROBOT_NAME}/mavros/set_message_interval mavros_msgs/srv/MessageInterval "{message_id: 105, message_rate: 250.0}" && ros2 service call /${ROBOT_NAME}/mavros/set_message_interval mavros_msgs/srv/MessageInterval "{message_id: 27, message_rate: 250.0}"'
 
 - window_name: frame
   focus: false
@@ -34,6 +35,21 @@ windows:
   layout: tiled
   shell_command_before:
     - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+    # Camera resolution preset (matches drone.tmuxp.yaml). CAM_W/CAM_H are
+    # informational here since Isaac Sim provides the image; YOLO_MODEL is the
+    # operative knob. Override per-session with e.g. `CAMERA_RES=mid tmuxp load ...`.
+    #   low  → rtsp  640×360,  engine dronecop9-2-384x640   (winner; ~47 ms age p50, 24 Hz)
+    #   mid  → rtsp  960×540,  engine dronecop9-2-544x960   (~69 ms age p50, 17 Hz)
+    #   high → rtsp 1920×1080, engine dronecop9-2-1088x1920 (~164 ms age p50,  8 Hz)
+    - CAMERA_RES="${CAMERA_RES:-mid}"
+    - |-
+      case "$CAMERA_RES" in
+        low)  CAM_W=640;  CAM_H=360;  YOLO_MODEL=dronecop9-2-384x640.engine  ;;
+        mid)  CAM_W=960;  CAM_H=540;  YOLO_MODEL=dronecop9-2-544x960.engine  ;;
+        high) CAM_W=1920; CAM_H=1080; YOLO_MODEL=dronecop9-2-1088x1920.engine ;;
+        *)    echo "unknown CAMERA_RES=$CAMERA_RES (use low|mid|high)" >&2; exit 1 ;;
+      esac
+      echo "CAMERA_RES=$CAMERA_RES  ${CAM_W}x${CAM_H}  model=$YOLO_MODEL"
   panes:
     - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/${ROBOT_NAME} input_topic:=camera/color/image_raw yolo_model:=yolov11m-drone.pt use_sim_time:=${USE_SIM_TIME}
 
@@ -83,7 +99,7 @@ windows:
   shell_command_before:
     - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
-    - ros2 launch mas_policy policy_deploy.launch.py use_mission_gate:=true use_sim_time:=${USE_SIM_TIME} vehicle_filter:=${ROBOT_NAME} checkpoint_path:=/home/usrg/mas/src/mas_policy/models/2026-04-19_05-02-59_mappo_rnn_torch_0d4fa6906b_obs_wo_tri/checkpoints/agent_280000.pt
+    - ros2 launch mas_policy policy_deploy.launch.py use_mission_gate:=true use_sim_time:=${USE_SIM_TIME} vehicle_filter:=${ROBOT_NAME} checkpoint_path:=/home/usrg/IsaacPX4/IsaacLab/logs/skrl/iris_ma6/2026-06-10_14-41-45_mappo_rnn_torch_ticket048_net_width_mid/checkpoints/agent_200000.pt
     # - ros2 launch mas_policy policy_deploy.launch.py use_mission_gate:=true use_sim_time:=${USE_SIM_TIME} vehicle_filter:=${ROBOT_NAME} checkpoint_path:=/home/usrg/mas/src/mas_policy/models/2026-04-20_15-25-00_mappo_rnn_torch_e72c116d6b_obs_wo_tri_action_penalty_tuning/checkpoints/agent_120000.pt
 
 # - window_name: teleop

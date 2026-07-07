@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>mas_pn_guidance</name>
+  <version>0.1.0</version>
+  <description>
+    Proportional-navigation interception guidance for the ego-only PN engagement
+    harness (RA-L ticket 004). Consumes an EKF target estimate plus ego odometry
+    and emits a dedicated engagement velocity command; also hosts the experiment
+    conductor, role/namespace config, and PX4 limit-matching tooling.
+  </description>
+  <maintainer email="seungwook1024@gmail.com">Seungwook Lee</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <depend>rclpy</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>std_msgs</depend>
+
+  <exec_depend>python3-yaml</exec_depend>
+  <!-- set_px4_limits sets PX4 MPC limits over MAVLink (mavros_replicator has no
+       param path); pymavlink is the same transport PegasusSimulator uses. -->
+  <exec_depend>python3-pymavlink</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

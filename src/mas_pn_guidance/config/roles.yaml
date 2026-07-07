@@ -1,0 +1,26 @@
+# Role -> PX4 namespace map for the PN interception harness (RA-L ticket 004).
+#
+# Logical roles are decoupled from px4_N namespaces so the cooperative layout is
+# a config edit, not a code change. The conductor, tmux sessions, and launch
+# files all resolve namespaces through this file (see mas_pn_guidance/roles.py).
+#
+# Active layout is selected by `active:`. All namespaces must exist in
+# mas_offboard/config/vehicles.yaml.
+
+active: ego_1v1
+
+layouts:
+
+  # Ticket 004 first pass: ego-only 1v1.
+  ego_1v1:
+    interceptor: px4_1   # full ego sensing stack + PN guidance
+    target:      px4_2   # non-cooperative maneuvering quarry
+
+  # Planned cooperative layout (later ticket). Same code, config-only switch:
+  # two observers triangulate the target, a dedicated interceptor runs PN on the
+  # fused estimate.
+  cooperative:
+    observer_a:  px4_1
+    observer_b:  px4_2
+    target:      px4_3
+    interceptor: px4_4

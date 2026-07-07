@@ -26,10 +26,15 @@ def generate_launch_description():
             namespace=LaunchConfiguration('ns'),
             output='screen',
             parameters=[
+                # Altitude is AMSL (meters above mean sea level), same convention
+                # as MAVROS HOME_POSITION.geo.altitude and PX4
+                # VehicleLocalPosition.ref_alt. Pegasus's default sim world
+                # origin is AMSL 90.0 — see PegasusSimulator/extensions/
+                # pegasus.simulator/config/configs.yaml:global_coordinates.
                 {'common_frame_origin': [
                     38.736832, #36.3740841,
                     -9.137977, #127.3660736,
-                    143.8, #100.0,
+                    90.0,      #100.0,
                 ]},
                 {'use_sim_time': ParameterValue(
                     LaunchConfiguration('use_sim_time'), value_type=bool)},

@@ -60,15 +60,16 @@ Verified against actual subscribers in [mas_common_frame](../mas_common_frame/),
 | `{ns}/mavros/local_position/pose` | `geometry_msgs/PoseStamped` | `vehicle_odometry` | Position NED→ENU (§5); orientation FRD-in-NED → FLU-in-ENU (§5). |
 | `{ns}/mavros/local_position/pose_cov` | `geometry_msgs/PoseWithCovarianceStamped` | `vehicle_odometry` | Same conversion as `pose`; covariance per §6.1. |
 | `{ns}/mavros/local_position/velocity_local` | `geometry_msgs/TwistStamped` | `vehicle_odometry` | Linear velocity NED→ENU (world frame); angular velocity FRD→FLU (body frame). **MAVROS quirk preserved**: linear is world-frame, angular is body-frame. |
-| `{ns}/mavros/local_position/odom` | `nav_msgs/Odometry` | `vehicle_odometry` | Pose: world ENU; twist: body FLU (matches MAVROS, *not* the same convention as `velocity_local`). `header.frame_id = {robot}/map`; `child_frame_id = {robot}/base_link`. Covariance per §6. |
+| `{ns}/mavros/local_position/odom` | `nav_msgs/Odometry` | `vehicle_odometry` | Pose: world ENU. Twist: linear world ENU, angular body FLU — REP-147 aerial convention (matches PX4 `VehicleOdometry` and `velocity_local`). Deviates from `nav_msgs/Odometry` doc string ("twist in child_frame") because pure-body twist requires rotating world-NED velocity through current attitude, injecting attitude error into the velocity. `header.frame_id = {robot}/map`; `child_frame_id = {robot}/base_link`. Covariance per §6. |
 | `{ns}/mavros/imu/data` | `sensor_msgs/Imu` | `sensor_combined`, `vehicle_odometry` | gyro/accel from `sensor_combined` FRD→FLU; orientation from `vehicle_odometry.q` (FRD-NED → FLU-ENU). Both topics arrive at 100 Hz so time alignment is implicit. Publish on `sensor_combined` arrival, using the most recent `vehicle_odometry.q`. Covariance: zero matrices (PX4 doesn't expose per-sample IMU cov; matches what current MAVROS install does in practice). |
-| `{ns}/mavros/home_position/home` | `mavros_msgs/HomePosition` | `home_position` | Lat/lon/alt passthrough; `position` field is local-NED→ENU; `orientation` from PX4 yaw at home. Latch (publish only on change, KEEP_LAST 1, TRANSIENT_LOCAL). |
+| `{ns}/mavros/home_position/home` | `mavros_msgs/HomePosition` | `vehicle_local_position.ref_lat/ref_lon/ref_alt` (gated on `xy_global && z_global`) | `geo.lat/lon/alt` from the EKF local-frame reference; `position` is zero (the reference *is* the local origin); `orientation` derived from `heading` (NED→ENU yaw). Latch (publish only when the EKF origin changes, KEEP_LAST 1, TRANSIENT_LOCAL). PX4's stock `dds_topics.yaml` does **not** export `/fmu/out/home_position`, so `vehicle_local_position.ref_*` is the available source for the EKF local origin. |
 
 ### 3.2 Inbound
 
 | MAVROS topic (input) | Type | PX4 sink(s) | Behavior |
 |---|---|---|---|
 | `{ns}/mavros/setpoint_velocity/cmd_vel` | `geometry_msgs/TwistStamped` | `fmu/in/trajectory_setpoint`, `fmu/in/offboard_control_mode` | linear ENU→NED, yawspeed FLU→NED; emits `OffboardControlMode{velocity=true}` plus `TrajectorySetpoint{position=NaN, velocity=v_ned, yaw=NaN, yawspeed=ω_z_ned}`. Streamed at the rate setpoints arrive (input must be ≥ 2 Hz to keep PX4 in offboard, PX4 hard requirement). Watchdog: if no setpoint for `setpoint_timeout_ms` (default 250 ms), stop publishing. |
+| `{ns}/mavros/setpoint_position/local` | `geometry_msgs/PoseStamped` | `fmu/in/trajectory_setpoint`, `fmu/in/offboard_control_mode` | position ENU→NED; ENU yaw (extracted from the FLU→ENU quaternion) → NED yaw (CW from north); emits `OffboardControlMode{position=true}` plus `TrajectorySetpoint{position=p_ned, velocity=NaN, yaw=ψ_ned, yawspeed=NaN}`. Same ≥ 2 Hz requirement. The position and velocity inbound topics share `/fmu/in/trajectory_setpoint`; the latest message on either topic wins, so callers may alternate between them without dropping OFFBOARD. |
 
 ---
 
@@ -136,16 +137,15 @@ Pack into the 36-element row-major array.
 
 ### 6.2 Velocity covariance
 
-For `Odometry.twist`: linear in body FLU, angular in body FLU. PX4's `vehicle_odometry.velocity_variance` is linear-NED diagonal. Convert:
+`Odometry.twist` and `velocity_local.twist` use the same frame convention: linear world ENU, angular body FLU. PX4's `vehicle_odometry.velocity_variance` is linear-NED diagonal; the world-ENU covariance is simply `R_w · diag(Σ_v_ned) · R_wᵀ`, which reduces to swapping the x and y diagonal entries (R_w is a signed permutation, so a diagonal input stays diagonal).
 
 ```
-v_body_flu = q_FLU_ENU⁻¹ · v_world_enu     # rotate world ENU velocity into body FLU
-Σ_v_body = R_body←world · Σ_v_world · R_body←worldᵀ
+Σ_v_enu = diag(σ_y_ned², σ_x_ned², σ_z_ned²)     # x↔y swap, z variance unchanged under sign flip
 ```
 
 Angular velocity covariance: not exposed by PX4; fill with zeros.
 
-For `velocity_local.twist` (linear world ENU, angular body FLU), the linear block uses `R_w · Σ_v_ned · R_wᵀ`.
+`TwistStamped` has no covariance field, so `velocity_local` carries no covariance on the wire; only `odom.twist.covariance` is populated.
 
 ### 6.3 IMU covariance
 
@@ -244,6 +244,8 @@ Resolved 2026-05-08:
 ### 12.1 Note on bridged topic set
 
 `vehicle_angular_velocity` is **not in the uXRCE `dds_topics.yaml` whitelist** on the v1.15.4 build, so it never reaches the ROS graph. Body angular velocity is read from `vehicle_odometry.angular_velocity` instead (also 100 Hz, also direct, also time-aligned with the rest of `vehicle_odometry`).
+
+`home_position` is likewise **not in the whitelist**, so `mavros/home_position/home` is derived from `vehicle_local_position.ref_*` (the EKF local-frame origin). This is the same quantity `mas_common_frame` consumes from `home_position.geo.*`; the `position` field of the MAVROS message is exactly zero in this scheme because the EKF reference is, by definition, the local origin.
 
 ## 13. Measured topic rates (PX4 v1.15.4, uXRCE-DDS, 20 s window, veh1)
 

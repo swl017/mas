@@ -1050,3 +1050,20 @@ Next:
   veh1 from a prior tmux session — it advertises stale
   /px4_1/mavros/* topics with no publisher flow. Identified
   during smoke test but not killed.
+
+2026-07-02 - Ticket 007 estimator handoff
+- Restored mas_bearing_loc/launch/engagement_ekf.launch.py to the frozen
+  INTER configuration validated in the matched-cell PN experiment.
+- World-frame CV-EKF: init=50, sigma_pix=0.5, sigma_target_acc=3.0.
+- Direct Projection EKF: init=50, sigma_pix=5.0,
+  sigma_target_acc=1.0, sigma_bearing_floor=0.03, gate disabled.
+- Copied the same launch file into the current install tree and verified
+  source, install, and Ticket 007 snapshot hashes match.
+
+2026-07-05 - Ticket 009 offline EKF objective study
+- Reused mas_bearing_loc.SimpleEKF and the PN state-to-command map in a
+  99-configuration, 102-rosbag held-out tuning study in the RA-L repo.
+- No MAS source, interface, launch parameter, or installed artifact changed.
+- Result: velocity-error optimization transfers on velocity error but does
+  not beat OLD on an independent PN-command surrogate; no candidate was
+  promoted to live engagement testing.

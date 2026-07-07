@@ -13,11 +13,11 @@ windows:
   layout: tiled
   shell_command_before:
     - export DATE=$(date "+%Y-%m-%d_%H-%M-%S"); echo "DATE=$DATE"
-    - source /opt/ros/galactic/setup.bash
+    - source /home/usrg/ros2_humble/install/setup.bash
   panes:
     - |
-      ros2 topic pub /px4_1/camera/zoom std_msgs/msg/Float64 "data: 4.0"
+      ros2 topic pub /px4_1/camera/zoom_level_cmd std_msgs/msg/Float64 "data: 4.0"
     - |
-      ros2 topic pub /px4_2/camera/zoom std_msgs/msg/Float64 "data: 4.0"
+      ros2 topic pub /px4_2/camera/zoom_level_cmd std_msgs/msg/Float64 "data: 4.0"
     - |
-      ros2 topic pub /px4_3/camera/zoom std_msgs/msg/Float64 "data: 4.0"
+      ros2 topic pub /px4_3/camera/zoom_level_cmd std_msgs/msg/Float64 "data: 4.0"

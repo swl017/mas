@@ -9,6 +9,9 @@ Observation structure:
   gimbal_yaw_body(1, 0=forward), gimbal_pitch_body(1), ray_dir_w(3),
   combined_ang_vel_w(3, from topic), bbox_aoi(1, clipped), zoom(1),
   effective_hfov(1, rad), bbox(4), bbox_empty(1)
+- Optional prev-action tail (7D, appended to ego): vx,vy,vz (m/s),
+  yaw_rate (rad/s), gimbal_yaw_rate, gimbal_pitch_rate, zoom_rate (normalized).
+  Ticket 043 — the previously-commanded cmd_vel, set by the node each loop.
 - Inter-agent (16D per other): pos(3), vel(3), ray_dir_w(3),
   combined_ang_vel_w(3), zoom(1), bbox_empty(1), data_age(1), bbox_age(1)
 - Optional triangulation tail (6D): tri_pos(3), tri_std(3)
@@ -37,9 +40,28 @@ from .utils import (
     quat_rotate_inverse,
     wrap_to_pi,
 )
+import random
 
 # ENU gravity vector in world frame (pulls −Z / down).
 _GRAVITY_WORLD_ENU = np.array([0.0, 0.0, -9.81])
+
+# SIYI A8 mini measured zoom curve. Mirrors IsaacLab iris_ma6
+# controller/zoom_controller.py: z_eff = 1 + a*(exp(b*(cmd-1)) - 1), cmd ∈ [1, 5].
+# Source: /home/usrg/mas/src/scripts/camera_calibration/zoom_curve.json
+_ZOOM_CURVE_A: float = 0.32489
+_ZOOM_CURVE_B: float = 0.4767
+_ZOOM_CMD_MIN: float = 1.0
+_ZOOM_CMD_MAX: float = 5.0  # trust region of mrcal calibration (mas/028); training zoom_max
+
+
+def _compute_z_eff(zoom_cmd: float) -> float:
+    """Operator-facing zoom command → effective focal-length multiplier.
+
+    Sub-linear: cmd=5 ⇒ z_eff ≈ 2.86. Clamps to [1, 5] for parity with training.
+    """
+    cmd = max(_ZOOM_CMD_MIN, min(_ZOOM_CMD_MAX, float(zoom_cmd)))
+    return 1.0 + _ZOOM_CURVE_A * (math.exp(_ZOOM_CURVE_B * (cmd - 1.0)) - 1.0)
+
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +126,7 @@ class ObservationAssembler:
         enable_triangulation: bool = False,
         use_common_frame: bool = True,
         max_bbox_aoi: float = 20.0,
+        enable_prev_action_obs: bool = False,
     ):
         """Initialize observation assembler for a single ego vehicle.
 
@@ -116,6 +139,9 @@ class ObservationAssembler:
             enable_triangulation: Whether to include 6D triangulation tail.
             use_common_frame: If True, use common_frame/odom (ENU).
             max_bbox_aoi: Maximum bbox age-of-information (s). Clips to training range.
+            enable_prev_action_obs: Whether to append the 7D prev-action tail to
+                the ego block (ticket 043). The node feeds the previous cmd_vel via
+                ``set_prev_action`` each loop.
         """
         self._node = node
         self._ego_name = ego_name
@@ -126,6 +152,11 @@ class ObservationAssembler:
         self._enable_triangulation = enable_triangulation
         self._use_common_frame = use_common_frame
         self._max_bbox_aoi = max_bbox_aoi
+        self._enable_prev_action_obs = enable_prev_action_obs
+        # Previous-step cmd_vel for the prev-action obs tail (ticket 043).
+        # [vx,vy,vz (m/s), yaw_rate (rad/s), g_yaw, g_pitch, zoom (normalized)].
+        # Updated by the node via set_prev_action; reset to zero on episode entry.
+        self._prev_action_obs = np.zeros(7, dtype=np.float32)
 
         # Ego camera fx at current zoom-independent setting (K[0,0] from camera_info).
         # effective_hfov = 2 * atan2(W/2, fx * zoom). Populated by _camera_info_callback.
@@ -346,8 +377,12 @@ class ObservationAssembler:
         state.detection_timestamp = self._get_time()
 
     def _zoom_level_callback(self, msg: Float64, veh: str):
-        """Cache zoom level from dedicated topic."""
-        self._states[veh].zoom_level = float(msg.data)
+        """Cache zoom level, clamped to training domain [1.0, 5.0].
+
+        Training-time `zoom_max=5.0` is the trust region of the SIYI mrcal
+        calibration; values above 5 are OOD for the policy.
+        """
+        self._states[veh].zoom_level = max(_ZOOM_CMD_MIN, min(_ZOOM_CMD_MAX, float(msg.data)))
 
     def _peer_combined_ang_vel_callback(self, msg: Vector3Stamped, veh: str):
         """Cache peer pre-computed combined angular velocity in world frame."""
@@ -443,10 +478,15 @@ class ObservationAssembler:
         combined_ang_vel_w = ego.combined_ang_vel_w
 
         bbox_aoi = now - ego.detection_timestamp if ego.detection_timestamp > 0 else 0.0
+        # bbox_aoi = random.uniform(0.0, 0.04)
+        # bbox_aoi = 0.0
         bbox_aoi = min(bbox_aoi, self._max_bbox_aoi)
 
-        # effective_hfov = 2 * atan2(W/2, fx_base * zoom). Matches training (dr_scale=1 at deploy).
-        fx_eff = self._camera_fx * ego.zoom_level
+        # effective_hfov uses the SIYI A8 measured zoom curve, NOT a linear
+        # fx*zoom multiplier. Matches training: fx_eff = fx_base * z_eff(zoom).
+        # (Training: iris_ma_env6_test.py:1071-1078 with dr_scale=1 at deploy.)
+        z_eff = _compute_z_eff(ego.zoom_level)
+        fx_eff = self._camera_fx * z_eff
         if fx_eff > 0.0:
             effective_hfov = 2.0 * math.atan2(self._image_width * 0.5, fx_eff)
         else:
@@ -475,6 +515,12 @@ class ObservationAssembler:
             ego.bbox_xywh,                          # 26-29: bbox normalized (4)
             np.array([ego.bbox_empty]),             # 30: bbox empty (1)
         ])
+
+        # --- Prev-action tail (7D, ticket 043) ---
+        # Appended to the ego block (before peers), matching training where
+        # _cmd_vel_filt is cat'd into ego_obs_parts in _get_observations.
+        if self._enable_prev_action_obs:
+            ego_obs = np.concatenate([ego_obs, self._prev_action_obs])
 
         # --- Inter-agent observations (16D per peer) ---
         other_obs_parts = []
@@ -519,6 +565,16 @@ class ObservationAssembler:
 
         return full_obs
 
+    def set_prev_action(self, cmd_vel: np.ndarray):
+        """Set the previous-step cmd_vel for the prev-action obs tail (ticket 043).
+
+        Args:
+            cmd_vel: 7D array [vx,vy,vz (m/s), yaw_rate (rad/s), g_yaw, g_pitch,
+                zoom (normalized)] — the command applied last control step, or
+                zeros on episode entry.
+        """
+        self._prev_action_obs = np.asarray(cmd_vel, dtype=np.float32).copy()
+
     def get_vehicle_state(self, name: str) -> VehicleState:
         """Get cached state for any vehicle (ego or peer)."""
         return self._states[name]
@@ -537,6 +593,8 @@ class ObservationAssembler:
     def obs_dim(self) -> int:
         """Expected observation dimension."""
         dim = 31 + 16 * len(self._peer_names)
+        if self._enable_prev_action_obs:
+            dim += 7
         if self._enable_triangulation:
             dim += 6
         return dim

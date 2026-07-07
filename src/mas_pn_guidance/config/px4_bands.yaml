@@ -1,0 +1,76 @@
+# Interceptor performance bands -> PX4 multicopter limit params (RA-L ticket 004).
+#
+# The point-mass study (Ticket 003, POINT_MASS_REALISTIC_SENSING_FINDINGS.md)
+# expresses interceptor agility as (v_max, a_max). The Pegasus SITL drones boot
+# the gazebo-classic iris airframe with stock rc.mc_defaults:
+#   MPC_XY_VEL_MAX=12  MPC_XY_CRUISE=5  MPC_ACC_HOR_MAX=5  MPC_JERK_MAX=8
+# Several bands exceed these, so PX4 would silently saturate. Each band below maps
+# to the PX4 params that must be set so the SITL vehicle reproduces the band
+# instead of the airframe default.
+#
+# JERK is set generously (~4*a_max) so the commanded acceleration can actually be
+# reached under PX4's jerk-limited velocity-setpoint smoothing; tune in Slice 1
+# from the measured step response (q_questions.md Q6). Vertical limits are set
+# band-consistent; the engagement is primarily planar.
+#
+# Consumed by set_px4_limits (mechanism pending: pymavlink PARAM_SET vs PX4
+# startup injection — see ticket 004 q_questions.md). The PN node's own
+# v_max/a_max clamp should be set to the same (v_max, a_max).
+
+bands:
+
+  quad_conservative:
+    v_max: 7.0
+    a_max: 4.0
+    px4_params:
+      MPC_XY_VEL_MAX: 7.0
+      MPC_XY_CRUISE: 7.0
+      MPC_ACC_HOR_MAX: 4.0
+      MPC_ACC_HOR: 4.0
+      MPC_JERK_MAX: 16.0
+      MPC_Z_VEL_MAX_UP: 3.0
+      MPC_Z_VEL_MAX_DN: 3.0
+      MPC_ACC_UP_MAX: 4.0
+      MPC_ACC_DOWN_MAX: 4.0
+
+  paper_nominal_low:      # held band for the first matrix (q_questions.md Q3)
+    v_max: 9.0
+    a_max: 6.0
+    px4_params:
+      MPC_XY_VEL_MAX: 9.0
+      MPC_XY_CRUISE: 9.0
+      MPC_ACC_HOR_MAX: 6.0
+      MPC_ACC_HOR: 6.0
+      MPC_JERK_MAX: 24.0
+      MPC_Z_VEL_MAX_UP: 3.0
+      MPC_Z_VEL_MAX_DN: 3.0
+      MPC_ACC_UP_MAX: 6.0
+      MPC_ACC_DOWN_MAX: 6.0
+
+  paper_nominal_high:
+    v_max: 11.0
+    a_max: 8.0
+    px4_params:
+      MPC_XY_VEL_MAX: 11.0
+      MPC_XY_CRUISE: 11.0
+      MPC_ACC_HOR_MAX: 8.0
+      MPC_ACC_HOR: 8.0
+      MPC_JERK_MAX: 32.0
+      MPC_Z_VEL_MAX_UP: 3.0
+      MPC_Z_VEL_MAX_DN: 3.0
+      MPC_ACC_UP_MAX: 8.0
+      MPC_ACC_DOWN_MAX: 8.0
+
+  paper_optimistic:
+    v_max: 13.0
+    a_max: 12.0
+    px4_params:
+      MPC_XY_VEL_MAX: 13.0
+      MPC_XY_CRUISE: 13.0
+      MPC_ACC_HOR_MAX: 12.0
+      MPC_ACC_HOR: 12.0
+      MPC_JERK_MAX: 48.0
+      MPC_Z_VEL_MAX_UP: 4.0
+      MPC_Z_VEL_MAX_DN: 4.0
+      MPC_ACC_UP_MAX: 12.0
+      MPC_ACC_DOWN_MAX: 12.0

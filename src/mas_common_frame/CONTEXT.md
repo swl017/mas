@@ -18,6 +18,7 @@ Transforms multi-vehicle positions from EKF local coordinates into a shared miss
 #### Publishers (per vehicle `/{veh}/`)
 - `common_frame/pose` (`geometry_msgs/PoseStamped`) — pose in mission frame
 - `common_frame/odom` (`nav_msgs/Odometry`) — odometry in mission frame (pose + covariance + twist)
+- `common_frame/local_origin` (`geometry_msgs/PointStamped`, RELIABLE + TRANSIENT_LOCAL, depth 1) — constant common→local offset: position of the drone's local-frame origin (EKF home) expressed in common_frame ENU. Published once on receipt of `home_position`; lets downstream consumers (e.g. `mas_offboard`) convert between frames without subscribing to mavros local_position directly.
 
 #### TF2 Broadcasts
 - `common_frame` → `{veh}_base_link` transforms

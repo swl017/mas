@@ -5,7 +5,28 @@
       "Read(//usr/**)",
       "Read(//home/usrg/**)",
       "WebFetch(domain:isaac-sim.github.io)",
-      "WebFetch(domain:docs.isaacsim.org)"
+      "WebFetch(domain:docs.isaacsim.org)",
+      "Bash(find /home/usrg -type f -name *iris*triangulation*)",
+      "Bash(find /home/usrg -path */iris* -name triangulation*)",
+      "Bash(find /usr/include -name Eigen* -type d)",
+      "Bash(dpkg -l)",
+      "Bash(python3 -c \"import scipy; print\\(f''SciPy {scipy.__version__}''\\)\")",
+      "Bash(python3 -c \"import jax; print\\(f''JAX {jax.__version__}''\\)\")",
+      "Bash(find /usr -name gtsam* -type f)",
+      "Bash(grep -E \"\\\\.\\(h|hpp\\)$\")",
+      "Bash(python3 -c \"import sympy; print\\(f''SymPy {sympy.__version__}''\\)\")",
+      "Read(//etc/**)",
+      "WebSearch",
+      "Bash(colcon build:*)",
+      "Bash(ls /usr/local/cuda*/bin/nvcc)",
+      "Bash(ls /home/usrg/mas/*.sh)",
+      "Bash(ls /home/usrg/mas/build/mas_multiview/*.cmake)",
+      "Bash(d2 mas_architecture_d2.d2 mas_architecture_d2.svg --layout=elk)",
+      "Bash(source ~/ros2_humble/install/setup.bash)",
+      "Bash(source /home/usrg/mas/install/setup.bash)",
+      "Bash(RMW_IMPLEMENTATION=rmw_cyclonedds_cpp ros2 topic list)",
+      "Bash(ros2 node:*)",
+      "Bash(tmux list-sessions:*)"
     ]
   }
 }

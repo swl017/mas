@@ -52,15 +52,19 @@ Relative topics (resolved by node namespace):
 - `vehicle_name` (`string`, default: from namespace) — this vehicle's namespace
 - `peer_names` (`string[]`, default: `[]`) — other vehicles' namespaces (set by launch file)
 - `checkpoint_path` (`string`, default: `""`) — path to SKRL .pt checkpoint
-- `obs_dim` (`int`, default: `63`) — observation vector dimension (31 ego + 16·(N-1) inter-agent [+6 triangulation])
+- `obs_dim` (`int`, computed) — observation vector dimension: 31 ego + 7 prev-action (if `enable_prev_action_obs`) + 16·(N-1) inter-agent [+6 triangulation]. For N=2 with prev-action on: 54.
 - `action_dim` (`int`, default: `7`) — action dimension (3 vel + 1 yaw + 2 gimbal + 1 zoom)
 - `architecture` (`string`, default: `"mappo_rnn"`) — `"mappo_rnn"` or `"ppo_mlp"`
 - `hidden_size` (`int`, default: `64`) — MLP hidden layer size
 - `gru_hidden_size` (`int`, default: `64`) — GRU hidden size
 - `gru_num_layers` (`int`, default: `1`) — number of GRU layers
 - `control_frequency` (`double`, default: `25.0`) — inference loop rate (Hz)
-- `max_lin_vel` (`double`, default: `10.0`) — max linear velocity for action scaling (m/s)
+- `max_lin_vel` (`double`, default: `5.0`) — max linear velocity for action scaling (m/s, matches training `IrisMA6TestEnvCfg.max_lin_vel` post-t045)
 - `max_yaw_rate` (`double`, default: `0.7854`) — max yaw rate for action scaling (rad/s)
+- `enable_asymmetric_z_envelope` (`bool`, default: `true`) — scale vz by `max_vel_z_up` (climb) / `max_vel_z_dn` (descend) instead of `max_lin_vel`, matching training ticket 039. Applies to both the published `cmd_vel` and the prev-action obs tail.
+- `max_vel_z_up` (`double`, default: `3.0`) — max climb rate (m/s, action[2] ≥ 0)
+- `max_vel_z_dn` (`double`, default: `1.5`) — max descend rate (m/s, action[2] < 0)
+- `enable_prev_action_obs` (`bool`, default: `true`) — append the previous `cmd_vel` (7D: vx,vy,vz m/s, yaw_rate rad/s, gimbal_yaw, gimbal_pitch, zoom normalized) to each ego observation, matching training ticket 043. Must match the checkpoint (agent_400000.pt trained with it ON). The tail is built from the slew-clipped (pre-CBF) action; reset to zero on MISSION entry and stale-data.
 - `max_gimbal_rate` (`double`, default: `3.14159`) — max gimbal LOS rate for action denormalization (rad/s, must match training)
 - `max_zoom_rate` (`double`, default: `2.0`) — max zoom rate for action denormalization (zoom-levels/s, must match training `ZoomControllerCfg`)
 - `enable_cbf` (`bool`, default: `true`) — enable CBF inter-agent safety filter
@@ -78,6 +82,13 @@ Relative topics (resolved by node namespace):
 - `cbf_tau_px4` (`double`, default: `0.3`) — PX4 velocity controller time constant (s)
 - `cbf_gamma_deploy` (`double`, default: `1.0`) — CBF decay rate
 - `cbf_num_iters` (`int`, default: `2`) — Gauss-Seidel projection iterations
+- `enable_action_slew_clip` (`bool`, default: `true`) — per-channel slew-rate clip on the raw normalized action, mirroring training ticket 044 (`iris_ma_env6_test._pre_physics_step`). Clips `|Δaction| ≤ δ_max` per control step in `[-1,1]` units, applied before scaling/CBF. `_last_action` resets to zero on MISSION entry and on stale-data zero-publish. Defaults match the `2026-06-04 ticket047_D_curriculum_cold` (`agent_400000.pt`) deployment baseline.
+- `action_slew_vel_xy` (`double`, default: `0.040`) — δ_max for vx, vy
+- `action_slew_vel_z` (`double`, default: `0.053`) — δ_max for vz
+- `action_slew_yaw_rate` (`double`, default: `0.30`) — δ_max for yaw_rate
+- `action_slew_gimbal_yaw_rate` (`double`, default: `0.40`) — δ_max for gimbal yaw rate
+- `action_slew_gimbal_pitch_rate` (`double`, default: `0.40`) — δ_max for gimbal pitch rate
+- `action_slew_zoom_rate` (`double`, default: `0.20`) — δ_max for zoom rate
 
 ## Dependencies
 - mas_common_frame — provides `common_frame/odom` (ego + peers)

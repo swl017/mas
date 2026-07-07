@@ -1,7 +1,7 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
-from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, TwistStamped
+from geometry_msgs.msg import PointStamped, PoseStamped, PoseWithCovarianceStamped, TwistStamped
 from nav_msgs.msg import Odometry
 from mavros_msgs.msg import HomePosition
 from tf2_ros import TransformBroadcaster
@@ -43,6 +43,16 @@ class CommonFrameNode(Node):
             depth=1
         )
 
+        # MAVROS publishes home_position as latched (TRANSIENT_LOCAL + RELIABLE);
+        # subscribers must match TRANSIENT_LOCAL to pick up the retained message
+        # when starting after the home has already been set.
+        home_position_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+
         # Initialize transform broadcaster for tf2
         self.tf_broadcaster = TransformBroadcaster(self)
 
@@ -53,7 +63,7 @@ class CommonFrameNode(Node):
             HomePosition,
             f'/{vn}/mavros/home_position/home',
             self.home_position_callback,
-            qos_profile
+            home_position_qos
         )
 
         # local_position/pose — EKF local position + orientation
@@ -93,6 +103,22 @@ class CommonFrameNode(Node):
             qos_profile
         )
 
+        # Static common→local offset: position of the drone's local-frame
+        # origin (EKF home) expressed in common_frame ENU. Latched so any
+        # consumer (e.g. mas_offboard) can pick it up regardless of start
+        # order. Constant after the first home_position message.
+        latched_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+        self.local_origin_pub = self.create_publisher(
+            PointStamped,
+            f'/{vn}/common_frame/local_origin',
+            latched_qos,
+        )
+
         self.get_logger().info(f'CommonFrameNode (single) initialized for {vn} (EKF-direct, callback-driven)')
 
     def home_position_callback(self, msg: HomePosition):
@@ -112,6 +138,17 @@ class CommonFrameNode(Node):
             f"offset=({self.robot.mission_frame_offset[0]:.2f}, {self.robot.mission_frame_offset[1]:.2f}, {self.robot.mission_frame_offset[2]:.2f})m",
             once=True
         )
+
+        # Latched broadcast of the constant common→local offset so downstream
+        # consumers (e.g. mas_offboard) don't have to subscribe to mavros
+        # local_position to discover it.
+        origin_msg = PointStamped()
+        origin_msg.header.stamp = self.get_clock().now().to_msg()
+        origin_msg.header.frame_id = 'common_frame'
+        origin_msg.point.x = float(self.robot.mission_frame_offset[0])
+        origin_msg.point.y = float(self.robot.mission_frame_offset[1])
+        origin_msg.point.z = float(self.robot.mission_frame_offset[2])
+        self.local_origin_pub.publish(origin_msg)
 
     def local_position_callback(self, msg: PoseStamped):
         """Cache EKF local position and orientation, then publish immediately."""

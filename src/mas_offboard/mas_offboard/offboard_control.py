@@ -1,6 +1,11 @@
 """OffboardControl node — per-vehicle offboard controller for PX4 via MAVROS.
 
-State machine: INIT → RAMP_UP → ARM → TAKEOFF → HOVER → POLICY
+State machine: INIT → RAMP_UP → WAIT_OFFBOARD → TAKEOFF → HOVER → POLICY
+
+Arming and OFFBOARD mode are NOT requested by this node — the operator must do
+both externally (QGC, RC, or a separate tool) once setpoints are streaming.
+While WAIT_OFFBOARD streams zero-velocity setpoints at the timer rate, PX4 will
+accept the operator's OFFBOARD switch.
 
 Waypoints are specified in the common frame (shared mission reference frame).
 The node subscribes to common_frame/pose and computes a one-time offset to
@@ -22,11 +27,10 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 
-from geometry_msgs.msg import PoseStamped, TwistStamped
+from geometry_msgs.msg import Point, PointStamped, PoseStamped, TwistStamped
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Int8
 from mavros_msgs.msg import State
-from mavros_msgs.srv import CommandBool, SetMode
 
 # Mission state constants (must match mas_mission)
 _MISSION_IDLE = 0
@@ -39,7 +43,7 @@ _MISSION_WAYPOINT = 4
 class FlightState(Enum):
     INIT = auto()
     RAMP_UP = auto()
-    ARM = auto()
+    WAIT_OFFBOARD = auto()  # passive: stream setpoints while operator arms + sets OFFBOARD
     TAKEOFF = auto()
     HOVER = auto()
     POLICY = auto()
@@ -117,10 +121,6 @@ class OffboardControl(Node):
         self.waypoint_z = wp_z
         self.waypoint_yaw_deg = wp_yaw_deg
 
-        # Waypoint in local frame (computed once common_frame offset is known)
-        self.local_waypoint_pose: PoseStamped | None = None
-        self.local_waypoint_z: float | None = None
-
         # Pre-compute initial_waypoint Odometry message
         self._initial_waypoint_msg = Odometry()
         self._initial_waypoint_msg.header.frame_id = 'common_frame'
@@ -135,18 +135,22 @@ class OffboardControl(Node):
         # -- State --
         self.flight_state = FlightState.INIT
         self.ramp_counter = 0
-        self.arm_request_tick = 0  # throttle service calls
+        self._waited_log_tick = 0  # throttle "waiting for arm/OFFBOARD" log
 
-        # Cached subscriber data
+        # Cached subscriber data. All drone state comes from mas_common_frame —
+        # this node deliberately does NOT subscribe to mavros/local_position/*.
         self.mavros_state: State | None = None
-        self.current_pose: PoseStamped | None = None
-        self.current_odom: Odometry | None = None
         self.common_frame_pose: PoseStamped | None = None
+        # Constant common→local offset: position of the drone's local-frame
+        # origin (EKF home) expressed in common_frame ENU. Published latched
+        # by mas_common_frame on `common_frame/local_origin`.
+        self.local_origin_offset: Point | None = None
         self.cmd_vel: TwistStamped | None = None
         self.mission_state: int = _MISSION_IDLE
 
-        # Position hold target for HOVER_CMD (captured current position in local frame)
-        self.hover_hold_pose: PoseStamped | None = None
+        # Position hold target for HOVER_CMD, captured in common_frame and
+        # converted to local frame at publish time.
+        self.hover_hold_common_pose: PoseStamped | None = None
 
         # -- QoS --
         qos_reliable = QoSProfile(
@@ -163,14 +167,10 @@ class OffboardControl(Node):
         )
 
         # -- Subscribers (cache-only) --
+        # Drone state comes exclusively from mas_common_frame; mavros/state is
+        # the only mavros topic consumed (needed to know armed + flight mode).
         self.create_subscription(
             State, 'mavros/state', self._state_cb, qos_reliable
-        )
-        self.create_subscription(
-            PoseStamped, 'mavros/local_position/pose', self._pose_cb, qos_best_effort
-        )
-        self.create_subscription(
-            Odometry, 'mavros/local_position/odom', self._odom_cb, qos_best_effort
         )
         self.create_subscription(
             PoseStamped, 'common_frame/pose', self._cf_pose_cb, qos_best_effort
@@ -184,8 +184,22 @@ class OffboardControl(Node):
             history=HistoryPolicy.KEEP_LAST,
             depth=1,
         )
+        # mas_common_frame publishes the constant common→local offset latched
+        # once the EKF home position is known.
+        self.create_subscription(
+            PointStamped,
+            'common_frame/local_origin',
+            self._local_origin_cb,
+            qos_reliable_latched,
+        )
         self.create_subscription(
             Int8, 'mission_state', self._mission_state_cb, qos_reliable_latched
+        )
+        # Runtime IC repositioning (ticket 004 conductor): fly to an arbitrary
+        # common-frame pose and hold. The sim has no vehicle reset, so each
+        # trial's initial condition is set by driving the drones here.
+        self.create_subscription(
+            PoseStamped, 'goto_position', self._goto_position_cb, qos_reliable
         )
 
         # -- Publishers --
@@ -199,13 +213,10 @@ class OffboardControl(Node):
             Odometry, 'initial_waypoint', qos_reliable
         )
 
-        # -- Service clients --
-        self.arming_client = self.create_client(
-            CommandBool, 'mavros/cmd/arming'
-        )
-        self.set_mode_client = self.create_client(
-            SetMode, 'mavros/set_mode'
-        )
+        # Arming and OFFBOARD mode change are out-of-band: the operator drives
+        # them through QGC / RC / their own tool. This node only streams
+        # setpoints, which is the precondition PX4 requires before it will
+        # accept an OFFBOARD switch.
 
         # -- Timer --
         self.timer = self.create_timer(
@@ -217,18 +228,19 @@ class OffboardControl(Node):
     def _state_cb(self, msg: State) -> None:
         self.mavros_state = msg
 
-    def _pose_cb(self, msg: PoseStamped) -> None:
-        self.current_pose = msg
-        if self.local_waypoint_pose is None and self.common_frame_pose is not None:
-            self._compute_local_waypoint()
-
     def _cf_pose_cb(self, msg: PoseStamped) -> None:
         self.common_frame_pose = msg
-        if self.local_waypoint_pose is None and self.current_pose is not None:
-            self._compute_local_waypoint()
 
-    def _odom_cb(self, msg: Odometry) -> None:
-        self.current_odom = msg
+    def _local_origin_cb(self, msg: PointStamped) -> None:
+        # Constant after the first message; we still accept updates in case
+        # mas_common_frame ever re-broadcasts after an EKF origin reset.
+        first_time = self.local_origin_offset is None
+        self.local_origin_offset = msg.point
+        if first_time:
+            self.get_logger().info(
+                f'{self.vehicle_name}: common→local offset received '
+                f'({msg.point.x:.2f}, {msg.point.y:.2f}, {msg.point.z:.2f})m'
+            )
 
     def _cmd_vel_cb(self, msg: TwistStamped) -> None:
         self.cmd_vel = msg
@@ -242,25 +254,28 @@ class OffboardControl(Node):
             return
 
         if msg.data == _MISSION_HOVER_CMD and prev != _MISSION_HOVER_CMD:
-            # Capture current position as hold target
-            if self.current_pose is not None:
-                self.hover_hold_pose = PoseStamped()
-                self.hover_hold_pose.header.frame_id = 'map'
-                p = self.current_pose.pose.position
-                self.hover_hold_pose.pose.position.x = p.x
-                self.hover_hold_pose.pose.position.y = p.y
-                self.hover_hold_pose.pose.position.z = p.z
-                self.hover_hold_pose.pose.orientation = (
-                    self.current_pose.pose.orientation
+            # Capture current common-frame position as hold target. Converted
+            # to local frame at publish time via local_origin_offset.
+            if self.common_frame_pose is not None:
+                self.hover_hold_common_pose = PoseStamped()
+                self.hover_hold_common_pose.header.frame_id = 'common_frame'
+                p = self.common_frame_pose.pose.position
+                self.hover_hold_common_pose.pose.position.x = p.x
+                self.hover_hold_common_pose.pose.position.y = p.y
+                self.hover_hold_common_pose.pose.position.z = p.z
+                self.hover_hold_common_pose.pose.orientation = (
+                    self.common_frame_pose.pose.orientation
                 )
             self.flight_state = FlightState.HOVER
             self.get_logger().info(
                 f'{self.vehicle_name}: HOVER_CMD — holding current position'
             )
 
-        elif msg.data == _MISSION_WAYPOINT and prev != _MISSION_WAYPOINT:
-            # Return to configured waypoint
-            self.hover_hold_pose = None  # use configured waypoint
+        elif msg.data == _MISSION_WAYPOINT:
+            # Return to configured waypoint. Idempotent: a repeated `w` press
+            # re-centers the drone even if the operator's latched mission_state
+            # was already WAYPOINT when this node subscribed.
+            self.hover_hold_common_pose = None  # use configured waypoint
             self.flight_state = FlightState.HOVER
             self.get_logger().info(
                 f'{self.vehicle_name}: WAYPOINT — returning to configured waypoint'
@@ -269,7 +284,7 @@ class OffboardControl(Node):
         elif msg.data == _MISSION_MISSION and prev in (_MISSION_HOVER_CMD, _MISSION_WAYPOINT):
             # Resume mission — clear hold pose so HOVER uses configured waypoint
             # and can auto-transition to POLICY when waypoint reached
-            self.hover_hold_pose = None
+            self.hover_hold_common_pose = None
             self.get_logger().info(
                 f'{self.vehicle_name}: Resuming MISSION from '
                 f'{"HOVER_CMD" if prev == _MISSION_HOVER_CMD else "WAYPOINT"}'
@@ -277,36 +292,69 @@ class OffboardControl(Node):
 
     # ── Helpers ─────────────────────────────────────────────────────────
 
-    def _compute_local_waypoint(self) -> None:
-        """Compute waypoint in MAVROS local frame using common→local offset."""
-        cf_p = self.common_frame_pose.pose.position
-        lo_p = self.current_pose.pose.position
-        # offset = local_pos - common_frame_pos (constant once computed)
-        off_x = lo_p.x - cf_p.x
-        off_y = lo_p.y - cf_p.y
-        off_z = lo_p.z - cf_p.z
+    def _goto_position_cb(self, msg: PoseStamped) -> None:
+        """Retarget the HOVER waypoint to an arbitrary common-frame pose.
 
-        wp = self.waypoint_pose  # in common frame
-        self.local_waypoint_pose = PoseStamped()
-        self.local_waypoint_pose.header.frame_id = 'map'
-        self.local_waypoint_pose.pose.position.x = wp.pose.position.x + off_x
-        self.local_waypoint_pose.pose.position.y = wp.pose.position.y + off_y
-        self.local_waypoint_pose.pose.position.z = wp.pose.position.z + off_z
-        self.local_waypoint_pose.pose.orientation = wp.pose.orientation
-        self.local_waypoint_z = self.local_waypoint_pose.pose.position.z
+        Honored only once airborne. In POLICY this reverts to HOVER, i.e. the
+        drone leaves the engagement to go reposition — the conductor uses this
+        to set each trial's IC and to return drones home afterwards (no sim
+        vehicle reset exists). To then (re)engage, the operator/conductor sets
+        mission_state=MISSION once the drone has settled at the new waypoint.
+        """
+        frame = msg.header.frame_id
+        if frame and frame != 'common_frame':
+            self.get_logger().warning(
+                f'{self.vehicle_name}: goto_position frame "{frame}" != '
+                f'common_frame; ignoring')
+            return
+        if self.flight_state not in (FlightState.HOVER, FlightState.POLICY):
+            self.get_logger().warning(
+                f'{self.vehicle_name}: goto_position ignored in state '
+                f'{self.flight_state.name} (must be airborne)')
+            return
 
+        wp = PoseStamped()
+        wp.header.frame_id = 'common_frame'
+        wp.pose = msg.pose
+        self.waypoint_pose = wp
+        self.waypoint_z = float(msg.pose.position.z)
+        self.waypoint_yaw_deg = math.degrees(_yaw_from_quat(msg.pose.orientation))
+        # Use the new waypoint, not a stale HOVER_CMD hold pose.
+        self.hover_hold_common_pose = None
+        # Keep the 'initial_waypoint' viz in sync with the new target.
+        self._initial_waypoint_msg.pose.pose.position.x = msg.pose.position.x
+        self._initial_waypoint_msg.pose.pose.position.y = msg.pose.position.y
+        self._initial_waypoint_msg.pose.pose.position.z = msg.pose.position.z
+        self._initial_waypoint_msg.pose.pose.orientation = msg.pose.orientation
+        if self.flight_state == FlightState.POLICY:
+            self.flight_state = FlightState.HOVER
         self.get_logger().info(
-            f'{self.vehicle_name}: Common→local offset: '
-            f'({off_x:.2f}, {off_y:.2f}, {off_z:.2f})m  '
-            f'Local waypoint: ({self.local_waypoint_pose.pose.position.x:.2f}, '
-            f'{self.local_waypoint_pose.pose.position.y:.2f}, '
-            f'{self.local_waypoint_z:.2f})'
-        )
+            f'{self.vehicle_name}: goto_position -> '
+            f'({msg.pose.position.x:.1f}, {msg.pose.position.y:.1f}, '
+            f'{msg.pose.position.z:.1f}), yaw={self.waypoint_yaw_deg:.0f}°')
+
+    def _common_pose_to_local_setpoint(self, common_pose: PoseStamped) -> PoseStamped:
+        """Convert a common-frame PoseStamped into a local-frame setpoint.
+
+        Assumes local_origin_offset has been received; caller must check.
+        Orientation passes through unchanged — for short distances (< 10 km)
+        the common→local rotation is essentially identity, matching what
+        mas_common_frame's own orientation transform does in practice.
+        """
+        off = self.local_origin_offset  # position of local origin in common frame
+        out = PoseStamped()
+        out.header.frame_id = 'map'
+        out.pose.position.x = common_pose.pose.position.x - off.x
+        out.pose.position.y = common_pose.pose.position.y - off.y
+        out.pose.position.z = common_pose.pose.position.z - off.z
+        out.pose.orientation = common_pose.pose.orientation
+        return out
 
     def _publish_velocity(self, vx: float, vy: float, vz: float, yaw_rate: float = 0.0) -> None:
         msg = TwistStamped()
         msg.header.stamp = self.get_clock().now().to_msg()
-        msg.header.frame_id = 'base_link'
+        # linear: world ENU (map); angular.z: body FLU yawrate (REP-147 aerial convention)
+        msg.header.frame_id = 'map'
         msg.twist.linear.x = vx
         msg.twist.linear.y = vy
         msg.twist.linear.z = vz
@@ -319,61 +367,6 @@ class OffboardControl(Node):
     def _publish_waypoint(self) -> None:
         self._initial_waypoint_msg.header.stamp = self.get_clock().now().to_msg()
         self.waypoint_pub.publish(self._initial_waypoint_msg)
-
-    def _request_offboard_and_arm(self) -> None:
-        """Call MAVROS services to set OFFBOARD mode and arm. Throttled to ~1 Hz."""
-        self.arm_request_tick += 1
-        ticks_per_second = int(self.update_rate)
-        if self.arm_request_tick % ticks_per_second != 0:
-            return
-
-        # Request OFFBOARD mode
-        if self.mavros_state is not None and self.mavros_state.mode != 'OFFBOARD':
-            if self.set_mode_client.service_is_ready():
-                req = SetMode.Request()
-                req.custom_mode = 'OFFBOARD'
-                future = self.set_mode_client.call_async(req)
-                future.add_done_callback(self._set_mode_done)
-                self.get_logger().info(f'{self.vehicle_name}: Requesting OFFBOARD mode')
-            else:
-                self.get_logger().warn(
-                    f'{self.vehicle_name}: mavros/set_mode service not ready'
-                )
-
-        # Request arming
-        if self.mavros_state is not None and not self.mavros_state.armed:
-            if self.arming_client.service_is_ready():
-                req = CommandBool.Request()
-                req.value = True
-                future = self.arming_client.call_async(req)
-                future.add_done_callback(self._arming_done)
-                self.get_logger().info(f'{self.vehicle_name}: Requesting ARM')
-            else:
-                self.get_logger().warn(
-                    f'{self.vehicle_name}: mavros/cmd/arming service not ready'
-                )
-
-    def _set_mode_done(self, future) -> None:
-        try:
-            resp = future.result()
-            if resp.mode_sent:
-                self.get_logger().info(f'{self.vehicle_name}: OFFBOARD mode request accepted')
-            else:
-                self.get_logger().warn(f'{self.vehicle_name}: OFFBOARD mode request rejected')
-        except Exception as e:
-            self.get_logger().error(f'{self.vehicle_name}: set_mode service call failed: {e}')
-
-    def _arming_done(self, future) -> None:
-        try:
-            resp = future.result()
-            if resp.success:
-                self.get_logger().info(f'{self.vehicle_name}: ARM command accepted')
-            else:
-                self.get_logger().warn(
-                    f'{self.vehicle_name}: ARM command rejected (result={resp.result})'
-                )
-        except Exception as e:
-            self.get_logger().error(f'{self.vehicle_name}: arming service call failed: {e}')
 
     def _distance_to_waypoint(self) -> float:
         if self.common_frame_pose is None:
@@ -402,8 +395,8 @@ class OffboardControl(Node):
             self._state_init()
         elif self.flight_state == FlightState.RAMP_UP:
             self._state_ramp_up()
-        elif self.flight_state == FlightState.ARM:
-            self._state_arm()
+        elif self.flight_state == FlightState.WAIT_OFFBOARD:
+            self._state_wait_offboard()
         elif self.flight_state == FlightState.TAKEOFF:
             self._state_takeoff()
         elif self.flight_state == FlightState.HOVER:
@@ -412,11 +405,17 @@ class OffboardControl(Node):
             self._state_policy()
 
     def _state_init(self) -> None:
-        # Keep streaming zero velocity while waiting
+        # Keep streaming zero velocity while waiting. Block ramp-up until
+        # mavros_state is known AND mas_common_frame has reported both the
+        # drone's common-frame pose and the constant common→local offset.
         self._publish_zero_velocity()
-        if self.mavros_state is not None and self.current_pose is not None:
+        if (
+            self.mavros_state is not None
+            and self.common_frame_pose is not None
+            and self.local_origin_offset is not None
+        ):
             self.get_logger().info(
-                f'{self.vehicle_name}: MAVROS topics received, starting ramp-up'
+                f'{self.vehicle_name}: state + common_frame ready, starting ramp-up'
             )
             self.flight_state = FlightState.RAMP_UP
 
@@ -425,13 +424,25 @@ class OffboardControl(Node):
         self.ramp_counter += 1
         if self.ramp_counter >= 11:
             self.get_logger().info(
-                f'{self.vehicle_name}: Ramp-up complete, requesting offboard + arm'
+                f'{self.vehicle_name}: Ramp-up complete — waiting for operator '
+                f'to arm and switch to OFFBOARD (zero-velocity setpoints streaming)'
             )
-            self.flight_state = FlightState.ARM
+            self.flight_state = FlightState.WAIT_OFFBOARD
 
-    def _state_arm(self) -> None:
+    def _state_wait_offboard(self) -> None:
+        # Keep streaming zero-velocity setpoints so PX4 accepts the operator's
+        # OFFBOARD switch. Do NOT call mavros/set_mode or mavros/cmd/arming —
+        # arming and mode change are operator-driven (QGC / RC / external tool).
         self._publish_zero_velocity()
-        self._request_offboard_and_arm()
+
+        self._waited_log_tick += 1
+        ticks_per_second = max(int(self.update_rate), 1)
+        if self._waited_log_tick % (5 * ticks_per_second) == 0:
+            armed = self.mavros_state.armed if self.mavros_state else False
+            mode = self.mavros_state.mode if self.mavros_state else '<no state>'
+            self.get_logger().info(
+                f'{self.vehicle_name}: Waiting for operator (armed={armed}, mode={mode})'
+            )
 
         if (
             self.mavros_state is not None
@@ -444,12 +455,13 @@ class OffboardControl(Node):
             self.flight_state = FlightState.TAKEOFF
 
     def _state_takeoff(self) -> None:
-        # Climb at takeoff_speed (positive Z = up in ENU)
+        # Climb at takeoff_speed (positive Z = up in ENU). Both `alt` and
+        # `target_z` are now in common_frame — no mixed-frame comparison.
         self._publish_velocity(0.0, 0.0, self.takeoff_speed)
 
-        if self.current_pose is not None:
-            alt = self.current_pose.pose.position.z
-            target_z = self.local_waypoint_z if self.local_waypoint_z is not None else self.waypoint_z
+        if self.common_frame_pose is not None:
+            alt = self.common_frame_pose.pose.position.z
+            target_z = self.waypoint_z  # common-frame z from vehicles.yaml
             if alt >= target_z:
                 self.get_logger().info(
                     f'{self.vehicle_name}: Target altitude {target_z}m reached '
@@ -458,26 +470,19 @@ class OffboardControl(Node):
                 self.flight_state = FlightState.HOVER
 
     def _state_hover(self) -> None:
-        # HOVER_CMD: hold at captured position (hover_hold_pose)
-        # WAYPOINT / normal: hold at configured waypoint (local_waypoint_pose)
-        if self.hover_hold_pose is not None:
-            self.hover_hold_pose.header.stamp = self.get_clock().now().to_msg()
-            self.pos_pub.publish(self.hover_hold_pose)
+        # local_origin_offset is guaranteed non-None here — INIT blocks until
+        # it has been received. Select the common-frame setpoint (hold pose or
+        # configured waypoint) and convert to local frame at publish time.
+        if self.hover_hold_common_pose is not None:
+            setpoint = self._common_pose_to_local_setpoint(self.hover_hold_common_pose)
+            setpoint.header.stamp = self.get_clock().now().to_msg()
+            self.pos_pub.publish(setpoint)
             # HOVER_CMD never auto-transitions to POLICY — operator must resume
             return
 
-        if self.local_waypoint_pose is None:
-            # Offset not yet computed — hold position with zero velocity
-            self._publish_zero_velocity()
-            self.get_logger().info(
-                f'{self.vehicle_name}: Waiting for common_frame offset',
-                throttle_duration_sec=5.0,
-            )
-            return
-
-        # Publish local-frame position setpoint to MAVROS
-        self.local_waypoint_pose.header.stamp = self.get_clock().now().to_msg()
-        self.pos_pub.publish(self.local_waypoint_pose)
+        setpoint = self._common_pose_to_local_setpoint(self.waypoint_pose)
+        setpoint.header.stamp = self.get_clock().now().to_msg()
+        self.pos_pub.publish(setpoint)
 
         dist = self._distance_to_waypoint()
         yaw_err = abs(self._yaw_error_deg())

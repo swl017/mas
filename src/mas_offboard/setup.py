@@ -24,6 +24,7 @@ setup(
     entry_points={
         'console_scripts': [
             'offboard_control = mas_offboard.offboard_control:main',
+            'target_maneuver_node = mas_offboard.target_maneuver_node:main',
         ],
     },
 )

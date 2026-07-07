@@ -2,13 +2,15 @@
 
 ## offboard_control node
 
-Per-vehicle offboard controller for PX4 via MAVROS. Runs a state machine (INIT → RAMP_UP → ARM → TAKEOFF → HOVER → POLICY) and publishes velocity/position setpoints at 100 Hz.
+Per-vehicle offboard controller for PX4 via MAVROS. Runs a state machine (INIT → RAMP_UP → WAIT_OFFBOARD → TAKEOFF → HOVER → POLICY) and publishes velocity/position setpoints at 100 Hz.
+
+Arming and OFFBOARD mode change are **out of band** — the operator drives both through QGC / RC / their own tool. The node only streams setpoints (the precondition PX4 requires before accepting an OFFBOARD switch) and waits passively for `mavros/state` to report `armed && mode == 'OFFBOARD'`.
 
 ### State Machine
 
 ```
-INIT ──(mavros topics received)──→ RAMP_UP ──(11 ticks)──→ ARM
-  ──(armed + OFFBOARD)──→ TAKEOFF ──(alt ≥ waypoint.z)──→ HOVER
+INIT ──(mavros topics received)──→ RAMP_UP ──(11 ticks)──→ WAIT_OFFBOARD
+  ──(operator arms + sets OFFBOARD)──→ TAKEOFF ──(alt ≥ waypoint.z)──→ HOVER
   ──(dist < 2m, yaw < 10°, mission_state == MISSION)──→ POLICY
 ```
 
@@ -22,12 +24,13 @@ When airborne (HOVER or POLICY flight state), the node reacts to mission state c
 
 ### Subscriptions
 
+This node consumes drone state **only** through `mas_common_frame` — it deliberately does not subscribe to `mavros/local_position/*`. The MAVROS link surfaces only through `mavros/state` (armed + flight mode).
+
 | Topic | Type | QoS | Notes |
 |-------|------|-----|-------|
 | `mavros/state` | `mavros_msgs/State` | RELIABLE | Armed state, flight mode |
-| `mavros/local_position/pose` | `geometry_msgs/PoseStamped` | BEST_EFFORT | Position + attitude in local frame (ENU-FLU) |
-| `mavros/local_position/odom` | `nav_msgs/Odometry` | BEST_EFFORT | Full odometry in local frame (ENU-FLU) |
-| `common_frame/pose` | `geometry_msgs/PoseStamped` | BEST_EFFORT | Position + attitude in common frame (from mas_common_frame) |
+| `common_frame/pose` | `geometry_msgs/PoseStamped` | BEST_EFFORT | Drone pose in common frame (canonical state source) |
+| `common_frame/local_origin` | `geometry_msgs/PointStamped` | RELIABLE, transient local | Constant common→local offset; subtracted at publish time to convert common-frame setpoints into the local frame MAVROS expects |
 | `cmd_vel` | `geometry_msgs/TwistStamped` | BEST_EFFORT | Gated velocity command from mas_mission (ENU) |
 | `mission_state` | `std_msgs/Int8` | RELIABLE, transient local | Mission state from mas_mission (gates HOVER→POLICY, triggers HOVER_CMD/WAYPOINT hold) |
 
@@ -41,10 +44,7 @@ When airborne (HOVER or POLICY flight state), the node reacts to mission state c
 
 ### Service Clients
 
-| Service | Type | Notes |
-|---------|------|-------|
-| `mavros/cmd/arming` | `mavros_msgs/CommandBool` | Arm/disarm (called in ARM state, ~1 Hz) |
-| `mavros/set_mode` | `mavros_msgs/SetMode` | Set OFFBOARD mode (called in ARM state, ~1 Hz) |
+None. Arming and mode change are operator-driven (QGC / RC / external tool); the node never calls `mavros/cmd/arming` or `mavros/set_mode`.
 
 ### Parameters
 

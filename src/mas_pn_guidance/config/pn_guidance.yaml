@@ -1,0 +1,30 @@
+# PN guidance parameters — values match the Ticket 003 point-mass baseline
+# (research/bearing_localization/interception_baseline/scenario_grid.py):
+#   navigation_constant = 3.0, intercept_radius_m = 0.5, interceptor bands below.
+# The held band for the first sim matrix is paper_nominal_low (9 m/s, 6 m/s^2).
+/**:
+  ros__parameters:
+    nav_constant: 2.0           # N — parallax-preserving PN (ticket 010); point-mass baseline was 3.0
+    v_max: 9.0                  # paper_nominal_low interceptor_v_max_mps
+    a_max: 6.0                  # paper_nominal_low interceptor_a_max_mps2
+    control_rate_hz: 50.0
+    # oracle | simple_ekf | direct_projection
+    estimate_source: oracle
+    target_namespace: ''        # oracle: '' -> roles.yaml 'target'
+    stale_timeout_s: 0.5
+    cov_trace_gate: 0.0         # EKF arms: >0 skips high-covariance estimates (m^2 trace)
+    engage_in_mission_only: true
+    # true = faithful to the point-mass, which feeds PN the vehicle's ACTUAL
+    # propagated velocity (it tracks perfectly, so there is no command/actual
+    # split). In sim the measured ego-odom velocity is that actual velocity;
+    # using it makes closing-speed/LOS-rate reflect the real PX4 tracking (incl.
+    # the ~10 s accel ramp). false uses the integrated v_cmd setpoint, which
+    # assumes perfect tracking and HIDES the controller-dynamics mismatch
+    # (ticket 004 review, finding 2).
+    guidance_uses_measured_velocity: true
+
+# Other interceptor bands (set v_max/a_max to sweep later; PX4 MPC limits must be
+# matched per band via mas_pn_guidance set_px4_limits / px4_bands.yaml):
+#   quad_conservative  7 / 4     paper_nominal_high 11 / 8
+#   paper_nominal_low  9 / 6     paper_optimistic   13 / 12
+# Conductor success threshold: intercept_radius_m = 0.5 (point-mass parity).

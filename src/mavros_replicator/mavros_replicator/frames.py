@@ -11,6 +11,8 @@ Conventions:
 """
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 # World rotation: NED → ENU (180° about (1,1,0)/√2). Involutory: R_W @ R_W = I.
@@ -122,25 +124,6 @@ def velocity_local_covariance_ned_to_enu(vel_var_ned) -> list:
     return _row_major_36(cov)
 
 
-def odom_twist_covariance(vel_var_world_ned, q_enu_flu_xyzw) -> list:
-    """6×6 covariance for Odometry.twist (linear body-FLU, angular body-FLU).
-
-    Linear: rotate the world-ENU diagonal variance into body-FLU using current attitude.
-    Angular: zero (PX4 does not expose).
-    """
-    sigma_world = np.diag([
-        float(vel_var_world_ned[1]),
-        float(vel_var_world_ned[0]),
-        float(vel_var_world_ned[2]),
-    ])
-    R_world_body = quat_to_matrix_xyzw(q_enu_flu_xyzw)  # body→world
-    R_body_world = R_world_body.T
-    sigma_body = R_body_world @ sigma_world @ R_body_world.T
-    cov = np.zeros((6, 6), dtype=np.float64)
-    cov[:3, :3] = sigma_body
-    return _row_major_36(cov)
-
-
 def velocity_setpoint_enu_flu_to_ned(linear_enu, yawspeed_flu) -> tuple:
     """Convert MAVROS-style velocity setpoint to PX4 TrajectorySetpoint frame.
 
@@ -150,3 +133,23 @@ def velocity_setpoint_enu_flu_to_ned(linear_enu, yawspeed_flu) -> tuple:
     linear_ned = R_W_NED_TO_ENU @ np.asarray(linear_enu, dtype=np.float64)
     yawspeed_ned = -float(yawspeed_flu)
     return linear_ned, yawspeed_ned
+
+
+def yaw_enu_from_quat_xyzw(q_xyzw) -> float:
+    """Extract ENU yaw (rad, CCW from east) from a FLU→ENU quaternion (xyzw)."""
+    x, y, z, w = float(q_xyzw[0]), float(q_xyzw[1]), float(q_xyzw[2]), float(q_xyzw[3])
+    return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+
+def position_setpoint_enu_flu_to_ned(position_enu, q_enu_flu_xyzw) -> tuple:
+    """Convert MAVROS-style position setpoint to PX4 TrajectorySetpoint frame.
+
+    position_enu: world ENU 3-vector → world NED 3-vector.
+    q_enu_flu_xyzw: FLU→ENU quaternion → NED-frame yaw scalar (CW from north).
+    """
+    position_ned = R_W_NED_TO_ENU @ np.asarray(position_enu, dtype=np.float64)
+    yaw_enu = yaw_enu_from_quat_xyzw(q_enu_flu_xyzw)
+    yaw_ned = math.pi / 2.0 - yaw_enu
+    # Wrap to [-pi, pi] so PX4 sees a well-conditioned yaw.
+    yaw_ned = math.atan2(math.sin(yaw_ned), math.cos(yaw_ned))
+    return position_ned, yaw_ned

@@ -18,6 +18,7 @@ def launch_setup(context):
     initial_state = LaunchConfiguration('initial_state').perform(context)
     vehicle_filter = LaunchConfiguration('vehicle_filter').perform(context)
     use_sim_time = LaunchConfiguration('use_sim_time').perform(context).lower() == 'true'
+    engagement_source = LaunchConfiguration('engagement_source').perform(context)
 
     if os.path.isabs(config_file):
         config_path = config_file
@@ -50,6 +51,7 @@ def launch_setup(context):
             parameters=[{
                 'initial_state': int(initial_state),
                 'heartbeat_rate_hz': 1.0,
+                'engagement_source': engagement_source,
                 'use_sim_time': use_sim_time,
             }],
             remappings=[
@@ -82,6 +84,12 @@ def generate_launch_description():
             'use_sim_time',
             default_value='false',
             description='Use /clock (sim) time when true, wall time otherwise',
+        ),
+        DeclareLaunchArgument(
+            'engagement_source',
+            default_value='policy',
+            description="Velocity source forwarded as cmd_vel in MISSION: "
+                        "'policy' (mas_policy) or 'pn' (mas_pn_guidance). Ticket 004.",
         ),
         OpaqueFunction(function=launch_setup),
     ])
