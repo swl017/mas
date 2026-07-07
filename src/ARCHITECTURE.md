@@ -68,6 +68,23 @@ All topics below are per-vehicle, resolved within `/{veh}/` namespace unless not
 | `mavros/set_mode` | mavros_msgs/SetMode | offboard_control (client) | Set OFFBOARD mode — **deferred in mavros_replicator v1**, see ticket 040 |
 | `~/reset_hidden_state` | std_srvs/Trigger | mas_policy | Reset GRU hidden states |
 
+### Frame Conventions for Odometry / Velocity Topics
+
+All velocity-carrying topics in this graph (`common_frame/odom`, `mavros/local_position/odom`, `mavros/local_position/velocity_local`, `cmd_vel`, `mavros/setpoint_velocity/cmd_vel`, `policy/cmd_vel`) follow the **REP-147 aerial convention**, matching PX4 `VehicleOdometry`:
+
+| Field | Frame |
+|-------|-------|
+| Position | world ENU |
+| Orientation | world ENU (body-FLU → world-ENU quat) |
+| Linear velocity | world ENU |
+| Angular velocity | body FLU |
+
+This is a deliberate deviation from `nav_msgs/Odometry`'s doc string ("twist in `child_frame_id`"). The doc-string convention was designed for ground robots whose wheel odometry naturally produces body-frame linear velocity; for aerial vehicles, world-frame linear is closer to the EKF source and avoids injecting attitude error into the velocity estimate. Body-frame angular velocity is kept because that's where gyros measure.
+
+Implication for `cmd_vel`-style topics: `twist.linear` is interpreted as world ENU and `twist.angular.z` as body FLU yawrate. `header.frame_id = 'map'` describes the linear frame; angular frame is implicit per this convention.
+
+See [doc/mavros_replicator_spec.md](doc/mavros_replicator_spec.md) §3, §6 and [doc/frame_conventions.md](doc/frame_conventions.md) for full details.
+
 ## Parameters
 
 | Parameter | Type | Default | Node | Description |
