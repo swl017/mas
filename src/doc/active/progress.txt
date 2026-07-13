@@ -1067,3 +1067,45 @@ Next:
 - Result: velocity-error optimization transfers on velocity error but does
   not beat OLD on an independent PN-command surrogate; no candidate was
   promoted to live engagement testing.
+
+2026-07-13 - Ticket 041 authored (PN acceleration setpoint)
+- Wrote src/doc/active/tickets/041-pn-acceleration-setpoint/ticket.md.
+  Scope: give mas_pn_guidance a second output channel that commands PX4
+  with an ACCELERATION setpoint via mavros_msgs/PositionTarget
+  (mavros/setpoint_raw/local, acceleration_or_force + type_mask), in
+  addition to the existing pn/cmd_vel velocity setpoint.
+- Design (documented in the ticket, not yet implemented):
+  - Additive runtime-switchable `command_mode ∈ {velocity, accel_ff, accel}`
+    (default velocity, byte-for-byte unchanged). New A/B axis alongside
+    guidance_mode / estimate_source.
+  - accel_ff (recommended new default for the accel study): PositionTarget
+    with velocity=v_cmd + acceleration=a_pn feedforward, type_mask 1031
+    (IGNORE_PX|PY|PZ|YAW), yaw_rate=0. Closing stays in v_cmd.
+  - accel (stretch): pure accel, velocity ignored (mask 1087). Needs a
+    closing/speed-regulation term a_cmd = limit_norm(a_pn +
+    k_v·(v_cmd − v_meas), a_max) because pn_law returns lateral accel only.
+    New param accel_track_gain (k_v).
+  - New topic pn/setpoint_raw plumbed through the SAME gated hops:
+    mas_mission (forward only in MISSION) -> mas_offboard (POLICY state,
+    100 Hz, zero-VELOCITY on dropout, never zero-accel). Guidance node does
+    NOT publish mavros/setpoint_raw/local directly.
+  - pn_law.py untouched; test_pn_law point-mass parity must still pass.
+- Key open items flagged in the ticket:
+  - PX4/MAVROS bench validation (step 6) of the exact type_mask before any
+    flight: does this MC build honor a pure-accel OFFBOARD setpoint (velocity
+    ignored)? does yaw_rate=0 hold heading vs spin? Record confirmed masks
+    back into the ticket + CONTEXT.md.
+  - mavros_replicator (ticket 040) inbound currently translates cmd_vel only,
+    NOT setpoint_raw/local -> accel modes land against REAL MAVROS first;
+    replicator inbound trajectory_setpoint translation is a follow-on.
+- No code changed this session; ticket only. feature_list.json not updated
+  (new open ticket, no feature status change).
+
+Next:
+- Decide command_mode default for the accel study and whether to ship accel
+  (pure) in the first pass or accel_ff only.
+- Step 6 first: hand-publish PositionTarget to mavros/setpoint_raw/local in
+  armed OFFBOARD (sim_interceptor.tmuxp.yaml) and confirm mask acceptance
+  before wiring the guidance/mission/offboard changes.
+- Then implement per the ticket workflow (pn_guidance_node -> config ->
+  launch -> mission_node -> offboard_control -> CONTEXT.md x3 + ARCHITECTURE).
