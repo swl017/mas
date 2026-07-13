@@ -34,7 +34,7 @@ verify() {
   grep -nE "nav_constant|v_max|a_max" "$PN_INST" | sed 's/^/  /'
   echo "== PN node (live ready-line, if visible) =="
   tmux capture-pane -t "interceptor:$(pn_window)" -p -S -100 2>/dev/null \
-    | grep -E "ready: N=" | tail -1 | sed 's/^/  /' || true
+    | grep -E "ready:.*N=" | tail -1 | sed 's/^/  /' || true
 }
 
 case "${1:-}" in

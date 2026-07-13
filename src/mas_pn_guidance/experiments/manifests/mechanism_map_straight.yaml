@@ -1,0 +1,67 @@
+# Ticket 016 — straight-target mechanism map + evasion ladder (N=3 + OLD).
+#
+# Primary block: straight CV target (a_lat=0), vf {1,3,5,6,7} x {crossing, tail} —
+#   model-matched CV-EKF, so ego-only failure = pure geometry (observability), not
+#   filter mismatch. vf6 straight doubles as the evasion ladder's zero rung.
+# Secondary block: weave a_lat {3,6} at vf {3,6} x both geometries — conflict
+#   persistence under evasion + closure wall as target lateral authority approaches
+#   the interceptor band (6 m/s^2).
+#
+# Prerequisites (N=3-only decision, 2026-07-13):
+#   profiles/install_profile.sh pn N3     # installed state may still be ticket-010 N=2
+#   profiles/install_profile.sh ekf OLD   # if not already OLD
+#   profiles/install_profile.sh verify    # ready-line N=3.0; sigma 1.0/5.0
+#
+# First manifest-driven validation run of the ticket-042 suite. SM2T (weave tail,
+# highest stranding risk) runs last on purpose.
+
+session:
+  interceptor_ns: px4_1
+  target_ns: px4_2
+  interceptor_ic: [0.0, -50.0]
+  ic_tol_m: 1.5
+  seed: 42
+  use_sim_time: true
+  record: true
+  bag_script: /home/usrg/mas/bag/rosbag_record_reduced.sh
+  bag_dir: /home/usrg/mas/bag
+
+output:
+  results_dir: /home/usrg/IsaacPX4/2026-RAL-Active-Coop-for-Interception/tickets/016-straight-target-mechanism-map/results/data
+
+gate:
+  geometry: crossing
+  forward_speed: 4.0
+  lateral_accel: 0.0
+  estimator: oracle
+  max_cpa_m: 0.5        # N=3 healthy reference ~0.08 m (ticket 007)
+
+policies:
+  settle_error_streak_abort: 3
+  on_boot_abort: stop
+
+boots:
+  - id: SM1C            # mechanism map, crossing (15 trials)
+    geometries: crossing
+    forward_speeds: [1, 3, 5, 6, 7]
+    lateral_accels: [0]
+    estimators: [oracle, simple_ekf, direct_projection]
+    repeats: 1
+  - id: SM2C            # evasion ladder, crossing (12 trials)
+    geometries: crossing
+    forward_speeds: [3, 6]
+    lateral_accels: [3, 6]
+    estimators: [oracle, simple_ekf, direct_projection]
+    repeats: 1
+  - id: SM1T            # mechanism map, tail (15 trials)
+    geometries: tail_chase
+    forward_speeds: [1, 3, 5, 6, 7]
+    lateral_accels: [0]
+    estimators: [oracle, simple_ekf, direct_projection]
+    repeats: 1
+  - id: SM2T            # evasion ladder, tail — stranding risk, runs LAST (12 trials)
+    geometries: tail_chase
+    forward_speeds: [3, 6]
+    lateral_accels: [3, 6]
+    estimators: [oracle, simple_ekf, direct_projection]
+    repeats: 1

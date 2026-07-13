@@ -161,8 +161,10 @@ def run_boot(ses: dict, boot: dict, policies: dict) -> tuple[str, list[dict]]:
     streak_limit = int(policies.get("settle_error_streak_abort", 3))
     cmd = launch_cmd(ses, boot)
     log(f"boot {boot['id']}: {' '.join(cmd[3:])}")
-    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL, start_new_session=True)
+    # Keep the conductor's own log — settle_error causes are invisible without it.
+    logf = open(bag_dir / f"boot_{boot['id']}_conductor.log", "w")
+    proc = subprocess.Popen(cmd, stdout=logf, stderr=subprocess.STDOUT,
+                            start_new_session=True)
     status = "ok"
     streak = 0
     seen = 0
@@ -187,6 +189,7 @@ def run_boot(ses: dict, boot: dict, policies: dict) -> tuple[str, list[dict]]:
             break
     if proc.poll() not in (0, None) and status == "ok":
         status = "error"
+    logf.close()
     return status, read_rows(csv_path)
 
 
@@ -220,8 +223,9 @@ def archive(ses: dict, boot_id: str, status: str, out_dir: Path,
             manifest_path: Path) -> None:
     bag_dir = Path(ses.get("bag_dir", "/home/usrg/mas/bag"))
     out_dir.mkdir(parents=True, exist_ok=True)
-    for ext in (".csv", ".jsonl"):
-        src = bag_dir / f"boot_{boot_id}_results{ext}"
+    for name in (f"boot_{boot_id}_results.csv", f"boot_{boot_id}_results.jsonl",
+                 f"boot_{boot_id}_conductor.log"):
+        src = bag_dir / name
         if src.exists():
             shutil.copy2(src, out_dir / src.name)
     prov = {

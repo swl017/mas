@@ -1,0 +1,70 @@
+# baseline_straight.yaml — THE default straight-target baseline sweep.
+#
+# The frozen "default setup" (ticket 016 mechanism map, N=3 + OLD): a straight,
+# constant-velocity target (a_lat = 0) swept over forward speed in both
+# engagement geometries, ego-only BO-EKF vs the oracle control. Because the
+# CV-EKF is exactly model-matched on a straight target, any ego-only miss is
+# attributable to observability geometry, not filter mismatch.
+#
+#   guidance: pn (range-sensitive point-mass-parity law — the FIXED harness;
+#             guidance_mode is the launch default, NOT set here on purpose)
+#   N = 3.0, interceptor band 9 m/s / 6 m/s^2   (from profiles/pn_N3.yaml)
+#   estimator tuning: OLD  (BO-EKF sigma_pix=1.0/sigma_acc=5.0; from ekf OLD)
+#   arms: oracle (control) + simple_ekf (BO-EKF, the deployable ego-only arm)
+#   target: straight (a_lat=0), vf in {1,3,5,6,7} m/s, crossing + tail_chase
+#
+# ── PREREQUISITES (config comes from PROFILES, not this manifest) ────────────
+#   Stack up (isaac_sim + interceptor + target sessions, both drones armed at
+#   ICs), then, from experiments/:
+#     profiles/install_profile.sh pn  N3     # N=3 + band 9/6 (guidance_mode=pn default)
+#     profiles/install_profile.sh ekf OLD    # BO-EKF OLD tuning
+#     profiles/install_profile.sh verify     # expect nav_constant 3.0, sigma 1.0/5.0,
+#                                            #        live "ready: ... N=3.0"
+#   Run:
+#     python3 run_sweep.py manifests/baseline_straight.yaml   # --dry-run first
+#
+# ── PER-SESSION ──────────────────────────────────────────────────────────────
+#   Boot ids (SC/ST) and results_dir must be FRESH each session — the runner
+#   refuses a boot whose boot_<id>_results.csv already exists. Set a dated
+#   results_dir (or suffix the ids) per run.
+#   To add the direct_projection overlay: append `direct_projection` to each
+#   boot's `estimators`. To add the evasion block, see mechanism_map_straight.yaml.
+
+session:
+  interceptor_ns: px4_1
+  target_ns: px4_2
+  interceptor_ic: [0.0, -50.0]     # common-frame x, y the conductor settles to
+  ic_tol_m: 1.5
+  seed: 42
+  use_sim_time: true
+  record: true
+  bag_script: /home/usrg/mas/bag/rosbag_record_reduced.sh
+  bag_dir: /home/usrg/mas/bag
+
+output:
+  results_dir: /home/usrg/mas/src/mas_pn_guidance/experiments/results/baseline_straight   # set fresh per session
+
+gate:
+  geometry: crossing
+  forward_speed: 4.0
+  lateral_accel: 0.0
+  estimator: oracle
+  max_cpa_m: 0.5        # N=3 healthy reference ~0.03-0.2 m (ticket 007)
+
+policies:
+  settle_error_streak_abort: 3
+  on_boot_abort: stop
+
+boots:
+  - id: SC              # straight x crossing (10 trials: 5 vf x 2 arms)
+    geometries: crossing
+    forward_speeds: [1, 3, 5, 6, 7]
+    lateral_accels: [0]
+    estimators: [oracle, simple_ekf]
+    repeats: 1
+  - id: ST              # straight x tail_chase (10 trials) — runs after crossing
+    geometries: tail_chase
+    forward_speeds: [1, 3, 5, 6, 7]
+    lateral_accels: [0]
+    estimators: [oracle, simple_ekf]
+    repeats: 1

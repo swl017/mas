@@ -37,11 +37,14 @@ profiles/install_profile.sh ekf OLD     # or TUNED / INTER
 profiles/install_profile.sh pn  N2      # or N3
 profiles/install_profile.sh verify      # sanity: sigma lines + "ready: N=" line
 
-# 2. define the sweep
-cp manifests/template.yaml manifests/my_sweep.yaml && $EDITOR manifests/my_sweep.yaml
+# 2. pick a manifest — the default straight-target baseline is ready-made:
+#      manifests/baseline_straight.yaml   (pn N3 + OLD; straight crossing + tail;
+#                                          oracle + simple_ekf; vf {1,3,5,6,7})
+#    or build a custom one: cp manifests/template.yaml manifests/my_sweep.yaml
+#    (set a FRESH output.results_dir / boot ids per session)
 
 # 3. run it (health gate first, then boots, one conductor at a time)
-python3 run_sweep.py manifests/my_sweep.yaml            # --dry-run to preview
+python3 run_sweep.py manifests/baseline_straight.yaml   # --dry-run to preview
 
 # 4. look at results
 python3 analysis/boot_table.py --data-dir results/my_sweep
@@ -81,6 +84,20 @@ Profile provenance: OLD/TUNED/INTER are byte-copies of the ticket-007 preserved
 configs (`OLD 50/1.0/5.0 + DP 30/0.05`, `TUNED 50/0.15/2.0`, `INTER 50/0.5/3.0`);
 `pn_N3` is point-mass parity, `pn_N2` is parallax-preserving PN (ticket 010).
 
+**Are the two `install` lines necessary every session?** No — they are
+idempotent config-swaps, not launches. `verify` is read-only and always worth
+running; the two `install_profile.sh` lines only *do* anything when the live
+state has drifted from the target profile:
+
+- If `verify` already shows `nav_constant 3.0`, `sigma 1.0/5.0`, and a live
+  `ready: N=3.0` line, you can **skip** `pn N3` / `ekf OLD` — the freshly-loaded
+  `bearing_ekf` / `pn_guidance` windows already came up on those installed values.
+- Run them whenever `verify` disagrees. State drifts across sessions/tickets
+  (e.g. N=2 left installed by ticket 010), and `engagement_ekf.launch.py` is
+  **untracked in git** — so nothing restores it automatically. When in doubt,
+  running all three is cheap (~15 s + a window restart each) and guarantees the
+  arm config; the default baseline sweep assumes N=3 + OLD.
+
 *Staged improvement (not yet done):* make `ekf_profile:=` / `nav_constant:=`
 first-class launch arguments so the copy-restart dance disappears. Needs a
 tracked, parameterized `engagement_ekf.launch.py` + a rebuild — do it between
@@ -105,6 +122,42 @@ See `manifests/template.yaml` for the schema. The runner enforces:
   yaml, and the manifest — proves which configs produced which rows).
 - **QA per boot**: `analysis/qa_target_tracking.py` output saved alongside
   (`FWD-SAT`/`ALAT-SAT` = unrealized cell).
+
+### 4a. Changing initial conditions (range / geometry) — the two-place rule
+
+The `session` block of the manifest owns the ICs; the boot list owns the sweep
+axes. What each knob controls:
+
+| where | key | controls |
+|---|---|---|
+| `session.interceptor_ic: [x, y]` | interceptor settle point (common frame) | **range + geometry** — the target holds at the common-frame origin `(0,0)`, so **range = ‖interceptor_ic‖**. `[0,-50]` = 50 m. `[0,-30]` = 30 m; `[0,-70]` = 70 m. A non-axis-aligned `[x,y]` sets an oblique start. |
+| `session.ic_tol_m` | settle tolerance | how close to `interceptor_ic` counts as ready (default 1.5 m; widen for large-range starts) |
+| `boots[].geometries` | `crossing` \| `tail_chase` | engagement geometry (one per boot) |
+| `boots[].forward_speeds` / `lateral_accels` | m/s, m/s² | target maneuver cells (`a_lat=0` = straight) |
+| `boots[].estimators` | `oracle` \| `simple_ekf` \| `direct_projection` | the arm(s) |
+
+**⚠ The two-place rule for range.** Changing `interceptor_ic` changes the
+engagement range, but the BO-EKF's **initial range prior is set separately** and
+must be changed to match — a bearing-only EKF is sensitive to it (starting at
+50 m while flying a 30 m engagement biases/slows convergence and confounds the
+ego-only result). It is a launch arg in the **interceptor tmux session**, not the
+manifest:
+
+```yaml
+# src/tmux/sim_interceptor.tmuxp.yaml — window: bearing_ekf
+ros2 launch mas_bearing_loc engagement_ekf.launch.py vehicle:=${ROBOT_NAME} \
+    init_range_guess:=50.0 use_sim_time:=${USE_SIM_TIME}   # <- set to the new IC range
+```
+
+Also `direct_init_range_guess` (default 30.0) for the `direct_projection` arm.
+After editing, reload the interceptor session (or restart just the `bearing_ekf`
+window) so the node re-reads it. Rule of thumb: **`init_range_guess` ≈
+‖interceptor_ic‖ every time you move the range.**
+
+Not in the manifest (leave unless you mean to change them): **altitude** (~30 m,
+set by the `offboard` hover config, not the ICs) and the **health gate** cell —
+at a very different range re-confirm the oracle gate still lands < `max_cpa_m`
+(it should; oracle is range-agnostic given GT state).
 
 ## 5. Scoring discipline (unchanged, critical)
 

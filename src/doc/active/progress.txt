@@ -1121,3 +1121,14 @@ Next:
   reclassifies the archived 42-cell ticket-010 data; verify reads live install space.
 - Next: staged items in ticket 042 (parameterized engagement_ekf launch args; conductor
   -internal stranding abort; bring-up as code; ticket-041 command_mode as manifest axis).
+
+2026-07-14 — Ticket 042 validation run (RA-L ticket-016 mechanism-map sweep)
+- experiments/ suite ran its first full manifest sweep (gate + 4 boots + QA + provenance):
+  VALIDATED. Gate correctly refused two broken sessions (dual-sim /clock split-brain:
+  leftover isaacpx4-simstack container + duplicate host Isaac); after cleanup, 55 trials
+  ran clean at 0.267x realtime.
+- Fixes landed: run_sweep.py now captures per-boot conductor logs (was DEVNULL) and
+  archives them; install_profile.sh verify grep widened to "ready:.*N=" (node ready-line
+  gained mode= field).
+- Open 042 follow-ups: conductor first-trial settle retry (seed-42 flake recurred once,
+  isolated); analysis/plot_boundary_3arm.py ylim excludes vf<2 cells.
