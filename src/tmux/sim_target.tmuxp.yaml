@@ -10,7 +10,10 @@
 #
 # Bring up AFTER isaac_sim.tmuxp.yaml.
 #   tmuxp load sim_target.tmuxp.yaml
-# Arm + OFFBOARD are operator-driven via QGC.
+# Arm + OFFBOARD are automated by the `auto_arm` window below (mas_offboard
+# auto_arm): it drives PX4 via fmu/in/vehicle_command once the offboard node is
+# streaming setpoints, so no QGC is needed. Set AUTO_ARM=0 to disable (fall back
+# to arming manually via QGC).
 
 session_name: target
 
@@ -47,6 +50,25 @@ windows:
     - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
     - ros2 launch mas_offboard offboard.launch.py vehicle_filter:=${ROBOT_NAME} config_file:=config/vehicles_engagement.yaml use_sim_time:=${USE_SIM_TIME}
+
+# Auto arm + OFFBOARD (replaces the manual QGC step). The offboard window above
+# streams the setpoint heartbeat; this one-shot helper publishes VehicleCommand
+# (DO_SET_MODE offboard, then ARM) to fmu/in/vehicle_command and retries until
+# mavros/state reports armed+OFFBOARD, then exits — offboard_control then runs
+# its TAKEOFF→HOVER. target_system = PX4 sys id = <N>+1 for px4_<N>. Guarded by
+# AUTO_ARM (default 1); set AUTO_ARM=0 to arm by hand via QGC instead.
+- window_name: auto_arm
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+    - TGT_SYS=$(( ${ROBOT_NAME##px4_} + 1 ))
+  panes:
+    - >-
+      if [ "${AUTO_ARM:-1}" = "1" ]; then
+      ros2 run mas_offboard auto_arm --ros-args -r __ns:=/${ROBOT_NAME}
+      -p target_system:=${TGT_SYS} -p use_sim_time:=${USE_SIM_TIME};
+      else echo "AUTO_ARM=0 — arm + OFFBOARD manually (QGC)"; fi
 
 # Slice 3: the target flies the regime. mas_mission (engagement_source:=maneuver)
 # forwards maneuver/cmd_vel as cmd_vel in MISSION, so ONE global MISSION=2 engages

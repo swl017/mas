@@ -4,7 +4,7 @@ import math
 import numpy as np
 
 from mas_pn_guidance.pn_law import (
-    proportional_navigation, limit_norm, unit, command_to_dict,
+    proportional_navigation, pn_from_los_rate, limit_norm, unit, command_to_dict,
 )
 
 N = 3.0
@@ -86,3 +86,28 @@ def test_constant_speed_pursuit_converges():
         tgt_p = tgt_p + tgt_v * dt
         min_range = min(min_range, float(np.linalg.norm(tgt_p - own_p)))
     assert min_range < 1.0, f"expected intercept, min_range={min_range:.2f}"
+
+
+def test_bearing_pn_is_range_invariant():
+    """Range-TOLERANT law: the command depends only on the LOS direction + rate, not
+    range. Scaling the target position along the same bearing must not change it —
+    the whole point of the fix (a range-poor estimate does not corrupt PN)."""
+    own_p = np.zeros(3); own_v = np.array([9.0, 0.0, 0.0])
+    n_true = unit(np.array([1.0, 0.3, 0.0]))
+    omega = np.array([0.0, 0.0, 0.06])
+    accels = []
+    for rng in (5.0, 25.0, 100.0):
+        n_hat = unit((own_p + rng * n_true) - own_p)
+        closing = float(np.dot(own_v, n_hat))
+        accels.append(pn_from_los_rate(n_hat, omega, closing, N, A_MAX, range_est_m=rng).acceleration_mps2)
+    for a in accels[1:]:
+        assert np.allclose(a, accels[0], atol=1e-12)
+
+
+def test_bearing_pn_perpendicular_and_zero_on_zero_rate():
+    n_hat = unit(np.array([1.0, 0.2, 0.1]))
+    cmd = pn_from_los_rate(n_hat, np.array([0.0, 0.0, 0.05]), 9.0, N, A_MAX)
+    assert abs(float(np.dot(cmd.acceleration_mps2, n_hat))) < 1e-9   # perpendicular to LOS
+    assert np.linalg.norm(cmd.acceleration_mps2) > 0.1
+    zero = pn_from_los_rate(n_hat, np.zeros(3), 9.0, N, A_MAX)        # no LOS rate -> no command
+    assert np.linalg.norm(zero.acceleration_mps2) < 1e-12

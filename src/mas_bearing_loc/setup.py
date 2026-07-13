@@ -27,6 +27,7 @@ setup(
             'dc_ekf_node = mas_bearing_loc.dc_ekf_node:main',
             'simple_ekf_node = mas_bearing_loc.simple_ekf_node:main',
             'direct_projection_ekf_node = mas_bearing_loc.direct_projection_ekf_node:main',
+            'raw_los_node = mas_bearing_loc.raw_los_node:main',
             'bearing_residual_monitor = mas_bearing_loc.bearing_residual_monitor:main',
         ],
     },

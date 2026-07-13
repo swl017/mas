@@ -57,6 +57,15 @@ The fix was *not* delay compensation, attitude override, or noise
 re-tuning — all of which were tried and made marginal difference.  The
 fix is to **stop putting the image feature in state**.
 
+> **Scope (ticket 011, claim-audit B1).** This bounds *our* **legacy
+> approximate** 18-D DC-EKF (reduced Jacobian, gimbal camera) on this
+> long high-parallax orbit bag/regime — it is **not** a refutation of
+> Yang/Liu, whose faithful fixed-camera filters have not been run in this
+> repo. The controlled test is the matched fixed-camera reproduction +
+> inverse-depth arm (`dkf_dcekf_revisit/`, ticket 011). The `1/Z`
+> cross-covariance divergence *mechanism* itself is well-diagnosed and
+> reproducible.
+
 ## What SimpleEKF does instead
 
 State: `[ p_target (3), v_target (3) ]` in world ENU.  Aircraft pose and

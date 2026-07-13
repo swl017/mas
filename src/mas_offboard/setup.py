@@ -25,6 +25,7 @@ setup(
         'console_scripts': [
             'offboard_control = mas_offboard.offboard_control:main',
             'target_maneuver_node = mas_offboard.target_maneuver_node:main',
+            'auto_arm = mas_offboard.auto_arm_node:main',
         ],
     },
 )

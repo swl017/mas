@@ -61,7 +61,7 @@ mas/
 ## Build
 ```bash
 # ROS2 humble
-/home/usrg/ros2_humble # Desktop dev env
+/home/usrg/ros2_humble # Desktop dev env if present
 /opt/ros/humble # Onboard deploy
 
 # Build all

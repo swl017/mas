@@ -2,9 +2,12 @@
 
 ## Purpose
 
-Single-view monocular bearing-only target localization via a Delay-Compensated
-Extended Kalman Filter (DC-EKF), reproducing Liu et al. 2026
-(arXiv 2606.10639v2, "Planar-Sector LOS Guidance"), §III-E.
+Single-view monocular bearing-only target localization via an **approximate**
+Delay-Compensated Extended Kalman Filter (DC-EKF) **inspired by** Liu et al. 2026
+(arXiv 2606.10639v2, "Planar-Sector LOS Guidance"), §III-E. It is **not** a
+faithful reproduction — a reduced covariance Jacobian (only `∂p̄/∂v_r`), a gimbal
+(not fixed) camera, and an attitude override all deviate from the paper. See the
+Deviations table below and `dkf_dcekf_revisit/paper_traceability.md` §4 (ticket 011).
 
 This package is **not** part of the mainline cooperative-triangulation pipeline.
 It exists as a *single-agent baseline* to:
@@ -21,27 +24,36 @@ It exists as a *single-agent baseline* to:
 
 | Node | State | IMU? | Image feature in state? | Delay comp? | Recommended use |
 |---|---|---|---|---|---|
-| `dc_ekf_node` | 18D | yes | yes (IBVS dynamics) | yes | Paper reproduction; short interception scenes |
+| `dc_ekf_node` | 18D | yes | yes (IBVS dynamics) | yes | Approximate paper reproduction (legacy arm); short closing scenes only |
 | `dc_ekf_node` (`disable_delay_compensation:=true`) | 18D | yes | yes | no | "Vanilla 18D" — isolates delay-comp as a confounder |
 | `simple_ekf_node` | 6D | no (uses odom) | no | no | **Long-running production tracking**; see `doc/EKF_VARIANTS_BENCHMARK.md` |
 | `direct_projection_ekf_node` | 6D (relative) | no (uses odom) | no | no | Maneuvering-observer tracking; injects observer accel as control, corrects via the direct unit-bearing tangent projection |
 
 For the canonical 2-lap waypoint-mission benchmark
 (`mas/bag/bag_20260622_164718_bearing_loc_test`, 70 s), only **SimpleEKF**
-stays stable end-to-end (median 1.19 m).  Both 18D variants diverge to NaN
+stays stable end-to-end (median 1.19 m vs `chosen_target_pose`; 0.70 m vs true
+GT — see the E1 note under the re-tune below).  Both 18D variants diverge to NaN
 by ≈30 s due to the `1/Z` cross-covariance feedback in the IBVS interaction
-matrix.  Full analysis in `doc/EKF_VARIANTS_BENCHMARK.md`.
+matrix (legacy approximate arm, long-orbit regime; a faithful Yang/Liu
+fixed-camera reproduction is pending — ticket 011).  Full analysis in
+`doc/EKF_VARIANTS_BENCHMARK.md`.
 
 **Re-tune (2026-07, offline replay on the same bag)** — deliverable
 `research/bearing_localization/dc_ekf_retune/DC_EKF_RETUNE_001.md` in the
 2026-RAL repo. Two outcomes:
 
-- **SimpleEKF → 0.76 m** (from 1.19 m) via a new `sigma_norm_floor` knob. The
-  node's `sigma_pix/(fx·zoom)` normalized 1σ is ~5× too tight at high zoom vs
-  the true ~0.03 rad angular error, so the filter over-fits and the range
-  collapses; flooring the effective σ fixes it. New param `sigma_norm_floor`
-  on `SimpleEKFConfig` + `simple_ekf_node` (default 0 = legacy). Recommended
-  ~0.03 for this YOLO chain.
+- **SimpleEKF `sigma_norm_floor` knob.** The node's `sigma_pix/(fx·zoom)`
+  normalized 1σ is ~5× too tight at high zoom vs the true ~0.03 rad angular
+  error, so the filter over-fits and the range collapses; flooring the effective
+  σ fixes it. New param `sigma_norm_floor` on `SimpleEKFConfig` +
+  `simple_ekf_node` (default 0 = legacy). Recommended ~0.03 for this YOLO chain.
+  **E1 GT-reference note (ticket 011):** measured against **one** ground truth
+  (`/px4_3/common_frame/odom`), legacy **0.70 m → retune 0.76 m** is parity /
+  marginally worse on the median; the σ-floor's real, large win is **outlier
+  removal** (p75 120 → 1.1 m, outliers 1972 → 0). The earlier "1.19 → 0.76 m"
+  headline conflated two ground truths (1.19 m was vs the biased
+  `chosen_target_pose`); never compare a true-GT median against a
+  chosen-target median.
 - **DC-EKF still cannot hold range** on this regime. Re-tried in ~21 configs
   with new default-off stabilization knobs on `DCEKFConfig`/`dc_ekf_node`
   (`sigma_norm_floor`, `depth_floor`, `reject_mahalanobis`, `cov_eig_floor`,
@@ -90,13 +102,18 @@ matrix.  Full analysis in `doc/EKF_VARIANTS_BENCHMARK.md`.
   target-acceleration noise driving `v_r` covariance growth
 - `reject_mahalanobis` (`float`, default `16.0`) — gate threshold on innovation
 - `use_odom_attitude_seed` (`bool`, default `true`) — seed q from
-  `common_frame/odom`; thereafter q integrates from gyro (paper-faithful)
+  `common_frame/odom`; thereafter q integrates from gyro (paper-faithful **only
+  if** `override_attitude_from_odom=false`; the default `true` re-pins q every
+  odom tick)
 - `publish_rate_hz` (`float`, default `25.0`) — output topic rate
 - `override_attitude_from_odom` (`bool`, default `true`) — on every
   `common_frame/odom` message, replace the EKF's integrated quaternion with
   the odom one.  Defeats the slow gyro-integration drift that the
   paper-faithful 18D state otherwise accumulates over multi-second episodes.
-  Disable to recover strict paper fidelity (only for short interception runs).
+  Disable to recover the paper attitude handling; note the reduced Jacobian
+  (only `∂p̄/∂v_r`) and gimbal camera still deviate from strict fidelity
+  (see the Deviations table and `paper_traceability.md` §4). Only for short
+  interception runs.
 - `t_cam_in_body` (`float[3]`, default `[0.0, 0.0, 0.0]`) — camera-in-body
   lever arm.  Default 0 matches the observed Pegasus sim behavior on
   IrisGimbal3 (see "Tuning notes" below).
@@ -135,6 +152,30 @@ Run side-by-side with the other variants (publishes under `direct_loc/`):
 ros2 launch mas_bearing_loc compare_ekfs.launch.py vehicle:=px4_1 \
     init_range_guess:=15.0 sigma_target_acc:=0.3 sigma_pix:=5.0
 ```
+
+### raw_los_node
+**File:** `mas_bearing_loc/raw_los_node.py` · per-vehicle. Event-driven (publishes
+on each detection; no timer).
+
+Publishes the **raw image-feature bearing** as a stamped world-ENU unit LOS —
+the input to `mas_pn_guidance` `guidance_mode:=raw_ibvs` (ticket 012). It is
+**not** an estimator: it composes the LOS direction straight from the YOLO bbox
+center through `camera_model.world_los_from_pixel` (gimbal ∘ attitude ∘ pixel
+ray), decoupled from any EKF 3-D state. Range-free by construction (a pixel
+direction carries no range), so a range-biased estimate cannot corrupt it — the
+property raw-IBVS servos (contrast `bearing_pn`, whose position-derived bearing
+is parallax-coupled to range error; ticket 011 review #5).
+
+- **Subscriptions:** `yolo_result_vision` (`vision_msgs/Detection2DArray`),
+  `common_frame/odom` (attitude only), `camera/color/camera_info`,
+  `gimbal_state_rpy_deg`, `camera/zoom_level` — same inputs as the EKF nodes.
+- **Publication:** `bearing_raw/los` (`geometry_msgs/Vector3Stamped`) — unit LOS
+  in `common_frame` ENU, carrying the **detection header timestamp** so the
+  guidance can differentiate on true sample time (stamped LOS-rate discipline).
+- **Parameters:** `target_class_name` (default `drone`), `min_confidence` (0.25),
+  `publish_frame` (`common_frame`). Silent when there is no fresh detection; the
+  guidance node owns the dropout / target-lost policy.
+- **Launch:** `raw_los.launch.py vehicle:=px4_1 use_sim_time:=true`.
 
 ## Tuning notes — what was needed for `mas/bag/bag_20260622_143626_bearing_loc_test`
 
@@ -206,7 +247,11 @@ Stateful methods on `DCEKF`:
 
 - `mas_bearing_loc/dc_ekf.py` — 18D state EKF, 17D error-covariance, snapshot
   + IMU buffer delay compensation
-- `mas_bearing_loc/camera_model.py` — pinhole + gimbal projection + IBVS L_s
+- `mas_bearing_loc/camera_model.py` — pinhole + gimbal projection + IBVS L_s +
+  `world_los_from_pixel` (range-free pixel→world-ENU unit LOS, shared by the EKFs
+  and `raw_los_node`)
+- `mas_bearing_loc/raw_los_node.py` — publishes `bearing_raw/los` for raw-IBVS
+  guidance (ticket 012); no estimator, decoupled from EKF state
 - `mas_bearing_loc/imu_buffer.py` — ring buffers for IMU + state snapshots
 - `mas_bearing_loc/quaternion.py` — wxyz quaternion helpers (project convention)
 - `mas_bearing_loc/dc_ekf_node.py` — ROS2 node

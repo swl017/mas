@@ -1,0 +1,19 @@
+# PN guidance profile: N=3 — point-mass parity baseline (tickets 003/004/007/008).
+# Values match research/bearing_localization/interception_baseline/scenario_grid.py:
+#   navigation_constant = 3.0, intercept_radius_m = 0.5, paper_nominal_low band (9/6).
+/**:
+  ros__parameters:
+    nav_constant: 3.0           # N (point-mass navigation_constant)
+    v_max: 9.0                  # paper_nominal_low interceptor_v_max_mps
+    a_max: 6.0                  # paper_nominal_low interceptor_a_max_mps2
+    control_rate_hz: 50.0
+    # oracle | simple_ekf | direct_projection
+    estimate_source: oracle
+    target_namespace: ''        # oracle: '' -> roles.yaml 'target'
+    stale_timeout_s: 0.5
+    cov_trace_gate: 0.0         # EKF arms: >0 skips high-covariance estimates (m^2 trace)
+    engage_in_mission_only: true
+    # true = feed PN the measured ego-odom velocity (real PX4 tracking incl. the
+    # accel ramp); false = integrated v_cmd setpoint (assumes perfect tracking and
+    # hides controller-dynamics mismatch — ticket 004 review, finding 2).
+    guidance_uses_measured_velocity: true

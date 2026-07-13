@@ -8,7 +8,7 @@
     v_max: 9.0                  # paper_nominal_low interceptor_v_max_mps
     a_max: 6.0                  # paper_nominal_low interceptor_a_max_mps2
     control_rate_hz: 50.0
-    # oracle | simple_ekf | direct_projection
+    # oracle | simple_ekf | direct_projection | dc_ekf
     estimate_source: oracle
     target_namespace: ''        # oracle: '' -> roles.yaml 'target'
     stale_timeout_s: 0.5
@@ -22,6 +22,17 @@
     # assumes perfect tracking and HIDES the controller-dynamics mismatch
     # (ticket 004 review, finding 2).
     guidance_uses_measured_velocity: true
+    # pn = range-sensitive (LOS rate from cross(r,v)/|r|^2, from the 3-D estimate);
+    # bearing_pn = range-tolerant (LOS rate from the STAMPED position-derived bearing
+    #   history + a relative-velocity closing term); see pn_law.pn_from_los_rate, ticket 011.
+    # raw_ibvs = range-FREE (LOS rate from the RAW detection bearing bearing_raw/los,
+    #   decoupled from the EKF target_pose; own-speed-along-LOS closing); ticket 012.
+    #   Requires mas_bearing_loc raw_los_node publishing {ns}/bearing_raw/los.
+    guidance_mode: pn
+    los_rate_ema_alpha: 0.7     # EMA smoothing on the measured LOS rate (bearing_pn/raw_ibvs); clamped to [0,1]
+    # raw_ibvs detection-dropout policy (aged by detection header time):
+    los_timeout_s: 0.3          # within this: use the measured LOS rate at full weight
+    los_lost_s: 0.8             # timeout..lost: coast the rate to zero; past lost: target lost (zero cmd)
 
 # Other interceptor bands (set v_max/a_max to sweep later; PX4 MPC limits must be
 # matched per band via mas_pn_guidance set_px4_limits / px4_bands.yaml):

@@ -28,6 +28,7 @@ from mas_bearing_loc.camera_model import (  # noqa: E402
     gimbal_R_c_b,
     interaction_matrix,
     project_point,
+    world_los_from_pixel,
 )
 from mas_bearing_loc.dc_ekf import DCEKF, DCEKFConfig  # noqa: E402
 from mas_bearing_loc.direct_projection_ekf import (  # noqa: E402
@@ -263,6 +264,78 @@ def test_camera_model(r: TestResults):
         r.add_pass("Camera offset shifts projection (IrisGimbal3 mount)")
     except Exception as e:
         r.add_fail("Camera offset shifts projection (IrisGimbal3 mount)",
+                   traceback.format_exc())
+
+
+# ============================================================================
+#  Raw world-LOS from pixel (ticket 012 — raw-IBVS bearing composition)
+# ============================================================================
+
+def test_world_los_from_pixel(r: TestResults):
+    print("\n--- Raw world-LOS from pixel (ticket 012) ---")
+    intr = CameraIntrinsics(fx=500.0, fy=520.0, cx=320.0, cy=240.0,
+                            width=640, height=480)
+
+    def _pixel_of(p_t, p_o, R_b_e, gimbal, zoom=1.0):
+        # project_point returns normalized coords at unit focal length; scale
+        # back to pixels at the effective focal length (fx*zoom).
+        proj = project_point(p_t, p_o, R_b_e, gimbal_R_c_b(gimbal))
+        u = proj[0] * intr.fx * zoom + intr.cx
+        v = proj[1] * intr.fy * zoom + intr.cy
+        return u, v
+
+    try:
+        # Round-trip at identity attitude/gimbal: recovered world LOS == true.
+        R_b_e = np.eye(3)
+        gimbal = np.zeros(3)
+        p_o = np.zeros(3)
+        p_t = np.array([10.0, 3.0, -2.0])
+        u, v = _pixel_of(p_t, p_o, R_b_e, gimbal)
+        los = world_los_from_pixel(u, v, 1.0, intr, gimbal, R_b_e)
+        true_los = (p_t - p_o) / np.linalg.norm(p_t - p_o)
+        assert np.allclose(los, true_los, atol=1e-9), (los, true_los)
+        assert abs(np.linalg.norm(los) - 1.0) < 1e-12
+        r.add_pass("round-trip pixel -> world LOS at identity")
+    except Exception:
+        r.add_fail("round-trip pixel -> world LOS at identity",
+                   traceback.format_exc())
+
+    try:
+        # Range invariance: same ray at 1x and 7x range -> same pixel -> same LOS.
+        R_b_e = np.eye(3)
+        gimbal = np.zeros(3)
+        p_o = np.zeros(3)
+        dirn = np.array([8.0, -1.5, 2.0])
+        u1, v1 = _pixel_of(1.0 * dirn, p_o, R_b_e, gimbal)
+        u7, v7 = _pixel_of(7.0 * dirn, p_o, R_b_e, gimbal)
+        assert abs(u1 - u7) < 1e-9 and abs(v1 - v7) < 1e-9, (u1, v1, u7, v7)
+        los_near = world_los_from_pixel(u1, v1, 1.0, intr, gimbal, R_b_e)
+        los_far = world_los_from_pixel(u7, v7, 1.0, intr, gimbal, R_b_e)
+        assert np.allclose(los_near, los_far, atol=1e-12), (los_near, los_far)
+        r.add_pass("range-invariant: identical bearing at 1x and 7x range")
+    except Exception:
+        r.add_fail("range-invariant: identical bearing at 1x and 7x range",
+                   traceback.format_exc())
+
+    try:
+        # Full chain: non-identity attitude (yaw) + gimbal pitch + zoom. Place
+        # the target along the optical axis (+ an in-plane offset) so depth > 0,
+        # then confirm the recovered LOS equals the true observer->target bearing.
+        yaw = np.deg2rad(35.0)
+        R_b_e = quat_to_rot(small_angle_quat(np.array([0.0, 0.0, yaw])))
+        gimbal = np.array([0.0, np.deg2rad(-12.0), 0.0])   # roll, pitch, yaw
+        R_c_e = R_b_e @ gimbal_R_c_b(gimbal)
+        optical = R_c_e @ np.array([0.0, 0.0, 1.0])
+        p_o = np.array([1.0, -2.0, 5.0])
+        p_t = p_o + 15.0 * optical + R_c_e @ np.array([1.2, -0.8, 0.0])
+        zoom = 2.5
+        u, v = _pixel_of(p_t, p_o, R_b_e, gimbal, zoom)
+        los = world_los_from_pixel(u, v, zoom, intr, gimbal, R_b_e)
+        true_los = (p_t - p_o) / np.linalg.norm(p_t - p_o)
+        assert np.allclose(los, true_los, atol=1e-9), (los, true_los)
+        r.add_pass("full chain attitude+gimbal+zoom recovers true LOS")
+    except Exception:
+        r.add_fail("full chain attitude+gimbal+zoom recovers true LOS",
                    traceback.format_exc())
 
 
@@ -584,6 +657,7 @@ def main():
     try:
         test_quaternion(results)
         test_camera_model(results)
+        test_world_los_from_pixel(results)
         test_buffers(results)
         test_ekf_basic(results)
         test_ekf_with_camera_offset(results)

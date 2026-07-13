@@ -1,0 +1,21 @@
+# PN guidance profile: N=2 — parallax-preserving PN (ticket 010).
+# Linearized zero-lag PN: |LOS rate| ~ (1 - t/t_f)^(N-2), so N=2 holds the LOS rate
+# (and the parallax information the ego-only bearing EKF needs) to the endgame, at
+# the cost of zero terminal acceleration margin (theory: keep N>=3 for robustness).
+# All other values identical to pn_N3.yaml (point-mass parity, paper_nominal_low).
+/**:
+  ros__parameters:
+    nav_constant: 2.0           # N — parallax-preserving PN (ticket 010); baseline is 3.0
+    v_max: 9.0                  # paper_nominal_low interceptor_v_max_mps
+    a_max: 6.0                  # paper_nominal_low interceptor_a_max_mps2
+    control_rate_hz: 50.0
+    # oracle | simple_ekf | direct_projection
+    estimate_source: oracle
+    target_namespace: ''        # oracle: '' -> roles.yaml 'target'
+    stale_timeout_s: 0.5
+    cov_trace_gate: 0.0         # EKF arms: >0 skips high-covariance estimates (m^2 trace)
+    engage_in_mission_only: true
+    # true = feed PN the measured ego-odom velocity (real PX4 tracking incl. the
+    # accel ramp); false = integrated v_cmd setpoint (assumes perfect tracking and
+    # hides controller-dynamics mismatch — ticket 004 review, finding 2).
+    guidance_uses_measured_velocity: true

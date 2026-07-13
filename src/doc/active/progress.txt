@@ -1109,3 +1109,15 @@ Next:
   before wiring the guidance/mission/offboard changes.
 - Then implement per the ticket workflow (pn_guidance_node -> config ->
   launch -> mission_node -> offboard_control -> CONTEXT.md x3 + ARCHITECTURE).
+
+2026-07-13 — Ticket 042: PN experiment suite packaging (session: RA-L ticket-010 sweep)
+- NEW mas_pn_guidance/experiments/: EXPERIMENT.md runbook; profiles/ (EKF OLD/TUNED/INTER
+  tracked copies + pn_N2/pn_N3.yaml + install_profile.sh src+install swap w/ verify);
+  manifests/ (template + ticket010_n2_old_sweep reproduction); run_sweep.py (readiness wait,
+  oracle health gate, settle_error-streak watchdog, archive + sha256 config provenance, QA
+  hook); analysis/ (qa_target_tracking, plot_boundary_3arm w/ CLI text args + safe output
+  default, boot_table). Additive only — no package sources touched, nothing rebuilt.
+- Smoke-tested: dry-run reproduces ticket-010 conductor commands verbatim; plotter
+  reclassifies the archived 42-cell ticket-010 data; verify reads live install space.
+- Next: staged items in ticket 042 (parameterized engagement_ekf launch args; conductor
+  -internal stranding abort; bring-up as code; ticket-041 command_mode as manifest axis).

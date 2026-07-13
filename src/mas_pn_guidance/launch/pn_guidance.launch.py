@@ -25,6 +25,7 @@ def generate_launch_description():
         DeclareLaunchArgument("estimate_source", default_value="oracle"),
         DeclareLaunchArgument("v_max", default_value="9.0"),
         DeclareLaunchArgument("a_max", default_value="6.0"),
+        DeclareLaunchArgument("guidance_mode", default_value="pn"),  # pn | bearing_pn | raw_ibvs
         DeclareLaunchArgument("use_sim_time", default_value="true"),
         Node(
             package="mas_pn_guidance",
@@ -38,6 +39,7 @@ def generate_launch_description():
                     "estimate_source": LaunchConfiguration("estimate_source"),
                     "v_max": ParameterValue(LaunchConfiguration("v_max"), value_type=float),
                     "a_max": ParameterValue(LaunchConfiguration("a_max"), value_type=float),
+                    "guidance_mode": LaunchConfiguration("guidance_mode"),
                     "use_sim_time": ParameterValue(
                         LaunchConfiguration("use_sim_time"), value_type=bool),
                 },

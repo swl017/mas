@@ -71,6 +71,35 @@ def gimbal_R_c_b(gimbal_rpy_rad: np.ndarray,
     return R_gimbal @ R_c_b_zero
 
 
+def world_los_from_pixel(u_pix: float, v_pix: float, zoom: float,
+                         intrinsics: CameraIntrinsics,
+                         gimbal_rpy_rad: np.ndarray,
+                         R_b_e: np.ndarray,
+                         R_c_b_zero: np.ndarray = R_C_B_ZERO) -> np.ndarray:
+    """Unit world-frame (ENU) line-of-sight from a pixel detection.
+
+    Range-free by construction — composes the LOS *direction* from the pixel ray
+    through the gimbal ∘ attitude chain, independent of any target range:
+
+        n̂^e = unit( R_b^e · R_c^b(gimbal) · unit([x̄, ȳ, 1]) )
+
+    where ``(x̄, ȳ) = intrinsics.normalize(u_pix, v_pix, zoom)`` and ``R_b_e`` is
+    the body→earth rotation (``quaternion.quat_to_rot`` of the aircraft odom
+    attitude). This is exactly the bearing composition already used inside
+    ``direct_projection_ekf_node`` / ``simple_ekf_node``, factored out so the
+    raw-IBVS LOS publisher and the EKFs share one convention. The camera-in-body
+    lever arm is deliberately not applied: it shifts the ray *origin*, not its
+    direction, and raw IBVS servos direction only. Returns a unit 3-vector.
+    """
+    x_bar, y_bar = intrinsics.normalize(u_pix, v_pix, zoom)
+    n_cam = np.array([x_bar, y_bar, 1.0])
+    n_cam /= np.linalg.norm(n_cam)
+    R_c_e = R_b_e @ gimbal_R_c_b(gimbal_rpy_rad, R_c_b_zero)
+    n = R_c_e @ n_cam
+    norm = float(np.linalg.norm(n))
+    return n / norm if norm > 1e-12 else n
+
+
 def project_point(p_target_world: np.ndarray,
                   p_aircraft_world: np.ndarray,
                   R_b_e: np.ndarray,

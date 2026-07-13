@@ -31,8 +31,8 @@ workspace (`/home/usrg/ros2_humble/install/mavros_msgs`). No new message package
 transport (ticket 040), `mavros/setpoint_raw/local` is NOT yet an inbound topic the
 replicator translates — its inbound support today is `setpoint_velocity/cmd_vel`. So the
 accel path lands first against **real MAVROS** (sim: `sim_interceptor.tmuxp.yaml`); the
-replicator's inbound `setpoint_raw/local → fmu/in/trajectory_setpoint` translation is a
-follow-on (see Scope boundary / DEFERRED).
+replicator's inbound `setpoint_raw/local → fmu/in/trajectory_setpoint` translation is also
+in the scope.
 
 ---
 

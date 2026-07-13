@@ -73,6 +73,39 @@ def proportional_navigation(
     )
 
 
+def pn_from_los_rate(
+    n_hat: np.ndarray,
+    omega_los: np.ndarray,
+    closing_speed_mps: float,
+    navigation_constant: float,
+    accel_limit_mps2: float,
+    range_est_m: float = 0.0,
+) -> PNCommand:
+    """Range-TOLERANT PN: command from an explicit LOS direction + LOS-rate vector.
+
+    ``a = N · max(Vc, 0) · (Ω × n̂)`` where ``n̂`` is the observer→target unit LOS,
+    ``Ω`` the LOS rotation-rate vector, and ``Vc`` the closing speed — **all supplied
+    by the caller**. Unlike :func:`proportional_navigation`, this does NOT reconstruct
+    ``Ω`` from ``cross(r, v_rel)/|r|²`` (range-sensitive); the caller passes ``Ω``
+    measured from the bearing history and ``Vc`` from the interceptor's own speed
+    along the LOS. Because ``n̂`` and its rate are unchanged by a scaling error in
+    range, a range-biased estimate does not corrupt the command. ``range_est_m`` is
+    carried for diagnostics only and is never used in the command.
+    """
+    n_hat = unit(np.asarray(n_hat, dtype=float))
+    omega_los = np.asarray(omega_los, dtype=float)
+    raw_accel = navigation_constant * max(float(closing_speed_mps), 0.0) * np.cross(omega_los, n_hat)
+    accel = limit_norm(raw_accel, accel_limit_mps2)
+    return PNCommand(
+        acceleration_mps2=accel,
+        raw_acceleration_mps2=raw_accel,
+        closing_speed_mps=float(closing_speed_mps),
+        los_rate_radps=float(np.linalg.norm(omega_los)),
+        saturated=bool(np.linalg.norm(raw_accel) > accel_limit_mps2 + 1e-9),
+        range_est_m=float(range_est_m),
+    )
+
+
 def command_to_dict(command: PNCommand) -> Dict:
     return {
         "closing_speed_mps": command.closing_speed_mps,

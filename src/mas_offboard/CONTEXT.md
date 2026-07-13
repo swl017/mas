@@ -4,7 +4,24 @@
 
 Per-vehicle offboard controller for PX4 via MAVROS. Runs a state machine (INIT → RAMP_UP → WAIT_OFFBOARD → TAKEOFF → HOVER → POLICY) and publishes velocity/position setpoints at 100 Hz.
 
-Arming and OFFBOARD mode change are **out of band** — the operator drives both through QGC / RC / their own tool. The node only streams setpoints (the precondition PX4 requires before accepting an OFFBOARD switch) and waits passively for `mavros/state` to report `armed && mode == 'OFFBOARD'`.
+Arming and OFFBOARD mode change are **out of band** — the operator (or the `auto_arm` helper below) drives both through QGC / RC / their own tool. The node only streams setpoints (the precondition PX4 requires before accepting an OFFBOARD switch) and waits passively for `mavros/state` to report `armed && mode == 'OFFBOARD'`.
+
+## auto_arm node
+
+One-shot helper that *is* the "external tool" for the sim, where no operator is present and `mavros_replicator` serves no arming/set_mode services (deferred, ticket 040). It publishes `px4_msgs/VehicleCommand` (`DO_SET_MODE` → OFFBOARD, then `COMPONENT_ARM_DISARM` → arm) to `fmu/in/vehicle_command`, retrying at `retry_period_s` until `mavros/state` reports `armed && mode == 'OFFBOARD'`, then exits (0 on success, 1 on `timeout_s`). It does **not** stream setpoints — it relies on `offboard_control` (same namespace) already doing so. Run once per vehicle from a tmux pane:
+
+```
+ros2 run mas_offboard auto_arm --ros-args -r __ns:=/px4_1 -p target_system:=2 -p use_sim_time:=true
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `target_system` | int | `1` | PX4 MAVLink system id (px4_1 → 2, px4_2 → 3) |
+| `timeout_s` | float | `90.0` | Wall-clock deadline before giving up (exit 1) |
+| `retry_period_s` | float | `1.0` | Resend period while waiting for confirmation |
+| `stream_wait_s` | float | `3.0` | Grace after `mavros/state.connected` before the first command (lets the setpoint heartbeat establish) |
+
+**Subscriptions:** `mavros/state` (`mavros_msgs/State`, RELIABLE). **Publishers:** `fmu/in/vehicle_command` (`px4_msgs/VehicleCommand`, BEST_EFFORT/TRANSIENT_LOCAL).
 
 ### State Machine
 
