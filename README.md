@@ -33,7 +33,7 @@ Serial/USB device permission, alias setting.
   sudo udevadm control --reload-rules && sudo service udev restart && sudo udevadm trigger
   ```
 
-### Environment Variables
+### Environment Variables(Real vehicles)
 - Create `robot.env` file from `robot.env.template`, put appropriate values to the variables
   ```bash
   # Namespace
@@ -48,3 +48,17 @@ Serial/USB device permission, alias setting.
   ```
 
 ## Operation
+### Simulation - ego-only
+- PegasusSimulator(prerequisite: `swl017/isaacpx4-simstack`)
+```
+usrg@your-desktop:~/IsaacPX4$ ./run-simstack.sh # your local path
+root@your-desktop:/home/usrg/IsaacPX4# tmuxp load tmux/isaac_sim_aggressive.tmuxp.yaml # inside docker container
+```
+- Interceptor
+```
+root@your-desktop:/home/usrg/mas$ tmuxp load src/tmux/sim_interceptor.tmuxp.yaml # inside docker container, mas folder mounted
+```
+- Target
+```
+root@your-desktop:/home/usrg/mas$ tmuxp load src/tmux/sim_interceptor.tmuxp.yaml # inside docker container, mas folder mounted
+```
