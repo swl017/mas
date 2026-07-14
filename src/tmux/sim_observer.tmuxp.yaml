@@ -1,0 +1,99 @@
+# PN interception harness — OBSERVER session (RA-L ticket 019, mock-cooperative).
+#
+# px4_3 = a scripted MOCK cooperative observer. It holds a viewing-parallax offset
+# off the interceptor(px4_1)->target(px4_2) LOS and gimbal-GT-tracks px4_2, so
+# px4_1 + px4_3 both detect px4_2 -> mas_multiview/mas_tracker fusion (sim_fusion
+# session). This REPLACES the RL CONTROL policy (mas_policy) with the deterministic
+# mas_coop_mock viewing_offset driver; the SENSING (camera + YOLO + gimbal) stays
+# real. No policy/mission window — px4_3 stays HOVER, driven only by goto_position.
+#
+# Bring up AFTER isaac_sim + sim_interceptor + sim_target, and with sim_fusion:
+#   tmuxp load -d sim_observer.tmuxp.yaml
+# Parallax knob: OBS_OFFSET_DEG (0=degenerate .. ~90=orthogonal), OBS_STANDOFF_M.
+# If Isaac does NOT spawn a camera for px4_3, comment the `camera` window and feed a
+# GT-synthetic ray on /px4_3/target_rays_w instead (use_precomputed_rays path;
+# ticket 019 s_structure). The observer gimbal is provisioned (gimbal_stabilizer).
+
+session_name: observer
+
+environment:
+  ROS2_INSTALL_PATH: /home/usrg/ros2_humble/install
+  ROS2_WORKSPACE: /home/usrg/mas
+  ROBOT_NAME: px4_3
+  TARGET_NAME: px4_2
+  INTERCEPTOR_NAME: px4_1
+  USE_SIM_TIME: 'true'
+
+options:
+  default-command: /bin/bash
+
+windows:
+- window_name: mavros
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mavros_replicator replicator.launch.py robot_name:=${ROBOT_NAME} use_sim_time:=${USE_SIM_TIME}
+
+- window_name: frame
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mas_common_frame common_frame_single.launch.py ns:=/${ROBOT_NAME} use_sim_time:=${USE_SIM_TIME}
+
+# Real peer SENSING (the mock removes CONTROL, not sensing). If px4_3 has no Isaac
+# camera, comment this and use the GT-synthetic-ray fallback (s_structure S5 note).
+- window_name: camera
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch ultralytics_ros tracker_drone.launch.xml ns:=/${ROBOT_NAME} input_topic:=camera/color/image_raw yolo_model:=yolov11m-drone.pt use_sim_time:=${USE_SIM_TIME}
+
+# Aim px4_3's gimbal at the target (px4_2) from GT so the peer keeps px4_2 in frame.
+- window_name: gimbal
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 run mas_pn_guidance gimbal_gt_tracker --ros-args -r __ns:=/${ROBOT_NAME} -p target_namespace:=${TARGET_NAME} -p use_sim_time:=${USE_SIM_TIME}
+
+- window_name: offboard
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mas_offboard offboard.launch.py vehicle_filter:=${ROBOT_NAME} config_file:=config/vehicles_engagement.yaml use_sim_time:=${USE_SIM_TIME}
+
+- window_name: auto_arm
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+    - TGT_SYS=$(( ${ROBOT_NAME##px4_} + 1 ))
+  panes:
+    - >-
+      if [ "${AUTO_ARM:-1}" = "1" ]; then
+      ros2 run mas_offboard auto_arm --ros-args -r __ns:=/${ROBOT_NAME}
+      -p target_system:=${TGT_SYS} -p use_sim_time:=${USE_SIM_TIME};
+      else echo "AUTO_ARM=0 — arm + OFFBOARD manually (QGC)"; fi
+
+# The MOCK policy: drive px4_3 to a viewing-parallax offset off the px4_1->px4_2 LOS.
+# offset_deg is the parallax knob (re-read each tick -> settable live for the sweep).
+- window_name: viewing_offset
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - >-
+      ros2 run mas_coop_mock viewing_offset --ros-args -r __ns:=/${ROBOT_NAME}
+      -p interceptor_ns:=${INTERCEPTOR_NAME} -p target_ns:=${TARGET_NAME}
+      -p offset_deg:=${OBS_OFFSET_DEG:-45.0} -p standoff_m:=${OBS_STANDOFF_M:-45.0}
+      -p use_sim_time:=${USE_SIM_TIME}

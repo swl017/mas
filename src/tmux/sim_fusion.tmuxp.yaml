@@ -1,0 +1,65 @@
+# PN interception harness — FUSION session (RA-L ticket 019, mock-cooperative).
+#
+# The interceptor-side cooperative BELIEF pipeline (runs under /px4_1, reaches peers
+# via absolute /px4_N topics):
+#   mas_multiview triangulation (px4_1 + px4_3 detections of px4_2, px4_2 slot skipped)
+#     -> triangulated_points + /px4_N/target_rays_w
+#   mas_tracker sort3d -> /px4_1/chosen_target_pose (pose + covariance)
+#   mas_coop_mock cv_smoother -> /px4_1/coop_loc/target_pose + coop_loc/target_twist
+# so pn_guidance (estimate_source=cooperative) consumes a full pose+velocity target.
+#
+# Non-invasive: sim_interceptor.tmuxp.yaml is UNCHANGED. Select the cooperative arm at
+# runtime — conductor manifest `estimators: [cooperative]`, or by hand:
+#   ros2 param set /px4_1/pn_guidance_node estimate_source cooperative
+# The peer-latency (AoI) sweep enables ray_delay (enable_delay:=true tau_s:=<sec>) and
+# needs px4_3 on the use_precomputed_rays path (see s_structure S5).
+#
+# Bring up AFTER isaac_sim + sim_interceptor + sim_target + sim_observer:
+#   tmuxp load -d sim_fusion.tmuxp.yaml
+
+session_name: fusion
+
+environment:
+  ROS2_INSTALL_PATH: /home/usrg/ros2_humble/install
+  ROS2_WORKSPACE: /home/usrg/mas
+  ROBOT_NAME: px4_1
+  USE_SIM_TIME: 'true'
+
+options:
+  default-command: /bin/bash
+
+windows:
+- window_name: triangulation
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - >-
+      ros2 launch mas_multiview triangulation.launch.py ns:=/${ROBOT_NAME}
+      num_camera:=3 camera_name_prefix:=/px4_ gimbal_angle_order:=zxy
+      use_sim_time:=${USE_SIM_TIME}
+
+- window_name: tracker
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - >-
+      ros2 launch mas_tracker sort3d.launch.py ns:=/${ROBOT_NAME}
+      num_cameras:=3 self_camera_index:=1 camera_name_prefix:=/px4_
+      use_sim_time:=${USE_SIM_TIME}
+
+# cv_smoother: chosen_target_pose -> coop_loc/target_pose + coop_loc/target_twist
+# (the PN drop-in velocity fix). Add enable_delay:=true tau_s:=<sec> for the AoI sweep.
+- window_name: coop_mock
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - >-
+      ros2 launch mas_coop_mock coop_mock.launch.py namespace:=${ROBOT_NAME}
+      enable_delay:=${ENABLE_DELAY:-false} tau_s:=${TAU_S:-0.0}
+      use_sim_time:=${USE_SIM_TIME}

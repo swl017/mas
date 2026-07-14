@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>mas_coop_mock</name>
+  <version>0.1.0</version>
+  <description>
+    Mock cooperative-sensing closed loop for the PN interception harness
+    (RA-L ticket 019). Deterministic stand-ins for the RL cooperative-sensing
+    CONTROL policy: a scripted viewing-offset observer driver, a constant-velocity
+    smoother that adds target velocity to the fused pose (the PN drop-in gap), and
+    a peer-communication (AoI) delay stage. Removable; the real sensing/fusion
+    (mas_multiview + mas_tracker) is unchanged.
+  </description>
+  <maintainer email="seungwook1024@gmail.com">Seungwook Lee</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <depend>rclpy</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>mas_msgs</depend>
+  <exec_depend>python3-numpy</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

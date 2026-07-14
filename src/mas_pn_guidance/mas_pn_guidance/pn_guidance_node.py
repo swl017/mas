@@ -40,7 +40,8 @@ MISSION = 2  # mas_mission state enum
 GUIDANCE_MODES = ("pn", "bearing_pn", "raw_ibvs")
 
 PREFIX = {"simple_ekf": "simple_loc", "direct_projection": "direct_loc",
-          "dc_ekf": "bearing_loc"}   # legacy 18-D DC-EKF (in-state feature); ticket 011
+          "dc_ekf": "bearing_loc",   # legacy 18-D DC-EKF (in-state feature); ticket 011
+          "cooperative": "coop_loc"}  # ticket 019: mock-cooperative fusion (mas_coop_mock)
 
 
 def _be(depth=10):

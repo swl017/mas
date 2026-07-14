@@ -75,7 +75,7 @@ REGIMES = {
     "dynamic_hard": (8.0, 2.0, 0.30, 0.0, 0.30),
 }
 
-ESTIMATORS = ["oracle", "simple_ekf", "direct_projection"]
+ESTIMATORS = ["oracle", "simple_ekf", "direct_projection", "cooperative"]  # ticket 019 mock-coop
 
 
 def build_target_conditions(mode, fwd_speeds, lat_accels, freq):
