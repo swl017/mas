@@ -25,7 +25,7 @@
 #include <mas_msgs/msg/target_ray_array.hpp>
 #include <vision_msgs/msg/detection2_d_array.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
-#include <geometry_msgs/msg/pose_stamped.hpp>
+#include <nav_msgs/msg/odometry.hpp>
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp>
 #include <geometry_msgs/msg/vector3.hpp>
@@ -47,7 +47,7 @@ public:
         // Ego (local raw inputs -> pixel factor). Empty topic disables the ego arm.
         declare_parameter<std::string>("ego_detection_topic", "");
         declare_parameter<std::string>("ego_camera_info_topic", "");
-        declare_parameter<std::string>("ego_camera_pose_topic", "");
+        declare_parameter<std::string>("ego_odom_topic", "");   // vehicle world pose (common_frame/odom)
         declare_parameter<std::string>("ego_gimbal_topic", "");
         declare_parameter<std::string>("ego_zoom_topic", "");
         declare_parameter<std::string>("gimbal_angle_order", "zyx");
@@ -86,18 +86,18 @@ public:
                 det_t, be_qos(),
                 [this](const vision_msgs::msg::Detection2DArray::SharedPtr m) { onDetection(m); });
             sub_info_ = create_subscription<sensor_msgs::msg::CameraInfo>(
-                get_parameter("ego_camera_info_topic").as_string(), rclcpp::QoS(10),
+                get_parameter("ego_camera_info_topic").as_string(), be_qos(),
                 [this](const sensor_msgs::msg::CameraInfo::SharedPtr m) { onCameraInfo(m); });
-            sub_pose_ = create_subscription<geometry_msgs::msg::PoseStamped>(
-                get_parameter("ego_camera_pose_topic").as_string(), rclcpp::QoS(10),
-                [this](const geometry_msgs::msg::PoseStamped::SharedPtr m) { onCameraPose(m); });
+            sub_odom_ = create_subscription<nav_msgs::msg::Odometry>(
+                get_parameter("ego_odom_topic").as_string(), be_qos(),
+                [this](const nav_msgs::msg::Odometry::SharedPtr m) { onEgoOdom(m); });
             sub_gimbal_ = create_subscription<geometry_msgs::msg::Vector3>(
                 get_parameter("ego_gimbal_topic").as_string(), be_qos(),
                 [this](const geometry_msgs::msg::Vector3::SharedPtr m) { onGimbal(m); });
             const auto zoom_t = get_parameter("ego_zoom_topic").as_string();
             if (!zoom_t.empty())
                 sub_zoom_ = create_subscription<std_msgs::msg::Float64>(
-                    zoom_t, rclcpp::QoS(10),
+                    zoom_t, be_qos(),   // sim publishes zoom BEST_EFFORT; must match or K is unscaled
                     [this](const std_msgs::msg::Float64::SharedPtr m) { zoom_ = m->data; });
             RCLCPP_INFO(get_logger(), "coop_smoother: EGO pixel input <- %s (+ camera_info/pose/gimbal)",
                         det_t.c_str());
@@ -140,12 +140,15 @@ private:
         gimbal_rad_ = Eigen::Vector3d(m->x, m->y, m->z) * M_PI / 180.0;  // degrees -> radians
         have_gimbal_ = true;
     }
-    void onCameraPose(const geometry_msgs::msg::PoseStamped::SharedPtr m) {
+    void onEgoOdom(const nav_msgs::msg::Odometry::SharedPtr m) {
+        // Vehicle world pose (common_frame/odom); the gimbal is applied in assembleEgoCamera.
+        // Matches triangulation_node::cameraOdomCallback (camera_pose derived from odom).
         mas_fgo::PoseSample s;
         s.t = stamp_s(m->header.stamp);
-        s.p = Eigen::Vector3d(m->pose.position.x, m->pose.position.y, m->pose.position.z);
-        s.q = Eigen::Quaterniond(m->pose.orientation.w, m->pose.orientation.x,
-                                 m->pose.orientation.y, m->pose.orientation.z).normalized();
+        const auto& p = m->pose.pose;
+        s.p = Eigen::Vector3d(p.position.x, p.position.y, p.position.z);
+        s.q = Eigen::Quaterniond(p.orientation.w, p.orientation.x,
+                                 p.orientation.y, p.orientation.z).normalized();
         pose_buf_.push_back(s);
         while (pose_buf_.size() > 200) pose_buf_.pop_front();
     }
@@ -239,7 +242,7 @@ private:
 
     rclcpp::Subscription<vision_msgs::msg::Detection2DArray>::SharedPtr sub_det_;
     rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr sub_info_;
-    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_pose_;
+    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr sub_odom_;
     rclcpp::Subscription<geometry_msgs::msg::Vector3>::SharedPtr sub_gimbal_;
     rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr sub_zoom_;
     std::vector<rclcpp::Subscription<mas_msgs::msg::TargetRayArray>::SharedPtr> peer_subs_;

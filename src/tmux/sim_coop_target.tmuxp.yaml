@@ -1,0 +1,75 @@
+# PN interception harness — TARGET session, cooperative layout (RA-L ticket 019).
+#
+# Role `target` = px4_3 in roles.yaml layout `coop_1obs`. Identical to
+# sim_target.tmuxp.yaml but on px4_3 — the target must be OUTSIDE the fusion camera
+# set (cameras = px4_1 + px4_2) so the multiview self-detection filter does not drop
+# the observers' detections of it. Non-cooperative maneuvering quarry: MAVROS + common
+# frame + offboard + mission + maneuver, no perception.
+#
+# Bring up AFTER isaac_sim.tmuxp.yaml (with sim_interceptor on px4_1 + sim_observer on px4_2).
+#   tmuxp load -d sim_coop_target.tmuxp.yaml
+
+session_name: target
+
+environment:
+  ROS2_INSTALL_PATH: /home/usrg/ros2_humble/install
+  ROS2_WORKSPACE: /home/usrg/mas
+  ROBOT_NAME: px4_3            # roles.yaml coop_1obs.target
+  USE_SIM_TIME: 'true'
+
+options:
+  default-command: /bin/bash
+
+windows:
+- window_name: mavros
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mavros_replicator replicator.launch.py robot_name:=${ROBOT_NAME} use_sim_time:=${USE_SIM_TIME}
+
+- window_name: frame
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mas_common_frame common_frame_single.launch.py ns:=/${ROBOT_NAME} use_sim_time:=${USE_SIM_TIME}
+
+- window_name: offboard
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mas_offboard offboard.launch.py vehicle_filter:=${ROBOT_NAME} config_file:=config/vehicles_engagement.yaml use_sim_time:=${USE_SIM_TIME}
+
+- window_name: auto_arm
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+    - TGT_SYS=$(( ${ROBOT_NAME##px4_} + 1 ))
+  panes:
+    - >-
+      if [ "${AUTO_ARM:-1}" = "1" ]; then
+      ros2 run mas_offboard auto_arm --ros-args -r __ns:=/${ROBOT_NAME}
+      -p target_system:=${TGT_SYS} -p use_sim_time:=${USE_SIM_TIME};
+      else echo "AUTO_ARM=0 — arm + OFFBOARD manually (QGC)"; fi
+
+- window_name: mission
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mas_mission mission_deploy.launch.py vehicle_filter:=${ROBOT_NAME} engagement_source:=maneuver use_sim_time:=${USE_SIM_TIME}
+
+- window_name: maneuver
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mas_offboard target_maneuver.launch.py vehicle_filter:=${ROBOT_NAME} regime:=dynamic_mild use_sim_time:=${USE_SIM_TIME}

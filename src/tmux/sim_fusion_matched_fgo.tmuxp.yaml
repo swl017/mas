@@ -1,0 +1,46 @@
+# PN harness — FUSION, MATCHED SMOOTHER arm (mas_multiview_fgo), ticket 024 S2 head-to-head.
+#
+# Same SHARED peer source as the matched baseline (peer_ray px4_2->px4_3 GT LOS -> ray_delay ->
+# /px4_2/target_rays_w), so both arms consume the IDENTICAL delayed peer bearing + fresh raw ego.
+# Here the GTSAM smoother consumes it directly (ego px4_1 raw pixel + peer /px4_2/target_rays_w
+# bearing) -> coop_loc. No triangulation/sort3d. Latency knob: /px4_1/ray_delay_matched latency_s.
+#
+# Bring up AFTER isaac_sim + sim_interceptor(px4_1) + sim_observer(px4_2) + sim_coop_target(px4_3).
+
+session_name: fusion
+
+environment:
+  ROS2_INSTALL_PATH: /home/usrg/ros2_humble/install
+  ROS2_WORKSPACE: /home/usrg/mas
+  USE_SIM_TIME: 'true'
+  TAU_S: '0.0'
+
+options:
+  default-command: /bin/bash
+
+windows:
+- window_name: peer_source
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 run mas_coop_mock peer_ray --ros-args -p observer_ns:=px4_2 -p target_ns:=px4_3 -p out_topic:=/px4_2/target_rays_w_raw -p rate_hz:=3.0 -p sigma_deg:=0.5 -p use_sim_time:=${USE_SIM_TIME}
+    - ros2 run mas_coop_mock ray_delay --ros-args -r __ns:=/px4_1 -r __node:=ray_delay_matched -p in_topic:=/px4_2/target_rays_w_raw -p out_topic:=/px4_2/target_rays_w -p latency_s:=${TAU_S} -p latency_jitter_s:=0.0 -p use_sim_time:=${USE_SIM_TIME}
+
+- window_name: coop_smoother
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - >-
+      ros2 run mas_multiview_fgo coop_smoother_node --ros-args -r __ns:=/px4_1
+      -p ego_detection_topic:=/px4_1/yolo_result_vision
+      -p ego_camera_info_topic:=/px4_1/camera/color/camera_info
+      -p ego_odom_topic:=/px4_1/common_frame/odom
+      -p ego_gimbal_topic:=/px4_1/gimbal_state_rpy_deg
+      -p ego_zoom_topic:=/px4_1/camera/zoom_level
+      -p gimbal_angle_order:=zxy
+      -p "peer_ray_topics:=['/px4_2/target_rays_w']"
+      -p coop_prefix:=coop_loc -p use_sim_time:=${USE_SIM_TIME}

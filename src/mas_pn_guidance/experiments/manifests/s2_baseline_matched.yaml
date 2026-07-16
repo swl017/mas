@@ -1,0 +1,47 @@
+# Ticket 024 S2 — MATCHED BASELINE (sort3d CV-KF), shared delayed GT peer ray.
+# Run sim_fusion_matched_base.tmuxp. Latency = /px4_1/ray_delay_matched latency_s (same knob as
+# the matched smoother arm). Fair peer-only: both arms see the identical delayed peer bearing.
+session:
+  interceptor_ns: px4_1
+  observer_ns: px4_2
+  target_ns: px4_3
+  interceptor_ic: [0.0, -50.0]
+  ic_tol_m: 1.5
+  seed: 42
+  use_sim_time: true
+  record: true
+  bag_script: /home/usrg/mas/bag/rosbag_record_reduced.sh
+  bag_dir: /home/usrg/mas/bag
+output:
+  results_dir: /home/usrg/mas/src/mas_pn_guidance/experiments/results/s2_baseline_matched_20260716
+gate:
+  geometry: crossing
+  forward_speed: 4.0
+  lateral_accel: 0.0
+  estimator: oracle
+  max_cpa_m: 0.5
+policies:
+  settle_error_streak_abort: 3
+  on_boot_abort: continue
+boots:
+  - id: BM_T0
+    geometries: crossing
+    forward_speeds: [3, 5]
+    lateral_accels: [0]
+    estimators: [cooperative]
+    repeats: 3
+    live_params: {/px4_1/ray_delay_matched: {latency_s: 0.0}}
+  - id: BM_T10
+    geometries: crossing
+    forward_speeds: [3, 5]
+    lateral_accels: [0]
+    estimators: [cooperative]
+    repeats: 3
+    live_params: {/px4_1/ray_delay_matched: {latency_s: 0.10}}
+  - id: BM_T20
+    geometries: crossing
+    forward_speeds: [3, 5]
+    lateral_accels: [0]
+    estimators: [cooperative]
+    repeats: 3
+    live_params: {/px4_1/ray_delay_matched: {latency_s: 0.20}}

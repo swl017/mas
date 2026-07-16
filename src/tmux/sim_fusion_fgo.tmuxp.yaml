@@ -1,0 +1,49 @@
+# PN interception harness — FUSION session, GTSAM SMOOTHER arm (RA-L ticket 024 S2).
+#
+# Head-to-head SMOOTHER arm: replaces the ticket-019 cv_smoother (sort3d chosen_target_pose ->
+# alpha-beta) with the measurement-time-aware GTSAM smoother (mas_multiview_fgo). Same triangulation
+# (still needed to publish the peer camera's per-camera ray /px4_2/target_rays_w), but the belief
+# comes from coop_smoother fusing the interceptor's FRESH ego pixels + the peer bearing (routed
+# through ray_delay for the fair peer-only AoI axis, ticket 020) -> coop_loc/target_pose+twist ->
+# pn_guidance (estimate_source=cooperative). Same coop_loc contract, so pn is untouched.
+#
+# Baseline arm (incumbent) = sim_fusion.tmuxp.yaml (triangulation + sort3d + cv_smoother).
+# Fair peer-only AoI axis: ros2 launch ... tau_s:=<s>  (fresh ego never staled; tau_s=0 passthrough).
+#
+# Bring up AFTER isaac_sim + sim_interceptor(px4_1) + sim_coop_target(px4_3) + sim_observer(px4_2).
+
+session_name: fusion
+
+environment:
+  ROS2_INSTALL_PATH: /home/usrg/ros2_humble/install
+  ROS2_WORKSPACE: /home/usrg/mas
+  ROBOT_NAME: px4_1
+  OBSERVER_NAME: px4_2
+  USE_SIM_TIME: 'true'
+  TAU_S: '0.0'          # fair peer-only latency (swept: 0 / 0.10 / 0.20 s)
+
+options:
+  default-command: /bin/bash
+
+windows:
+- window_name: triangulation
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - >-
+      ros2 launch mas_multiview triangulation.launch.py ns:=/${ROBOT_NAME}
+      num_camera:=2 camera_name_prefix:=/px4_ gimbal_angle_order:=zxy
+      use_sim_time:=${USE_SIM_TIME}
+
+- window_name: coop_smoother
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - >-
+      ros2 launch mas_multiview_fgo coop_smoother.launch.py
+      interceptor_ns:=${ROBOT_NAME} observer_ns:=${OBSERVER_NAME}
+      gimbal_angle_order:=zxy tau_s:=${TAU_S} use_sim_time:=${USE_SIM_TIME}

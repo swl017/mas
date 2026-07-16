@@ -26,6 +26,7 @@ setup(
             'cv_smoother = mas_coop_mock.cv_smoother_node:main',
             'viewing_offset = mas_coop_mock.viewing_offset_node:main',
             'ray_delay = mas_coop_mock.ray_delay_node:main',
+            'peer_ray = mas_coop_mock.peer_ray_node:main',
         ],
     },
 )

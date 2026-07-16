@@ -4,7 +4,7 @@ import math
 import numpy as np
 import pytest
 
-from mas_coop_mock.core import AlphaBetaVel, viewing_pose, DelayBuffer
+from mas_coop_mock.core import AlphaBetaVel, viewing_pose, DelayBuffer, JitterDropBuffer
 
 
 # --- AlphaBetaVel (the velocity linchpin) ----------------------------------
@@ -91,3 +91,41 @@ def test_delay_zero_is_passthrough():
 def test_delay_rejects_negative_tau():
     with pytest.raises(ValueError):
         DelayBuffer(tau_s=-0.1)
+
+
+# --- JitterDropBuffer (realistic AoI: Gaussian jitter + burst dropout) ---------
+def test_jitter_zero_std_is_fixed_mean():
+    b = JitterDropBuffer(mean_s=0.2, jitter_s=0.0)
+    b.push(0.0, "a")
+    assert b.pop_ready(0.19) == []          # before mean
+    assert b.pop_ready(0.20) == ["a"]       # at mean
+
+
+def test_jitter_order_preserved_and_bounded():
+    rng = np.random.default_rng(0)
+    b = JitterDropBuffer(mean_s=0.1, jitter_s=0.03, rng=rng)
+    for k in range(50):
+        b.push(0.1 * k, f"m{k}")
+    released = []
+    t = 0.0
+    for _ in range(2000):                    # drain over 20 s
+        released += b.pop_ready(t); t += 0.01
+    assert released == [f"m{k}" for k in range(50)]   # arrival order preserved, none lost
+
+
+def test_dropout_drops_bursts():
+    rng = np.random.default_rng(1)
+    b = JitterDropBuffer(mean_s=0.0, jitter_s=0.0, drop_p=0.3, drop_burst=4, rng=rng)
+    kept = sum(b.push(0.01 * k, k) for k in range(500))
+    assert 0 < kept < 500                    # some dropped, some kept
+    # drop_p=1 -> everything drops
+    b2 = JitterDropBuffer(drop_p=1.0, drop_burst=1, rng=np.random.default_rng(2))
+    assert not any(b2.push(0.01 * k, k) for k in range(50))
+    assert len(b2) == 0
+
+
+def test_jitter_rejects_bad_params():
+    with pytest.raises(ValueError):
+        JitterDropBuffer(mean_s=-0.1)
+    with pytest.raises(ValueError):
+        JitterDropBuffer(drop_p=1.5)

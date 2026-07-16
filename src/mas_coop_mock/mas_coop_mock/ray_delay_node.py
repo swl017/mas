@@ -21,7 +21,9 @@ from rclpy.qos import (QoSProfile, QoSHistoryPolicy, QoSReliabilityPolicy,
 
 from mas_msgs.msg import TargetRayArray
 
-from .core import DelayBuffer
+import numpy as np
+
+from .core import JitterDropBuffer
 
 
 def _be(depth: int = 20) -> QoSProfile:
@@ -30,30 +32,53 @@ def _be(depth: int = 20) -> QoSProfile:
                       durability=QoSDurabilityPolicy.VOLATILE)
 
 
+def _reliable(depth: int = 20) -> QoSProfile:
+    # the triangulation's precomputed-rays subscription is RELIABLE, so the delayed
+    # peer ray must be published RELIABLE to be received (reliable pub -> reliable sub).
+    return QoSProfile(depth=depth, history=QoSHistoryPolicy.KEEP_LAST,
+                      reliability=QoSReliabilityPolicy.RELIABLE,
+                      durability=QoSDurabilityPolicy.VOLATILE)
+
+
 class RayDelay(Node):
     def __init__(self):
         super().__init__('ray_delay')
         self.declare_parameter('in_topic', 'target_rays_w_raw')
         self.declare_parameter('out_topic', 'target_rays_w')
-        self.declare_parameter('tau_s', 0.0)
+        # Peer comm latency (ticket 019 S6 fair ego/peer model): mean latency_s (swept)
+        # + Gaussian jitter [+ burst dropout]. Same realistic model as cv_smoother, but
+        # applied ONLY to the peer's ray (ego camera 1 stays fresh in the fusion).
+        self.declare_parameter('latency_s', 0.0)          # mean peer latency [s] (swept)
+        self.declare_parameter('latency_jitter_s', 0.01)  # comm jitter [s] (018: 100+-10 ms)
+        self.declare_parameter('drop_p', 0.0)             # burst-drop prob (0 = off)
+        self.declare_parameter('drop_burst', 3)
+        self.declare_parameter('seed', 11)
         self.declare_parameter('release_rate_hz', 200.0)
 
-        self.buf = DelayBuffer(max(0.0, float(self.get_parameter('tau_s').value)))
+        self.buf = JitterDropBuffer(
+            mean_s=max(0.0, float(self.get_parameter('latency_s').value)),
+            jitter_s=max(0.0, float(self.get_parameter('latency_jitter_s').value)),
+            drop_p=float(self.get_parameter('drop_p').value),
+            drop_burst=int(self.get_parameter('drop_burst').value),
+            rng=np.random.default_rng(int(self.get_parameter('seed').value)))
         self.create_subscription(
             TargetRayArray, str(self.get_parameter('in_topic').value), self._on, _be())
         self.pub = self.create_publisher(
-            TargetRayArray, str(self.get_parameter('out_topic').value), _be())
+            TargetRayArray, str(self.get_parameter('out_topic').value), _reliable())
         rate = max(1.0, float(self.get_parameter('release_rate_hz').value))
         self.create_timer(1.0 / rate, self._tick)
         self.get_logger().info(
             f"ray_delay: {self.get_parameter('in_topic').value} -> "
-            f"{self.get_parameter('out_topic').value} (tau={self.buf.tau}s)")
+            f"{self.get_parameter('out_topic').value} (peer latency mean={self.buf.mean}s "
+            f"jitter={self.buf.jitter}s drop_p={self.buf.drop_p})")
 
     def _now(self) -> float:
         return self.get_clock().now().nanoseconds * 1e-9
 
     def _on(self, msg: TargetRayArray):
-        self.buf.tau = max(0.0, float(self.get_parameter('tau_s').value))   # live-settable
+        self.buf.mean = max(0.0, float(self.get_parameter('latency_s').value))        # live
+        self.buf.jitter = max(0.0, float(self.get_parameter('latency_jitter_s').value))
+        self.buf.drop_p = float(self.get_parameter('drop_p').value)
         self.buf.push(self._now(), msg)
 
     def _tick(self):

@@ -7,7 +7,7 @@
 # Active layout is selected by `active:`. All namespaces must exist in
 # mas_offboard/config/vehicles.yaml.
 
-active: ego_1v1
+active: coop_1obs
 
 layouts:
 
@@ -24,3 +24,12 @@ layouts:
     observer_b:  px4_2
     target:      px4_3
     interceptor: px4_4
+
+  # Ticket 019 mock-cooperative: interceptor (also fusion camera 1) + one dedicated
+  # observer (fusion camera 2). Target = px4_3, OUTSIDE the fusion camera set, so its
+  # detections are NOT removed by the multiview self-detection filter (which drops any
+  # detection whose ray passes < 2 m of a registered camera).
+  coop_1obs:
+    interceptor: px4_1   # PN + fusion camera 1
+    observer_a:  px4_2   # dedicated mock observer (fusion camera 2)
+    target:      px4_3   # maneuvering quarry, not a fusion camera

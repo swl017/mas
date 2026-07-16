@@ -19,8 +19,8 @@ session_name: observer
 environment:
   ROS2_INSTALL_PATH: /home/usrg/ros2_humble/install
   ROS2_WORKSPACE: /home/usrg/mas
-  ROBOT_NAME: px4_3
-  TARGET_NAME: px4_2
+  ROBOT_NAME: px4_2
+  TARGET_NAME: px4_3
   INTERCEPTOR_NAME: px4_1
   USE_SIM_TIME: 'true'
 

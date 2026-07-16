@@ -17,6 +17,8 @@ def generate_launch_description():
         ('boot_id', 'A'),
         ('interceptor_ns', 'px4_1'),
         ('target_ns', 'px4_2'),
+        ('observer_ns', ''),   # cooperative-observer ns (empty=non-coop); ticket 019 M4 recording
+
         ('intercept_radius_m', '0.5'),    # primary success radius (matches ticket 003)
         ('engage_timeout_s', '45.0'),    # SIM seconds (dynamic_mild intercepts ~10 s sim)
         ('wall_timeout_s', '400.0'),     # wall-clock safety cap

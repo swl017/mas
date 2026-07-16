@@ -14,6 +14,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(vision_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(GTSAM REQUIRED)   # standalone C++ dep (4.2.x) at /usr/local; ROS-distro-independent
 
@@ -30,7 +31,7 @@ endif()
 # ---- Ticket 024 S1: ROS2 node (cooperative smoother -> coop_loc pose+twist) ----
 add_executable(coop_smoother_node src/coop_smoother_node.cpp)
 ament_target_dependencies(coop_smoother_node
-  rclcpp mas_msgs geometry_msgs sensor_msgs vision_msgs std_msgs)
+  rclcpp mas_msgs geometry_msgs sensor_msgs vision_msgs std_msgs nav_msgs)
 target_include_directories(coop_smoother_node SYSTEM BEFORE PRIVATE ${GTSAM_EIGEN_INCLUDE_DIR})
 target_include_directories(coop_smoother_node PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/lib/coop_smoother/include)

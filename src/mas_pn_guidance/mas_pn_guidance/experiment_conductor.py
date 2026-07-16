@@ -125,6 +125,9 @@ class ExperimentConductor(Node):
         gp = self.declare_parameter
         self.interceptor_ns = str(gp("interceptor_ns", "px4_1").value).strip("/")
         self.target_ns = str(gp("target_ns", "px4_2").value).strip("/")
+        # Cooperative observer ns (empty for non-coop runs). Only used to tell the
+        # recorder to also log the observer truth odom + fused belief (ticket 019 M4).
+        self.observer_ns = str(gp("observer_ns", "").value).strip("/")
         self.pn_node = str(gp("pn_node_name", "pn_guidance_node").value)
         self.maneuver_node = str(gp("maneuver_node_name", "target_maneuver_node").value)
         # PRIMARY success radius = 0.5 m to match ticket 003 (was 1.0). The
@@ -317,8 +320,14 @@ class ExperimentConductor(Node):
     def _start_bag(self, suffix):
         if not self.record or self.dry_run:
             return
+        # Tell the (env-parameterized) recorder which namespaces this run uses, so
+        # the target truth odom + observer + cooperative belief are logged under the
+        # right names (ticket 019 M4). Defaults keep legacy px4_1/px4_2 behavior.
+        env = dict(os.environ, INT_NS=self.interceptor_ns, TGT_NS=self.target_ns)
+        if self.observer_ns:
+            env["OBS_NS"] = self.observer_ns
         self._bag_proc = subprocess.Popen(
-            ["bash", self.bag_script, suffix], start_new_session=True)
+            ["bash", self.bag_script, suffix], start_new_session=True, env=env)
         time.sleep(1.0)  # let recorder discover topics before engage
 
     def _stop_bag(self):

@@ -103,3 +103,53 @@ class DelayBuffer:
 
     def __len__(self) -> int:
         return len(self._q)
+
+
+class JitterDropBuffer:
+    """Realistic peer-comm / AoI buffer: per-message Gaussian jitter + optional
+    burst dropout (cf. ticket-018 `latency_real` 100±10 ms comm + `a2nom` 10%
+    burst-drop, and the RL sim's other_latency mean/std).
+
+    Each pushed item is released at `t_rx + max(0, N(mean, jitter))`. Items release
+    in ARRIVAL ORDER (head-of-line blocking, no reordering) once their release time
+    passes. With `drop_p>0` a Bernoulli hit drops a run of `drop_burst` items
+    (bursty peer packet loss). Seed the rng for reproducible-but-varying draws.
+    `mean`/`jitter`/`drop_p` are read live via the public attributes.
+    """
+
+    def __init__(self, mean_s=0.0, jitter_s=0.0, drop_p=0.0, drop_burst=1, rng=None):
+        if mean_s < 0.0 or jitter_s < 0.0:
+            raise ValueError("mean_s, jitter_s >= 0")
+        if not (0.0 <= drop_p <= 1.0):
+            raise ValueError("drop_p in [0,1]")
+        self.mean = float(mean_s)
+        self.jitter = float(jitter_s)
+        self.drop_p = float(drop_p)
+        self.drop_burst = max(1, int(drop_burst))
+        self.rng = rng if rng is not None else np.random.default_rng()
+        self._q: deque = deque()          # (release_time, item), non-decreasing release_time
+        self._drop_left = 0
+
+    def push(self, t_rx, item) -> bool:
+        """Enqueue (or drop) an item. Returns False if dropped."""
+        if self._drop_left > 0:
+            self._drop_left -= 1
+            return False
+        if self.drop_p > 0.0 and float(self.rng.random()) < self.drop_p:
+            self._drop_left = self.drop_burst - 1     # drop this + (burst-1) more
+            return False
+        delay = max(0.0, float(self.rng.normal(self.mean, self.jitter)))
+        rt = float(t_rx) + delay
+        if self._q:                                   # order-preserving (head-of-line)
+            rt = max(rt, self._q[-1][0])
+        self._q.append((rt, item))
+        return True
+
+    def pop_ready(self, t_now) -> list:
+        out = []
+        while self._q and self._q[0][0] <= float(t_now):
+            out.append(self._q.popleft()[1])
+        return out
+
+    def __len__(self) -> int:
+        return len(self._q)

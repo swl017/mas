@@ -1,0 +1,56 @@
+# PN harness — FUSION, MATCHED BASELINE arm (sort3d CV-KF), ticket 024 S2 head-to-head.
+#
+# Fair peer-only latency matched to the smoother arm: a SHARED peer source
+# (peer_ray px4_2->px4_3 GT LOS -> ray_delay) publishes the delayed peer bearing to
+# /px4_2/target_rays_w, consumed by the triangulation as a PRECOMPUTED px4_2 camera
+# (use_precomputed_rays=[false,true], the 020 transmitted-ray path) fused with the FRESH
+# raw ego (px4_1) -> sort3d CV-KF -> cv_smoother(latency 0) -> coop_loc -> pn.
+# The smoother arm (sim_fusion_matched_fgo.tmuxp) consumes the SAME /px4_2/target_rays_w.
+# Latency knob (both arms): /px4_1/ray_delay_matched latency_s.
+#
+# Bring up AFTER isaac_sim + sim_interceptor(px4_1) + sim_observer(px4_2) + sim_coop_target(px4_3).
+
+session_name: fusion
+
+environment:
+  ROS2_INSTALL_PATH: /home/usrg/ros2_humble/install
+  ROS2_WORKSPACE: /home/usrg/mas
+  USE_SIM_TIME: 'true'
+  TAU_S: '0.0'
+
+options:
+  default-command: /bin/bash
+
+windows:
+- window_name: peer_source
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 run mas_coop_mock peer_ray --ros-args -p observer_ns:=px4_2 -p target_ns:=px4_3 -p out_topic:=/px4_2/target_rays_w_raw -p sigma_deg:=0.5 -p use_sim_time:=${USE_SIM_TIME}
+    - ros2 run mas_coop_mock ray_delay --ros-args -r __ns:=/px4_1 -r __node:=ray_delay_matched -p in_topic:=/px4_2/target_rays_w_raw -p out_topic:=/px4_2/target_rays_w -p latency_s:=${TAU_S} -p latency_jitter_s:=0.0 -p use_sim_time:=${USE_SIM_TIME}
+
+- window_name: triangulation
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 run mas_multiview triangulation_node --ros-args -r __ns:=/px4_1 -p num_camera:=2 -p camera_name_prefix:=/px4_ -p gimbal_angle_order:=zxy -p "use_precomputed_rays:=[false, true]" -p use_sim_time:=${USE_SIM_TIME}
+
+- window_name: tracker
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mas_tracker sort3d.launch.py ns:=/px4_1 num_cameras:=2 self_camera_index:=1 camera_name_prefix:=/px4_ use_sim_time:=${USE_SIM_TIME}
+
+- window_name: cv_smoother
+  focus: false
+  layout: tiled
+  shell_command_before:
+    - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
+  panes:
+    - ros2 launch mas_coop_mock coop_mock.launch.py namespace:=px4_1 enable_delay:=false use_sim_time:=${USE_SIM_TIME}
