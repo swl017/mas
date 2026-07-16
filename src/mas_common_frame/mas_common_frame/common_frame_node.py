@@ -235,15 +235,15 @@ class CommonFrameNode(Node):
             pose_msg = PoseStamped()
             pose_msg.header.stamp = now
             pose_msg.header.frame_id = "common_frame"
-            pose_msg.pose.position.x = common_pose[0]
-            pose_msg.pose.position.y = common_pose[1]
-            pose_msg.pose.position.z = common_pose[2]
+            pose_msg.pose.position.x = float(common_pose[0])
+            pose_msg.pose.position.y = float(common_pose[1])
+            pose_msg.pose.position.z = float(common_pose[2])
 
             quat = Rotation.from_euler('xyz', common_pose[3:6]).as_quat()
-            pose_msg.pose.orientation.x = quat[0]
-            pose_msg.pose.orientation.y = quat[1]
-            pose_msg.pose.orientation.z = quat[2]
-            pose_msg.pose.orientation.w = quat[3]
+            pose_msg.pose.orientation.x = float(quat[0])
+            pose_msg.pose.orientation.y = float(quat[1])
+            pose_msg.pose.orientation.z = float(quat[2])
+            pose_msg.pose.orientation.w = float(quat[3])
 
             # Odometry message
             odom_msg = Odometry()
@@ -257,12 +257,12 @@ class CommonFrameNode(Node):
                 odom_msg.pose.covariance = robot.current_pose_covariance
 
             # Velocities (pass through, no rotation)
-            odom_msg.twist.twist.linear.x = robot.current_velocity_linear[0]
-            odom_msg.twist.twist.linear.y = robot.current_velocity_linear[1]
-            odom_msg.twist.twist.linear.z = robot.current_velocity_linear[2]
-            odom_msg.twist.twist.angular.x = robot.current_velocity_angular[0]
-            odom_msg.twist.twist.angular.y = robot.current_velocity_angular[1]
-            odom_msg.twist.twist.angular.z = robot.current_velocity_angular[2]
+            odom_msg.twist.twist.linear.x = float(robot.current_velocity_linear[0])
+            odom_msg.twist.twist.linear.y = float(robot.current_velocity_linear[1])
+            odom_msg.twist.twist.linear.z = float(robot.current_velocity_linear[2])
+            odom_msg.twist.twist.angular.x = float(robot.current_velocity_angular[0])
+            odom_msg.twist.twist.angular.y = float(robot.current_velocity_angular[1])
+            odom_msg.twist.twist.angular.z = float(robot.current_velocity_angular[2])
 
             # Publish
             self.common_frame_pubs[vehicle_name].publish(pose_msg)
@@ -273,13 +273,13 @@ class CommonFrameNode(Node):
             transform.header.stamp = now
             transform.header.frame_id = "common_frame"
             transform.child_frame_id = f"{vehicle_name}/base_link"
-            transform.transform.translation.x = common_pose[0]
-            transform.transform.translation.y = common_pose[1]
-            transform.transform.translation.z = common_pose[2]
-            transform.transform.rotation.x = quat[0]
-            transform.transform.rotation.y = quat[1]
-            transform.transform.rotation.z = quat[2]
-            transform.transform.rotation.w = quat[3]
+            transform.transform.translation.x = float(common_pose[0])
+            transform.transform.translation.y = float(common_pose[1])
+            transform.transform.translation.z = float(common_pose[2])
+            transform.transform.rotation.x = float(quat[0])
+            transform.transform.rotation.y = float(quat[1])
+            transform.transform.rotation.z = float(quat[2])
+            transform.transform.rotation.w = float(quat[3])
             self.tf_broadcaster.sendTransform(transform)
 
         except Exception as e:
