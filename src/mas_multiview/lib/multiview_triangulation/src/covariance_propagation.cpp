@@ -70,6 +70,77 @@ Eigen::Matrix3d propagateCovariance(
     for (int ci = 0; ci < C; ++ci) {
         const Camera& cam = cameras[camera_indices[ci]];
 
+        // ---- Transmitted-ray (cooperative peer) camera: bearing-noise contribution -------
+        // A precomputed-ray camera has no K_/fx/fy. Its measurement is a 2-DOF bearing about
+        // the LOS from the peer origin (cam.t_, set from the ray origin) to the target. We
+        // build the angular measurement Jacobian J_X = [u1; u2] / rho about that LOS (u1,u2 a
+        // basis of the plane perpendicular to the LOS), with angular variance sigma_theta^2,
+        // and feed the SAME sandwich A^{-1}(sum J^T W S W J)A^{-T} (ticket 020, Q4=a). As the
+        // peer and ego view directions approach parallel, A -> singular -> the condition-number
+        // guard below rejects the geometry, i.e. covariance grows without bound as intended.
+        if (cam.is_precomputed_) {
+            Eigen::Vector3d v = X_world - cam.t_;   // peer origin -> target
+            double rho = v.norm();                  // along-LOS range
+            if (rho <= 1e-6) {
+                continue;  // degenerate: target at the peer origin
+            }
+            Eigen::Vector3d d = v / rho;            // unit LOS
+
+            // Orthonormal basis (u1, u2) spanning the plane perpendicular to the LOS.
+            Eigen::Vector3d seed = (std::abs(d.x()) < 0.9)
+                                     ? Eigen::Vector3d::UnitX()
+                                     : Eigen::Vector3d::UnitY();
+            Eigen::Vector3d u1 = (seed - seed.dot(d) * d).normalized();
+            Eigen::Vector3d u2 = d.cross(u1);       // unit, ⟂ d and u1
+
+            // Angular measurement Jacobian w.r.t. the target world position (2x3).
+            Eigen::Matrix<double, 2, 3> J_X;
+            J_X.row(0) = u1.transpose() / rho;
+            J_X.row(1) = u2.transpose() / rho;
+
+            double sigma = cam.bearing_sigma_ > 0.0 ? cam.bearing_sigma_ : kDefaultBearingSigmaRad;
+            double sigma2 = sigma * sigma;
+            Eigen::Matrix2d W_ang = Eigen::Matrix2d::Identity() / sigma2;
+
+            A += J_X.transpose() * W_ang * J_X;
+
+            // Residual covariance: base bearing noise + peer position uncertainty projected
+            // through -J_X (∂bearing/∂o = -∂bearing/∂X), + peer orientation/gimbal error folded
+            // in as extra angular variance (the transmitted ray inherits the peer's pose error).
+            Eigen::Matrix2d S_c = Eigen::Matrix2d::Identity() * sigma2;
+
+            if (config.include_position_uncertainty) {
+                Eigen::Matrix<double, 2, 3> J_o = -J_X;
+                Eigen::Matrix3d Sigma_t;
+                if (config.use_pose_covariance &&
+                    cam.pose_covariance_.block<3, 3>(0, 0).trace() > 0.0) {
+                    Sigma_t = cam.pose_covariance_.block<3, 3>(0, 0);
+                } else {
+                    Sigma_t = Eigen::Matrix3d::Identity() * (config.pos_std * config.pos_std);
+                }
+                S_c += J_o * Sigma_t * J_o.transpose();
+            }
+
+            double extra_ang_var = 0.0;
+            if (config.include_orientation_uncertainty) {
+                if (config.use_pose_covariance &&
+                    cam.pose_covariance_.block<3, 3>(3, 3).trace() > 0.0) {
+                    // Average orientation variance as an isotropic angular contribution.
+                    extra_ang_var += cam.pose_covariance_.block<3, 3>(3, 3).trace() / 3.0;
+                } else {
+                    extra_ang_var += config.ori_std * config.ori_std;
+                }
+            }
+            if (config.include_gimbal_uncertainty) {
+                extra_ang_var += config.gimbal_std * config.gimbal_std;
+            }
+            S_c += Eigen::Matrix2d::Identity() * extra_ang_var;
+
+            sandwich += J_X.transpose() * W_ang * S_c * W_ang * J_X;
+            continue;
+        }
+        // ---- Raw camera: pixel-reprojection contribution ---------------------------------
+
         // Combined rotation: world → optical frame
         Eigen::Matrix3d R_wo = world_to_camera_rotation * cam.R_.transpose();
 

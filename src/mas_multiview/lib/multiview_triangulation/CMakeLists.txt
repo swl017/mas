@@ -28,6 +28,19 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 
 # add_executable(cartesian_product test/cartesian_product.cpp)
 
+# Ticket 020: offline unit test for the transmitted-ray fusion residual (GPU-free).
+add_executable(test_transmitted_ray test/test_transmitted_ray.cpp)
+target_include_directories(test_transmitted_ray PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${EIGEN3_INCLUDE_DIR}
+    ${Ceres_INCLUDE_DIRS}
+)
+target_link_libraries(test_transmitted_ray PRIVATE
+    ${PROJECT_NAME}
+    Eigen3::Eigen
+    Ceres::ceres
+)
+
 # Make the library installable
 install(
   TARGETS ${PROJECT_NAME}

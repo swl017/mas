@@ -7,6 +7,14 @@
 
 namespace MultiView {
 
+namespace {
+// Angular uncertainty [rad] to use for a precomputed camera's ray residual.
+inline double bearingSigmaOf(const Camera& cam)
+{
+    return cam.bearing_sigma_ > 0.0 ? cam.bearing_sigma_ : kDefaultBearingSigmaRad;
+}
+}  // namespace
+
 MultiViewTriangulation::MultiViewTriangulation(/* args */)
 : max_solve_time_(0.1)
 {
@@ -48,6 +56,11 @@ void MultiViewTriangulation::setCameraPoseCovariance(int id, const Eigen::Matrix
 void MultiViewTriangulation::setCameraGimbalAngles(int id, const Eigen::Vector3d& angles)
 {
     cameras_[id].gimbal_angles_ = angles;
+}
+
+void MultiViewTriangulation::setCameraBearingSigma(int id, double sigma_rad)
+{
+    cameras_[id].bearing_sigma_ = sigma_rad;
 }
 
 void MultiViewTriangulation::addDetection(int id, const Detection::Detection2D& detection2d)
@@ -135,18 +148,31 @@ void MultiViewTriangulation::printDetections(const std::vector<Camera>& cameras)
 {
     for (const Camera& camera : cameras) {
         std::cout << "Camera " << camera.id_ << std::endl;
-        std::cout << "K: " << std::endl << camera.K_ << std::endl;
-        std::cout << "R: " << std::endl << camera.R_ << std::endl;
-        std::cout << "t: " << camera.t_.transpose() << std::endl;
-        std::cout << "width: " << camera.width_ << std::endl;
-        std::cout << "height: " << camera.height_ << std::endl;
+        if (camera.is_precomputed_) {
+            // Transmitted-ray (cooperative peer) camera: no K_/width_/height_ to print
+            // (ticket 020 — do not read uninitialized intrinsics). Print the ray instead.
+            std::cout << "precomputed transmitted ray (no local image model)" << std::endl;
+            std::cout << "origin: " << camera.t_.transpose() << std::endl;
+            std::cout << "bearing_sigma [rad]: " << camera.bearing_sigma_ << std::endl;
+        } else {
+            std::cout << "K: " << std::endl << camera.K_ << std::endl;
+            std::cout << "R: " << std::endl << camera.R_ << std::endl;
+            std::cout << "t: " << camera.t_.transpose() << std::endl;
+            std::cout << "width: " << camera.width_ << std::endl;
+            std::cout << "height: " << camera.height_ << std::endl;
+        }
 
         int i = 0;
         for (const Detection& detection : camera.detections_) {
             std::cout << "Detection " << i << std::endl;
-            std::cout << "- center: " << detection.detection2d.center.transpose() << std::endl;
-            std::cout << "- width: " << detection.detection2d.width << std::endl;
-            std::cout << "- height: " << detection.detection2d.height << std::endl;
+            if (camera.is_precomputed_) {
+                std::cout << "- ray_dir: "
+                          << detection.detection2d.ray.ray_direction.transpose() << std::endl;
+            } else {
+                std::cout << "- center: " << detection.detection2d.center.transpose() << std::endl;
+                std::cout << "- width: " << detection.detection2d.width << std::endl;
+                std::cout << "- height: " << detection.detection2d.height << std::endl;
+            }
             i++;
         }
         std::cout << "----------------" << std::endl;
@@ -250,15 +276,34 @@ void MultiViewTriangulation::estimateInitialPosition(std::vector<Camera>& camera
 
                 Eigen::Vector3d mid_point = 0.5 * (p1 + sc * v1 + p2 + tc * v2);
 
-                double reprojection1 = ReprojectionError(camera1, detection1.detection2d.center).getReprojectionError(mid_point);
-                double reprojection2 = ReprojectionError(camera2, detection2.detection2d.center).getReprojectionError(mid_point);
+                // A precomputed-ray (cooperative peer) camera has no local image model
+                // (no K_): use the point-to-ray perpendicular distance [m] as its error
+                // metric; a raw camera uses pixel reprojection. Branch on is_precomputed_
+                // (never read K_ on a ray-only camera) — ticket 020.
+                double reprojection1 = camera1.is_precomputed_
+                    ? PointToRayError(detection1.detection2d.ray.ray_origin,
+                                      detection1.detection2d.ray.ray_direction,
+                                      bearingSigmaOf(camera1)).getRayDistance(mid_point)
+                    : ReprojectionError(camera1, detection1.detection2d.center).getReprojectionError(mid_point);
+                double reprojection2 = camera2.is_precomputed_
+                    ? PointToRayError(detection2.detection2d.ray.ray_origin,
+                                      detection2.detection2d.ray.ray_direction,
+                                      bearingSigmaOf(camera2)).getRayDistance(mid_point)
+                    : ReprojectionError(camera2, detection2.detection2d.center).getReprojectionError(mid_point);
 
                 double weight = 1.0 / (reprojection1 + reprojection2 + 1e-12);  // Add small constant to avoid division by zero
 
                 /**
                  * @todo Add more filtering criteria (e.g. common FOV region, manually specified regions)
                  */
-                if (reprojection1 < camera1.width_ * 0.2 && reprojection2 < camera2.width_ * 0.2) {
+                // A precomputed-ray camera transmitted a RAY validated at the source, so the
+                // pixel-reprojection init gate structurally does not apply to it (ticket 019
+                // fair ego/peer split, user-authorized 2026-07-15; ticket 020 makes the ray a
+                // first-class residual downstream). The pair is still constrained geometrically
+                // (the ray intersection above) + the imaged camera's reprojection.
+                bool ok1 = camera1.is_precomputed_ || (reprojection1 < camera1.width_ * 0.2);
+                bool ok2 = camera2.is_precomputed_ || (reprojection2 < camera2.width_ * 0.2);
+                if (ok1 && ok2) {
                     weighted_mid_point += weight * mid_point;
                     total_weight += weight;
                 }
@@ -316,11 +361,23 @@ void MultiViewTriangulation::optimizePositionEstimate(std::vector<Camera>& camer
     double position[3] = {association.initial_guess[0], association.initial_guess[1], association.initial_guess[2]};
 
     for (size_t i = 0; i < association.camera_idx.size(); i++) {
-        ceres::CostFunction* cost_function =
-            new ceres::AutoDiffCostFunction<ReprojectionError, 2, 3>(
-                new ReprojectionError(cameras[association.camera_idx[i]], cameras[association.camera_idx[i]].detections_[association.detection_idx[i]].detection2d.center));
-
-        problem.AddResidualBlock(cost_function, new ceres::HuberLoss(1.0), position);
+        Camera& cam = cameras[association.camera_idx[i]];
+        const Detection& det = cam.detections_[association.detection_idx[i]];
+        if (cam.is_precomputed_) {
+            // Transmitted-ray peer: 1-DOF angular (point-to-ray) residual, no K_ (ticket 020).
+            ceres::CostFunction* cost_function =
+                new ceres::AutoDiffCostFunction<PointToRayError, 1, 3>(
+                    new PointToRayError(det.detection2d.ray.ray_origin,
+                                        det.detection2d.ray.ray_direction,
+                                        bearingSigmaOf(cam)));
+            problem.AddResidualBlock(cost_function, new ceres::HuberLoss(1.0), position);
+        } else {
+            // Raw camera: 2-DOF pixel-reprojection residual.
+            ceres::CostFunction* cost_function =
+                new ceres::AutoDiffCostFunction<ReprojectionError, 2, 3>(
+                    new ReprojectionError(cam, det.detection2d.center));
+            problem.AddResidualBlock(cost_function, new ceres::HuberLoss(1.0), position);
+        }
         // Use TrivialLoss for very accurate measurements
         // problem.AddResidualBlock(cost_function, new ceres::TrivialLoss(), position);
     }
@@ -362,7 +419,21 @@ void MultiViewTriangulation::optimizePositionEstimate(std::vector<Camera>& camer
     refined_position << position[0], position[1], position[2];
 
     for (size_t i = 0; i < association.camera_idx.size(); i++) {
-        reprojection_errors.push_back(ReprojectionError(cameras[association.camera_idx[i]], cameras[association.camera_idx[i]].detections_[association.detection_idx[i]].detection2d.center).getReprojectionError(refined_position));
+        Camera& cam = cameras[association.camera_idx[i]];
+        const Detection& det = cam.detections_[association.detection_idx[i]];
+        if (cam.is_precomputed_) {
+            // Post-solve metric for a transmitted ray = perpendicular ray distance [m]
+            // (NOTE: this entry is in metres, whereas raw cameras report pixels — the results
+            // gate max_reprojection_error_ mixes the two; a dedicated ray-distance threshold is
+            // a documented v1 limitation, ticket 020).
+            reprojection_errors.push_back(
+                PointToRayError(det.detection2d.ray.ray_origin,
+                                det.detection2d.ray.ray_direction,
+                                bearingSigmaOf(cam)).getRayDistance(refined_position));
+        } else {
+            reprojection_errors.push_back(
+                ReprojectionError(cam, det.detection2d.center).getReprojectionError(refined_position));
+        }
     }
 
     // Compute covariance via first-order Jacobian propagation (sandwich formula)

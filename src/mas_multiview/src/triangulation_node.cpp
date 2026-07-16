@@ -103,6 +103,11 @@ TriangulationNode::TriangulationNode() : Node("triangulation_node")
     this->declare_parameter("cov.include_orientation_uncertainty", true);
     this->declare_parameter("cov.include_gimbal_uncertainty", true);
 
+    // Ticket 020: per-ray angular uncertainty [deg] for a transmitted (precomputed) bearing ray.
+    // Q2 = fusion-side sigma_theta parameter (no mas_msgs change); default matches the
+    // cooperative mock's detector-grade sigma_deg.
+    this->declare_parameter("bearing_sigma_deg", 0.5);
+
     // Create subscribers based on number of views
     int num_camera = this->get_parameter("num_camera").as_int();
     num_camera_ = num_camera;
@@ -427,13 +432,18 @@ void TriangulationNode::timerCallback()
         camera_world_positions_[i] = camera_t_world_camera;
     }
 
-    // Set up extrinsics for precomputed ray cameras (for frustum visualization)
+    // Set up extrinsics + fusion-side bearing sigma for precomputed (transmitted-ray) cameras.
+    // The extrinsics origin (cam.t_) doubles as the peer ray origin used by the point-to-ray
+    // residual and the bearing covariance (ticket 020).
+    const double bearing_sigma_rad =
+        this->get_parameter("bearing_sigma_deg").as_double() * M_PI / 180.0;
     for (const int& i : ready_precomputed)
     {
         auto& rays_msg = precomputed_rays_[i];
         Eigen::Vector3d origin(rays_msg->origin.x, rays_msg->origin.y, rays_msg->origin.z);
         camera_world_positions_[i] = origin;
         multiview_triangulation_->setCameraExtrinsics(i, Eigen::Matrix3d::Identity(), origin);
+        multiview_triangulation_->setCameraBearingSigma(i, bearing_sigma_rad);
     }
 
     // Always build and publish frustum visualization
@@ -445,6 +455,11 @@ void TriangulationNode::timerCallback()
         for (size_t i = 0; i < multiview_triangulation_->getNumCameras(); ++i)
         {
             if (frustum_set.find(i) == frustum_set.end())
+                continue;
+            // A transmitted-ray (precomputed) camera has no local image model (no K_/width_),
+            // so it has no view frustum to draw; getFrustumCorners would read uninitialized
+            // intrinsics. Skip it (ticket 020 — avoid any uninitialized K_/width_ read).
+            if (multiview_triangulation_->cameras_[i].is_precomputed_)
                 continue;
             double zoom = (camera_zooms_[i] ? camera_zooms_[i]->data : 1.0);
             std::vector<Eigen::Vector3d> corners = multiview_triangulation_->cameras_[i].getFrustumCorners(30.0 * zoom);
@@ -615,6 +630,25 @@ void TriangulationNode::timerCallback()
         if (i < static_cast<int>(target_rays_pubs_.size()))
         {
             target_rays_pubs_[i]->publish(ray_array_msg);
+        }
+    }
+
+    // Ticket 020 (§5b auditability): the fair peer-only AoI model fuses a FRESH ego ray with a
+    // STALE peer ray captured earlier, so log each fresh-ego vs stale-peer capture-stamp pair and
+    // the peer lag per fusion tick. This makes the v*tau temporal-inconsistency effect auditable
+    // (the authoritative stamps also ride on the recorded target-ray topics). DEBUG level to
+    // avoid steady-state spam.
+    for (const int& e : ready_cameras)
+    {
+        if (!detections_[e]) continue;
+        double ego_t = rclcpp::Time(detections_[e]->header.stamp).seconds();
+        for (const int& p : ready_precomputed)
+        {
+            if (!precomputed_rays_[p]) continue;
+            double peer_t = rclcpp::Time(precomputed_rays_[p]->header.stamp).seconds();
+            RCLCPP_DEBUG(this->get_logger(),
+                "[ray-stamp] ego cam%d t=%.3f  peer cam%d t=%.3f  peer_lag=%.3f s",
+                e, ego_t, p, peer_t, ego_t - peer_t);
         }
     }
 

@@ -12,6 +12,11 @@
 
 namespace MultiView {
 
+// Default per-ray angular uncertainty for a transmitted (precomputed) ray when the
+// fusion has not been given one explicitly. 0.5 deg matches the cooperative mock's
+// detector-grade sigma_deg (ticket 020, Q2 = fusion-side sigma_theta parameter).
+constexpr double kDefaultBearingSigmaRad = 0.008726646259971648;  // deg2rad(0.5)
+
 class Camera
 {
 public:
@@ -26,6 +31,13 @@ public:
     Eigen::Vector3d t_;                     // Camera position in world frame
     Eigen::Matrix<double, 6, 6> pose_covariance_;  // [position(3), orientation(3)] from EKF
     Eigen::Vector3d gimbal_angles_;         // [roll, pitch, yaw] in radians
+    // Transmitted-ray (cooperative peer) camera: it carries a precomputed bearing ray
+    // (origin + unit direction) but NO local image model (no K_, no width_/height_). The
+    // fusion honors it with a point-to-ray angular residual instead of pixel reprojection
+    // (ticket 020). This flag is the single source of truth for "ray-only camera" and
+    // REPLACES the earlier uninitialized `width_ <= 0` sentinel.
+    bool is_precomputed_ = false;
+    double bearing_sigma_ = 0.0;            // per-ray angular uncertainty [rad]; 0 => use default
     std::vector<Eigen::Vector3d> frustum_corners_; // Frustum corners in world coordinates
     std::vector<Detection> detections_;
     void addDetection2D(const Detection::Detection2D& detection2d)
@@ -48,6 +60,7 @@ public:
         detection.detection2d.class_id = class_id;
         detection.detection2d.confidence = 1.0f;
         detections_.push_back(detection);
+        is_precomputed_ = true;  // ray-only camera: no K_, use the angular residual (ticket 020)
     }
     std::vector<Eigen::Vector3d> getFrustumCorners(const double& vertice_length)
     {

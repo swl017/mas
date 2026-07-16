@@ -68,6 +68,39 @@ Default topic construction: `/px4_1/yolo_result_vision`, `/px4_2/common_frame/od
 | `cov.include_orientation_uncertainty` | bool | `true` | Include orientation in covariance propagation |
 | `cov.include_gimbal_uncertainty` | bool | `true` | Include gimbal angles in covariance propagation |
 | `use_precomputed_rays` | bool[] | `[]` | Per-camera flag: if true, subscribe to `target_rays_w` instead of raw sensor topics |
+| `bearing_sigma_deg` | double | `0.5` | Per-ray angular uncertainty (deg) for a transmitted (precomputed) bearing ray — scales the point-to-ray residual and the bearing covariance (ticket 020) |
+
+#### Transmitted-ray fusion (cooperative peers — ticket 020)
+
+**Interface decision (013 Q1 / 020 Q1 = A, transmitted ray).** Cooperative peers exchange
+**bearing rays**, not raw detections or fused poses: a peer validates its own detection at the
+source and transmits `origin + unit LOS + detection_id` as a `mas_msgs/TargetRayArray` on
+`target_rays_w`. The interceptor's fusion honors the ray it receives as a **first-class geometric
+constraint** — no camera intrinsics (`K_`) are exchanged or required.
+
+**Residual.** A raw camera contributes a 2-DOF pixel-reprojection residual; a transmitted-ray
+(precomputed) camera contributes a 1-DOF **point-to-ray angular residual**
+`r = e / (rho * sigma_theta)`, where `e` is the perpendicular distance from the solved point to
+the ray and `rho = (X - origin) . direction` is the along-ray range (guards: reject `rho <= 0`,
+floor `rho`). Both residuals share one Ceres problem over the 3-D position, so a
+`{raw ego + transmitted peer}` pair is jointly well-constrained. `sigma_theta` is the fusion-side
+`bearing_sigma_deg` parameter (Q2 = param, no `mas_msgs` change).
+
+**K_-free accounting.** For precomputed cameras the initial-guess weighting/gate, the results
+gate metric (perpendicular ray distance in metres), and the covariance (a 2-DOF bearing Jacobian
+about the LOS, variance `sigma_theta^2`) all branch on `Camera::is_precomputed_` and never read an
+intrinsics matrix. Note: the results gate `max_reprojection_error` mixes pixels (raw) and metres
+(ray distance) under one threshold — a documented v1 limitation; a dedicated ray-distance
+threshold is a future refinement.
+
+**Auditability.** Each fusion tick DEBUG-logs the fresh-ego vs stale-peer capture stamps and the
+peer lag (`[ray-stamp] ...`) so the fresh-ego × stale-peer temporal inconsistency in the fair
+peer-only latency experiment is traceable.
+
+**Offline test:** `lib/multiview_triangulation/test/test_transmitted_ray.cpp` — a
+`{raw + transmitted ray}` pair triangulates a known GT point, the fused range tracks the peer-ray
+angle, and the covariance is PD and degrades as the rays approach parallel. Built by CMake
+(`test_transmitted_ray`), GPU-free.
 
 #### Services
 None.

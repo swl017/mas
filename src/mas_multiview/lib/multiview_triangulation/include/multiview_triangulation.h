@@ -44,6 +44,8 @@ public:
     void setCameraExtrinsics(int id, const Eigen::Matrix3d& R, const Eigen::Vector3d& t);
     void setCameraPoseCovariance(int id, const Eigen::Matrix<double, 6, 6>& cov);
     void setCameraGimbalAngles(int id, const Eigen::Vector3d& angles);
+    // Per-camera angular uncertainty [rad] for a transmitted (precomputed) ray (ticket 020).
+    void setCameraBearingSigma(int id, double sigma_rad);
     void setCovarianceConfig(const CovarianceConfig& config) { covariance_config_ = config; }
     void addDetection(int id, const Detection::Detection2D& detection2d);
     void addPrecomputedRay(int id, const Eigen::Vector3d& ray_origin,

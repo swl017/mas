@@ -10,7 +10,9 @@
 #include "detection.h"
 #include "ray.h"
 
+#include <cmath>
 #include <Eigen/Eigen>
+#include <ceres/jet.h>
 
 namespace MultiView {
 
@@ -107,6 +109,73 @@ struct ReprojectionError : Reprojection {
     }
 
     Eigen::Vector2d observed_;
+};
+
+/**
+ * @brief Point-to-ray angular residual for a transmitted (precomputed) bearing ray.
+ *
+ * A cooperative peer transmits a bearing RAY (origin o + unit direction d) computed at the
+ * source — it has no local image model (no K_), so it cannot contribute a pixel-reprojection
+ * residual. Its natural residual is the target point's angular deviation from the transmitted
+ * ray. With v = X - o and along-ray range rho = v.d, the perpendicular error is
+ * e = || v - rho * d ||, and the residual is the *angular* quantity
+ *
+ *     r = e / (rho * sigma_theta)                                         (ticket 020, Q3=b)
+ *
+ * dimensionless and directly comparable to a raw camera's pixel residual. Like the pixel
+ * residual (reprojection.h divides the rotated point by its depth Z(X)), rho = rho(X) is a
+ * function of the point being solved; Ceres autodiff re-linearizes it each iteration, and the
+ * recovered range is exactly what the ego/peer parallax supplies. Guards: reject rho <= 0
+ * (target behind the peer, mirroring the "behind camera -> false" pixel path) and floor rho at
+ * kRhoFloor for the division.  1 residual, 3 params.
+ */
+struct PointToRayError {
+    PointToRayError(const Eigen::Vector3d& ray_origin,
+                    const Eigen::Vector3d& ray_direction,
+                    double sigma_theta)
+    : origin_(ray_origin),
+      dir_(ray_direction.normalized()),
+      sigma_theta_(sigma_theta > 1e-9 ? sigma_theta : kDefaultBearingSigmaRad) {}
+
+    template <typename T>
+    bool operator()(const T* const position, T* residuals) const {
+        // v = X - o
+        const T vx = position[0] - T(origin_[0]);
+        const T vy = position[1] - T(origin_[1]);
+        const T vz = position[2] - T(origin_[2]);
+
+        // Along-ray range rho = v . d
+        const T rho = vx * T(dir_[0]) + vy * T(dir_[1]) + vz * T(dir_[2]);
+        if (rho <= T(0)) {
+            residuals[0] = T(1000.0);  // target behind the peer
+            return false;
+        }
+
+        // Perpendicular component v_perp = v - rho * d
+        const T px = vx - rho * T(dir_[0]);
+        const T py = vy - rho * T(dir_[1]);
+        const T pz = vz - rho * T(dir_[2]);
+        const T e2 = px * px + py * py + pz * pz;
+        using std::sqrt;  // ADL: ceres::sqrt for Jet, std::sqrt for double
+        const T e = sqrt(e2 + T(1e-18));  // epsilon keeps the derivative finite at e = 0
+
+        const T rho_floored = rho > T(kRhoFloor) ? rho : T(kRhoFloor);
+        residuals[0] = e / (rho_floored * T(sigma_theta_));
+        return true;
+    }
+
+    // Post-solve metric: perpendicular distance from the point to the transmitted ray [metres].
+    double getRayDistance(const Eigen::Vector3d& point) const {
+        const Eigen::Vector3d v = point - origin_;
+        const double rho = v.dot(dir_);
+        const Eigen::Vector3d v_perp = v - rho * dir_;
+        return v_perp.norm();
+    }
+
+    Eigen::Vector3d origin_;
+    Eigen::Vector3d dir_;
+    double sigma_theta_;
+    static constexpr double kRhoFloor = 1e-3;  // metres; avoids blow-up near the peer origin
 };
 
 struct RegularizationError {
