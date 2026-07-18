@@ -108,6 +108,34 @@ def _schedule_fp(pn: str) -> dict:
         return {"n_knots": "NA", "checksum": "NA", "raw": tok[:80]}
 
 
+def _source_fingerprint() -> dict:
+    """Executed-code provenance (026 rev2 §10.8): the mas git commit (+dirty flag) and a
+    sha256 over the INSTALLED mas_pn_guidance python sources — what the running nodes
+    actually imported, which catches the built-but-uncommitted case."""
+    import glob as _glob
+    import hashlib
+    import subprocess as _sp
+    out = {}
+    try:
+        r = _sp.run(["git", "-C", "/home/usrg/mas/src", "rev-parse", "--short", "HEAD"],
+                    capture_output=True, text=True, timeout=5)
+        d = _sp.run(["git", "-C", "/home/usrg/mas/src", "status", "--porcelain"],
+                    capture_output=True, text=True, timeout=5)
+        out["mas_git"] = r.stdout.strip() + ("+dirty" if d.stdout.strip() else "")
+    except Exception:
+        out["mas_git"] = "NA"
+    try:
+        h = hashlib.sha256()
+        for p in sorted(_glob.glob("/home/usrg/mas/install/mas_pn_guidance/lib/python3*/"
+                                   "site-packages/mas_pn_guidance/*.py")):
+            with open(p, "rb") as fh:
+                h.update(fh.read())
+        out["installed_pn_sha"] = h.hexdigest()[:16]
+    except Exception:
+        out["installed_pn_sha"] = "NA"
+    return out
+
+
 def capture_live_config(ses: dict) -> dict:
     """Snapshot the live node params in effect for a boot so its ACTUAL config is
     auditable from the archive, not just implied by the boot id (ticket 019 M4/B1).
@@ -129,9 +157,13 @@ def capture_live_config(ses: dict) -> dict:
                 # live_config cannot prove which law produced a row (023 review finding 6).
                 "active_sensing_class", "as_amp_mps2", "as_freq_hz", "as_taper_range_m",
                 "as_aopn_n2", "as_aopn_sign", "as_dev_delta_deg", "as_dev_wash_range_m",
+                "as_dev_gain",   # rev2 §9.5: governing F2 param was missing from provenance
+                "as_rge_beta", "as_rge_gamma_exc", "as_rge_msoft", "as_rge_sign",
                 "as_fim_lambda", "as_fim_horizon_s", "as_fim_samples",
-                "as_fim_replan_ticks", "as_fim_hit_r_m", "as_schedule_dt_s")},
+                "as_fim_replan_ticks", "as_fim_hit_r_m", "as_fim_bs_kappa", "as_fim_bs_cgeo",
+                "as_schedule_dt_s")},
         "pn_schedule_fp": _schedule_fp(pn),
+        "source": _source_fingerprint(),
     }
     obs = ses.get("observer_ns", "")
     if obs:
@@ -267,6 +299,9 @@ def launch_cmd(ses: dict, boot: dict) -> list[str]:
         f"estimators:={','.join(boot['estimators'])}",
         f"repeats:={boot.get('repeats', 1)}",
         f"seed:={ses.get('seed', 42)}",
+        # ticket 026 D2: per-boot scenario heading (independent crossing geometries);
+        # the conductor rotates the capability-grid course and records it per trial.
+        f"target_heading_deg:={boot.get('target_heading_deg', 0.0)}",
         f"record:={'true' if ses.get('record', True) else 'false'}",
         f"bag_script:={ses.get('bag_script', '/home/usrg/mas/bag/rosbag_record_reduced.sh')}",
         f"use_sim_time:={'true' if ses.get('use_sim_time', True) else 'false'}",

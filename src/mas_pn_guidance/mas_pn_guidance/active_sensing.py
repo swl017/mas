@@ -40,7 +40,8 @@ _Z = np.array([0.0, 0.0, 1.0])
 # aopn (F1, faithful Lim & Li), dev_pursuit (F2, Anjaly-Ratnoo-INSPIRED adaptation),
 # fim_mpc_online (F3, faithful online constrained MPC — wired in 026 S2).
 ACTIVE_SENSING_CLASSES = ("none", "oepn", "opt_weave", "fim_mpc",
-                          "aopn", "dev_pursuit", "fim_mpc_online")
+                          "aopn", "dev_pursuit", "fim_mpc_online", "rge",
+                          "fim_mpc_bs")
 IMPLEMENTED_CLASSES = ACTIVE_SENSING_CLASSES
 _SCHEDULE_CLASSES = ("opt_weave", "fim_mpc")
 
@@ -176,6 +177,36 @@ def dev_pursuit_accel(n_hat, v_cmd, range_m, delta_star_rad, wash_range_m, k_del
     return k_delta * (v_perp_des - float(v_cmd @ lat)) * lat
 
 
+def rge_accel(n_hat, own_p, tgt_p, tgt_v, v_cmd, a_max, beta, gamma_exc,
+              m_soft, sign, tau_min=0.3) -> np.ndarray:
+    """Recoverability-governed excitation (RGE) — ticket 026 egofix drafts §1, Law A.
+
+    ZEM-reserve soft governor: excite ⊥LOS at up to ``gamma_exc*a_max`` while the
+    BELIEVED zero-effort miss stays within ``beta`` of the PN-reserve lateral-reach
+    envelope ``1/2*(1-gamma_exc)*a_max*tau^2`` (believed t_go). Two-phase behavior is
+    emergent — the envelope collapses quadratically, so excitation shuts itself off
+    approaching CPA (no R_wash schedule). Positioned per the design doc as a
+    ZEM-reserve soft-governor SYNTHESIS (Lee'01 / Su'18 / capture-zone lineage), and
+    the envelope is a constant-accel lateral-reach APPROXIMATION of the recoverable
+    set, not a proved capture zone (modeling qualifier in i_design_egofix_drafts.md).
+    All inputs are ego-belief quantities — deployable without an observer.
+    """
+    l_hat = lateral_hat(n_hat)
+    if not np.any(l_hat):
+        return np.zeros(3)
+    r_rel = np.asarray(tgt_p, float) - np.asarray(own_p, float)
+    v_rel = np.asarray(tgt_v, float) - np.asarray(v_cmd, float)
+    vv = float(v_rel @ v_rel)
+    if vv < 1e-9:
+        return np.zeros(3)
+    tau = max(float(tau_min), -float(r_rel @ v_rel) / vv)
+    zem = float(np.linalg.norm(r_rel + v_rel * tau))
+    env = 0.5 * (1.0 - gamma_exc) * a_max * tau * tau
+    margin = beta * env - zem
+    u = gamma_exc * a_max * min(1.0, max(0.0, margin / max(float(m_soft), 1e-6)))
+    return float(sign) * u * l_hat
+
+
 def active_sensing_accel(cls: str, params: Dict, ctx: ActiveSensingContext) -> np.ndarray:
     """Dispatch to the selected active-sensing class; return ``a_obs`` (m/s², 3-vec).
 
@@ -209,10 +240,18 @@ def active_sensing_accel(cls: str, params: Dict, ctx: ActiveSensingContext) -> n
             math.radians(float(params.get("dev_delta_deg", 0.0))),
             float(params.get("dev_wash_range_m", 15.0)),
             float(params.get("dev_gain", 0.0)))
-    if cls == "fim_mpc_online":                          # F3 (ticket 026, faithful)
+    if cls == "rge":                                     # Law A (026 egofix drafts)
+        return rge_accel(
+            ctx.n_hat, ctx.own_p, ctx.tgt_p, ctx.tgt_v, ctx.v_cmd, ctx.a_max,
+            float(params.get("rge_beta", 0.5)),
+            float(params.get("rge_gamma_exc", 0.4)),
+            float(params.get("rge_msoft", 2.0)),
+            float(params.get("rge_sign", 1.0)))
+    if cls in ("fim_mpc_online", "fim_mpc_bs"):          # F3 (CE) / Law B (belief-space)
         planner = params.get("fim_planner")
         if planner is None:                              # not constructed -> inert
             return np.zeros(3)
         rel_p = np.asarray(ctx.tgt_p, float) - np.asarray(ctx.own_p, float)
-        return planner.step(rel_p, ctx.v_cmd, ctx.tgt_v, ctx.dt)
+        return planner.step(rel_p, ctx.v_cmd, ctx.tgt_v, ctx.dt,
+                            sigma_r0=params.get("sigma_R0"))
     raise ValueError(f"unknown active_sensing_class '{cls}'")

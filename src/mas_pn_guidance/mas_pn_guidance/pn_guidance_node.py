@@ -125,8 +125,15 @@ class PNGuidanceNode(Node):
         self.declare_parameter("as_dev_delta_deg", 0.0)    # F2 lead angle δ* (deg)
         self.declare_parameter("as_dev_wash_range_m", 15.0)  # F2 washout range R_wash
         self.declare_parameter("as_dev_gain", 1.0)         # F2 steering gain k_δ
+        # Law A (026 egofix drafts): recoverability-governed excitation (RGE)
+        self.declare_parameter("as_rge_beta", 0.5)         # margin fraction β
+        self.declare_parameter("as_rge_gamma_exc", 0.4)    # envelope split γ_exc
+        self.declare_parameter("as_rge_msoft", 2.0)        # soft-gate width (m)
+        self.declare_parameter("as_rge_sign", 1.0)         # ⊥LOS swing sign
         self.declare_parameter("as_fim_replan_ticks", 5)   # F3 online replan cadence
         self.declare_parameter("as_fim_hit_r_m", 1.0)      # F3 hard CPA feasibility radius
+        self.declare_parameter("as_fim_bs_kappa", 1.0)     # Law B risk weight κ
+        self.declare_parameter("as_fim_bs_cgeo", 0.5)      # Law B miss-projection factor
 
         self.N = float(self.get_parameter("nav_constant").value)
         self.v_max = float(self.get_parameter("v_max").value)
@@ -170,6 +177,10 @@ class PNGuidanceNode(Node):
         self.as_dev_delta_deg = float(self.get_parameter("as_dev_delta_deg").value)
         self.as_dev_wash_range_m = float(self.get_parameter("as_dev_wash_range_m").value)
         self.as_dev_gain = float(self.get_parameter("as_dev_gain").value)
+        self.as_rge_beta = float(self.get_parameter("as_rge_beta").value)
+        self.as_rge_gamma_exc = float(self.get_parameter("as_rge_gamma_exc").value)
+        self.as_rge_msoft = float(self.get_parameter("as_rge_msoft").value)
+        self.as_rge_sign = float(self.get_parameter("as_rge_sign").value)
         self.as_fim_replan_ticks = int(self.get_parameter("as_fim_replan_ticks").value)
         self.as_fim_hit_r_m = float(self.get_parameter("as_fim_hit_r_m").value)
         self._fim_planner = None   # F3 online CEM, built lazily on first use (ticket 026)
@@ -242,6 +253,14 @@ class PNGuidanceNode(Node):
 
         self.pub_cmd = self.create_publisher(TwistStamped, "pn/cmd_vel", 10)
         self.pub_diag = self.create_publisher(Float64MultiArray, "pn/diagnostics", 10)
+        # Ticket 026 rev1 §4: per-tick F3 online-FIM diagnostics (separate topic, additive —
+        # the pn/diagnostics 18-field contract is untouched). Fields (fixed order):
+        #   0 fkappa_pred | 1 cpa_pred | 2 feasible_frac | 3 plan_feasible | 4 plan_age_s
+        #   5 solve_s | 6 deadline_miss | 7 fallback | 8 replans | 9 ctrl_period_miss
+        self.pub_fim_diag = self.create_publisher(
+            Float64MultiArray, "pn/fim_diagnostics", 10)
+        self._ctrl_last_ns = None          # control-callback period monitor (rev1 §3)
+        self._ctrl_period_miss = 0
 
         rate = float(self.get_parameter("control_rate_hz").value)
         self.dt = 1.0 / rate
@@ -339,6 +358,10 @@ class PNGuidanceNode(Node):
                         reason=f"active_sensing_class '{prm.value}' not implemented "
                                f"(supported: {IMPLEMENTED_CLASSES})")
                 self.active_sensing_class = str(prm.value)
+                # fim planner mode is class-dependent (Law B) — rebuild on change
+                if self._fim_planner is not None:
+                    self._fim_planner.shutdown()
+                    self._fim_planner = None
                 self.get_logger().info(f"active_sensing_class -> '{self.active_sensing_class}'")
                 self._warn_empty_schedule()
             if prm.name == "as_amp_mps2":
@@ -384,6 +407,9 @@ class PNGuidanceNode(Node):
             if prm.name == "as_dev_gain":
                 self.as_dev_gain = float(prm.value)
                 self.get_logger().info(f"as_dev_gain -> {self.as_dev_gain}")
+            if prm.name in ("as_rge_beta", "as_rge_gamma_exc", "as_rge_msoft", "as_rge_sign"):
+                setattr(self, prm.name, float(prm.value))
+                self.get_logger().info(f"{prm.name} -> {float(prm.value)}")
             if prm.name == "as_fim_replan_ticks":
                 self.as_fim_replan_ticks = int(prm.value)
                 self._fim_planner = None    # rebuild with the new cadence on next use
@@ -431,6 +457,13 @@ class PNGuidanceNode(Node):
         self._publish_zero()
 
     def _control(self):
+        # Control-callback period monitor (rev1.md §3): count ticks whose realized period
+        # exceeds 1.5×dt — the symptom the pre-rev1 synchronous F3 planner produced.
+        now_ns = self.get_clock().now().nanoseconds
+        if self._ctrl_last_ns is not None:
+            if (now_ns - self._ctrl_last_ns) * 1e-9 > 1.5 * self.dt:
+                self._ctrl_period_miss += 1
+        self._ctrl_last_ns = now_ns
         self._refresh_active()
         if (not self._engaged()) or self.own_p is None:
             self._go_idle()
@@ -494,6 +527,9 @@ class PNGuidanceNode(Node):
                 own_p=self.own_p, tgt_p=self.tgt_p,
                 tgt_v=self.tgt_v if self.tgt_v is not None else np.zeros(3), dt=self.dt)
             a_obs = active_sensing_accel(self.active_sensing_class, self._as_params(), ctx)
+            if (self.active_sensing_class in ("fim_mpc_online", "fim_mpc_bs")
+                    and self._fim_planner is not None):
+                self._publish_fim_diag(self._fim_planner.last_diag())   # rev1 §4
             a_cmd = limit_norm(a_pn + a_obs, self.a_max)      # shared envelope: sum then clamp
         # Integrate the total accel into the commanded velocity, clamp to v_max.
         self.v_cmd = limit_norm(self.v_cmd + a_cmd * self.dt, self.v_max)
@@ -572,9 +608,15 @@ class PNGuidanceNode(Node):
                 "aopn_n2": self.as_aopn_n2, "aopn_sign": self.as_aopn_sign,
                 "dev_delta_deg": self.as_dev_delta_deg,
                 "dev_wash_range_m": self.as_dev_wash_range_m, "dev_gain": self.as_dev_gain,
+                # Law A rge (026 egofix drafts)
+                "rge_beta": self.as_rge_beta, "rge_gamma_exc": self.as_rge_gamma_exc,
+                "rge_msoft": self.as_rge_msoft, "rge_sign": self.as_rge_sign,
                 # ticket 026 F3 (fim_mpc_online): the stateful planner (built lazily)
                 "fim_planner": (self._get_fim_planner()
-                                if self.active_sensing_class == "fim_mpc_online" else None)}
+                                if self.active_sensing_class in ("fim_mpc_online",
+                                                                 "fim_mpc_bs") else None),
+                # Law B: believed range std from the estimator cov trace (isotropic approx)
+                "sigma_R0": float(np.sqrt(max(self.tgt_cov_trace, 0.0) / 3.0))}
 
     def _get_fim_planner(self):
         """Lazily build the F3 online receding-horizon CEM planner (ticket 026). Rebuilt
@@ -584,7 +626,11 @@ class PNGuidanceNode(Node):
             self._fim_planner = OnlineFimMpc(
                 a_max=self.a_max, v_max=self.v_max, n_nav=self.N,
                 horizon_s=self.as_fim_horizon_s, samples=self.as_fim_samples,
-                replan_ticks=self.as_fim_replan_ticks, hit_r=self.as_fim_hit_r_m)
+                replan_ticks=self.as_fim_replan_ticks, hit_r=self.as_fim_hit_r_m,
+                background=True,      # rev1 §3: CEM off the 50 Hz callback (worker thread)
+                belief_space=(self.active_sensing_class == "fim_mpc_bs"),   # Law B
+                kappa=float(self.get_parameter("as_fim_bs_kappa").value),
+                c_geo=float(self.get_parameter("as_fim_bs_cgeo").value))
         return self._fim_planner
 
     def _update_a_meas(self) -> np.ndarray:
@@ -633,14 +679,43 @@ class PNGuidanceNode(Node):
             float(a_obs[0]), float(a_obs[1]), float(a_obs[2]),               # 9-11
             float(a_cmd[0]), float(a_cmd[1]), float(a_cmd[2]),              # 12-14
             float(a_meas[0]), float(a_meas[1]), float(a_meas[2]),          # 15-17
+            # 18: node sim-time stamp (026 rev2 §3.2 — Float64MultiArray has no header,
+            # so analyzers previously had to align by rosbag record time). Additive:
+            # indices 0-17 unchanged; consumers index by position.
+            self.get_clock().now().nanoseconds * 1e-9,
         ]
         self.pub_diag.publish(diag)
+
+    def _publish_fim_diag(self, d):
+        """Publish the F3 online-FIM planner's per-tick diagnostics (ticket 026 rev1 §4)
+        on pn/fim_diagnostics — predicted F_κ/CPA, feasibility, plan age/solve time,
+        deadline + control-period misses, fallback. Additive; pn/diagnostics unchanged."""
+        msg = Float64MultiArray()
+        msg.data = [
+            float(d.get("fkappa", 0.0)),
+            float(d.get("cpa_pred", float("inf"))),
+            float(d.get("feasible_frac", 0.0)),
+            1.0 if d.get("plan_feasible") else 0.0,
+            float(d.get("plan_age_s", float("inf"))),
+            float(d.get("solve_s", 0.0)),
+            float(d.get("deadline_miss", 0)),
+            1.0 if d.get("fallback") else 0.0,
+            float(d.get("replans", 0)),
+            float(self._ctrl_period_miss),
+        ]
+        self.pub_fim_diag.publish(msg)
 
     def _publish_zero(self):
         out = TwistStamped()
         out.header.stamp = self.get_clock().now().to_msg()
         out.header.frame_id = "common_frame"
         self.pub_cmd.publish(out)
+
+    def destroy_node(self):
+        """Stop the F3 CEM worker thread cleanly (ticket 026 rev1) before shutdown."""
+        if getattr(self, "_fim_planner", None) is not None:
+            self._fim_planner.shutdown()
+        super().destroy_node()
 
 
 def main(args=None):

@@ -33,6 +33,7 @@ def generate_launch_description():
         ('target_forward_speeds', '4.5,6.0,7.0,8.0'),
         ('target_lateral_accels', '1.5,3.0,4.5,7.1'),
         ('target_frequency_hz', '0.25'),
+        ('target_heading_deg', '0.0'),   # ticket 026 D2: rotates the capability-grid course (independent-scenario knob)
         ('record', 'true'),
         ('bag_script', '/home/usrg/mas/bag/rosbag_record.sh'),  # full -a recorder; override to rosbag_record_reduced.sh for the ~13-topic set
         ('dry_run', 'false'),

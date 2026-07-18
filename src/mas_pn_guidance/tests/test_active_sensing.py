@@ -356,3 +356,131 @@ def test_fim_online_dispatch_matches_direct():
 
 def test_fim_online_dispatch_no_planner_is_inert():
     assert np.allclose(active_sensing_accel("fim_mpc_online", {}, _mpc_ctx()), 0.0)
+
+
+# ---------------------------------------------------------------- rge (Law A) --
+def _rge_ctx_args(r_rel, v_rel, n_hat=None):
+    """Helper: (n_hat, own_p, tgt_p, tgt_v, v_cmd) for a believed relative state.
+    own at origin flying v_own; target at r_rel with velocity v_rel + v_own."""
+    from mas_pn_guidance.active_sensing import lateral_hat  # noqa: F401 (sanity import)
+    v_own = np.array([0.0, 8.0, 0.0])
+    r_rel = np.asarray(r_rel, float)
+    n = r_rel / np.linalg.norm(r_rel) if n_hat is None else np.asarray(n_hat, float)
+    return n, np.zeros(3), r_rel, np.asarray(v_rel, float) + v_own, v_own
+
+
+def test_rge_two_phase_full_excitation_far():
+    """Far, closing, on-course: margin >> 0 -> u saturates at gamma_exc*a_max."""
+    from mas_pn_guidance.active_sensing import rge_accel
+    n, op, tp, tv, vc = _rge_ctx_args([0.0, 50.0, 0.0], [0.0, -8.0, 0.0])
+    a = rge_accel(n, op, tp, tv, vc, 6.0, beta=0.5, gamma_exc=0.4, m_soft=2.0, sign=1.0)
+    assert np.isclose(np.linalg.norm(a), 0.4 * 6.0, atol=1e-9)
+
+
+def test_rge_two_phase_shutoff_near_cpa():
+    """Small tau (close, fast closing): envelope ~ tau^2 collapses -> u decays to a few
+    percent of u_max (exact zero needs margin <= 0; an on-course belief has ZEM = 0, so
+    the soft gate approaches zero asymptotically — practical shutoff is the claim)."""
+    from mas_pn_guidance.active_sensing import rge_accel
+    n, op, tp, tv, vc = _rge_ctx_args([0.0, 3.0, 0.0], [0.0, -8.0, 0.0])
+    a_near = rge_accel(n, op, tp, tv, vc, 6.0, beta=0.5, gamma_exc=0.4, m_soft=2.0, sign=1.0)
+    n2, op2, tp2, tv2, vc2 = _rge_ctx_args([0.0, 50.0, 0.0], [0.0, -8.0, 0.0])
+    a_far = rge_accel(n2, op2, tp2, tv2, vc2, 6.0, beta=0.5, gamma_exc=0.4, m_soft=2.0, sign=1.0)
+    assert np.linalg.norm(a_near) < 0.1 * 0.4 * 6.0
+    assert np.linalg.norm(a_near) < 0.1 * np.linalg.norm(a_far)
+
+
+def test_rge_margin_closes_on_large_believed_zem():
+    """Off-course belief (large ZEM) at medium tau: margin < 0 -> excitation pauses."""
+    from mas_pn_guidance.active_sensing import rge_accel
+    n, op, tp, tv, vc = _rge_ctx_args([0.0, 20.0, 0.0], [6.0, -8.0, 0.0])  # big cross vel
+    a = rge_accel(n, op, tp, tv, vc, 6.0, beta=0.5, gamma_exc=0.4, m_soft=2.0, sign=1.0)
+    n2, op2, tp2, tv2, vc2 = _rge_ctx_args([0.0, 20.0, 0.0], [0.0, -8.0, 0.0])  # on-course
+    a2 = rge_accel(n2, op2, tp2, tv2, vc2, 6.0, beta=0.5, gamma_exc=0.4, m_soft=2.0, sign=1.0)
+    assert np.linalg.norm(a) < np.linalg.norm(a2)
+
+
+def test_rge_envelope_cap_and_direction():
+    """|a_obs| <= gamma_exc*a_max and a_obs is horizontal-perp to the LOS."""
+    from mas_pn_guidance.active_sensing import rge_accel
+    n, op, tp, tv, vc = _rge_ctx_args([10.0, 40.0, -3.0], [0.0, -8.0, 0.0])
+    a = rge_accel(n, op, tp, tv, vc, 6.0, beta=0.7, gamma_exc=0.3, m_soft=2.0, sign=-1.0)
+    assert np.linalg.norm(a) <= 0.3 * 6.0 + 1e-9
+    assert abs(float(a @ n)) < 1e-9 and abs(a[2]) < 1e-9
+
+
+def test_rge_vertical_los_inert():
+    from mas_pn_guidance.active_sensing import rge_accel
+    n = np.array([0.0, 0.0, 1.0])
+    a = rge_accel(n, np.zeros(3), np.array([0, 0, 50.0]), np.array([0, 0, -8.0]),
+                  np.array([0, 0, 0.0]), 6.0, 0.5, 0.4, 2.0, 1.0)
+    assert np.linalg.norm(a) == 0.0
+
+
+def test_rge_dispatch():
+    from mas_pn_guidance.active_sensing import (ActiveSensingContext,
+                                                active_sensing_accel)
+    ctx = ActiveSensingContext(n_hat=np.array([0.0, 1.0, 0.0]), t_s=0.0,
+                               range_m=50.0, a_max=6.0,
+                               v_cmd=np.array([0.0, 8.0, 0.0]),
+                               own_p=np.zeros(3), tgt_p=np.array([0.0, 50.0, 0.0]),
+                               tgt_v=np.zeros(3), dt=0.02)
+    a = active_sensing_accel("rge", {"rge_beta": 0.5, "rge_gamma_exc": 0.4,
+                                     "rge_msoft": 2.0, "rge_sign": 1.0}, ctx)
+    assert np.isclose(np.linalg.norm(a), 2.4, atol=1e-9)
+
+
+# ------------------------------------------------- fim_mpc_bs (Law B) --------
+def _bs_geom():
+    """Crossing-like believed state: target 40 m ahead-right, crossing laterally."""
+    rel_p = np.array([12.0, 38.0, 0.0])
+    own_v = np.array([0.0, 8.5, 0.0])
+    tgt_v = np.array([3.0, 0.0, 0.0])
+    return rel_p, own_v, tgt_v
+
+
+def test_bs_no_cliff_where_ce_falls_back():
+    """Empty hard-feasible set (hit_r=1e-4): CE returns the zero plan (pure pursuit);
+    belief-space returns a NONZERO executed plan — the measured F3 cliff is removed."""
+    from mas_pn_guidance.fim_mpc_online import OnlineFimMpc
+    rel_p, own_v, tgt_v = _bs_geom()
+    ce = OnlineFimMpc(a_max=6.0, v_max=9.0, n_nav=3.0, hit_r=1e-4, seed=26)
+    ce.replan(rel_p, own_v, tgt_v)
+    assert not ce._plan_feasible and np.allclose(ce._plan, 0.0)
+    bs = OnlineFimMpc(a_max=6.0, v_max=9.0, n_nav=3.0, hit_r=1e-4, seed=26,
+                      belief_space=True)
+    bs.replan(rel_p, own_v, tgt_v, sigma_r0=8.0)
+    assert np.linalg.norm(bs._plan) > 0.0
+
+
+def test_bs_dual_effect_credit_with_uncertain_belief():
+    """Large sigma_r0: the EM-optimal plan gathers information (fkappa > 0)."""
+    from mas_pn_guidance.fim_mpc_online import OnlineFimMpc
+    rel_p, own_v, tgt_v = _bs_geom()
+    bs = OnlineFimMpc(a_max=6.0, v_max=9.0, n_nav=3.0, hit_r=0.5, seed=26,
+                      belief_space=True)
+    bs.replan(rel_p, own_v, tgt_v, sigma_r0=10.0)
+    assert np.linalg.norm(bs._plan) > 0.0
+    assert bs._last_em < np.inf
+
+
+def test_bs_deterministic():
+    from mas_pn_guidance.fim_mpc_online import OnlineFimMpc
+    rel_p, own_v, tgt_v = _bs_geom()
+    a = OnlineFimMpc(a_max=6.0, v_max=9.0, n_nav=3.0, hit_r=0.5, seed=26,
+                     belief_space=True)
+    b = OnlineFimMpc(a_max=6.0, v_max=9.0, n_nav=3.0, hit_r=0.5, seed=26,
+                     belief_space=True)
+    a.replan(rel_p, own_v, tgt_v, sigma_r0=5.0)
+    b.replan(rel_p, own_v, tgt_v, sigma_r0=5.0)
+    assert np.allclose(a._plan, b._plan)
+
+
+def test_bs_sync_step_executes_infeasible_plan():
+    """Synchronous step in belief mode never zeroes on 'not hard-feasible'."""
+    from mas_pn_guidance.fim_mpc_online import OnlineFimMpc
+    rel_p, own_v, tgt_v = _bs_geom()
+    bs = OnlineFimMpc(a_max=6.0, v_max=9.0, n_nav=3.0, hit_r=1e-4, seed=26,
+                      belief_space=True, replan_ticks=5)
+    a = bs.step(rel_p, own_v, tgt_v, 0.02, sigma_r0=8.0)
+    assert np.linalg.norm(a) > 0.0

@@ -78,12 +78,15 @@ REGIMES = {
 ESTIMATORS = ["oracle", "simple_ekf", "direct_projection", "cooperative"]  # ticket 019 mock-coop
 
 
-def build_target_conditions(mode, fwd_speeds, lat_accels, freq):
+def build_target_conditions(mode, fwd_speeds, lat_accels, freq, heading_deg=0.0):
     """Map condition-id -> (speed, amp, freq, heading_deg, vert_ratio, vfwd_cmd,
     alat_cmd). 'named' = the REGIMES presets (a_lat back-derived). 'capability_grid'
     = forward-speed × lateral-accel at FIXED freq, amplitude A = a_lat/omega^2,
     pure-horizontal weave (vert=0 so a_lat is horizontal: tilt=atan(a_lat/g)).
-    See i_target_capability_envelope.md."""
+    See i_target_capability_envelope.md. `heading_deg` rotates the capability-grid
+    course (ticket 026 D2: the crossing cell was otherwise one deterministic geometry —
+    heading is the audited independent-scenario knob; it is NOT folded into the
+    condition id, so encode it in the boot id)."""
     conds = {}
     if mode == "capability_grid":
         w = 2.0 * math.pi * freq
@@ -91,7 +94,8 @@ def build_target_conditions(mode, fwd_speeds, lat_accels, freq):
             for al in lat_accels:
                 A = al / (w * w)
                 cid = f"vf{vf:g}_alat{al:g}_f{freq:g}".replace(".", "p")
-                conds[cid] = (float(vf), float(A), float(freq), 0.0, 0.0, float(vf), float(al))
+                conds[cid] = (float(vf), float(A), float(freq), float(heading_deg),
+                              0.0, float(vf), float(al))
     else:
         for name, (s, a, f, hd, vr) in REGIMES.items():
             w = 2.0 * math.pi * f
@@ -160,7 +164,9 @@ class ExperimentConductor(Node):
         fwd = [float(x) for x in self._csv(str(gp("target_forward_speeds", "4.5,6.0,7.0,8.0").value), [])]
         lat = [float(x) for x in self._csv(str(gp("target_lateral_accels", "1.5,3.0,4.5,7.1").value), [])]
         self.target_freq = float(gp("target_frequency_hz", 0.25).value)
-        self.conditions = build_target_conditions(self.target_mode, fwd, lat, self.target_freq)
+        self.target_heading = float(gp("target_heading_deg", 0.0).value)
+        self.conditions = build_target_conditions(self.target_mode, fwd, lat,
+                                                  self.target_freq, self.target_heading)
         self.regimes = self._csv(gp("regimes", "").value, list(self.conditions))
         self.geometries = self._csv(gp("geometries", "").value, list(GEOMETRIES))
         # Deterministic shuffle: seed param if given, else a fixed per-boot seed
@@ -444,6 +450,7 @@ class ExperimentConductor(Node):
                "target_condition": regime, "target_forward_speed_cmd_mps": vfwd,
                "target_lat_accel_cmd_mps2": round(alat, 3),
                "target_sinusoid_amplitude_m": round(a, 3), "target_sinusoid_frequency_hz": f,
+               "target_heading_deg": hd,
                "rho_v_forward_nominal": (round(self.pn_vmax / vfwd, 3) if vfwd > 0 else None),
                "rho_a_nominal": (round(self.pn_amax / alat, 3) if alat > 0 else None),
                "bag_tag": f"eng_{tag}", "tag": tag}
@@ -508,7 +515,7 @@ class ExperimentConductor(Node):
         cols = ["boot_id", "order", "estimator", "regime", "geometry", "range_m",
                 "v_max", "a_max", "seed",
                 "target_condition", "target_forward_speed_cmd_mps", "target_lat_accel_cmd_mps2",
-                "target_sinusoid_amplitude_m", "target_sinusoid_frequency_hz",
+                "target_sinusoid_amplitude_m", "target_sinusoid_frequency_hz", "target_heading_deg",
                 "rho_v_forward_nominal", "rho_a_nominal",
                 "result", "success", "min_range_m",
                 "t_cpa_s", "time_to_intercept_s",

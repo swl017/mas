@@ -28,7 +28,8 @@ constant-speed pursuer is seeded as a `v_max` pursuit at engagement, then
 
 #### Publishers
 - `pn/cmd_vel` (`geometry_msgs/TwistStamped`, ENU) — engagement velocity setpoint, 50 Hz
-- `pn/diagnostics` (`std_msgs/Float64MultiArray`) — `[closing_speed, los_rate, range, saturated, |v_cmd|, cov_trace]`
+- `pn/diagnostics` (`std_msgs/Float64MultiArray`) — `[closing_speed, los_rate, range, saturated, |v_cmd|, cov_trace]` (+ ticket-023 indices 6-17: `a_PN | a_obs | a_cmd | a_meas`)
+- `pn/fim_diagnostics` (`std_msgs/Float64MultiArray`) — ticket 026 rev1 F3 online-FIM planner telemetry, published only when `active_sensing_class=fim_mpc_online`: `[fkappa_pred, cpa_pred, feasible_frac, plan_feasible, plan_age_s, solve_s, deadline_miss, fallback, replans, ctrl_period_miss]`. The F3 CEM runs in a background worker thread (off the 50 Hz callback); `plan_age_s`/`ctrl_period_miss` monitor the real-time deadline.
 
 #### Parameters (defaults = point-mass parity, paper_nominal_low band)
 `nav_constant` 3.0 · `v_max` 9.0 · `a_max` 6.0 · `control_rate_hz` 50.0 ·
@@ -68,6 +69,18 @@ streak watchdog + archiving with config-sha provenance + QA), `analysis/`
 (qa_target_tracking, plot_boundary_3arm, boot_table CLIs). Runbook:
 `experiments/EXPERIMENT.md`. Codifies ticket-007 REPRODUCE.md + the
 ticket-008/010 sweep procedures.
+
+### Ticket 026 egofix laws (2026-07-18; ticket repo i_design_egofix_drafts.md)
+- `active_sensing.py: rge_accel` — Law A, recoverability-governed excitation: ⊥LOS
+  excitation gated by a soft margin (believed ZEM vs β·½(1−γ)·a_max·τ̂²); emergent
+  two-phase (no R_wash schedule); ego-belief-only. Params `as_rge_*`.
+- `fim_mpc_online.py belief_space=True` (class `fim_mpc_bs`) — Law B, approximate
+  belief-space MPC: per-candidate σ_R rollout (info-addition + q_r·t inflation),
+  risk-adjusted RMS-miss EM=√(cpa²+(κ·c_geo·σ_R)²), lexicographic EM→B ranking,
+  NO hard-feasibility cliff (staleness is the only fallback). CE path unchanged.
+  Params `as_fim_bs_kappa/cgeo`; planner rebuilt on `active_sensing_class` change.
+- Conductor: `target_heading_deg` rotates the capability-grid course (scenario knob);
+  heading recorded per trial. `pn/diagnostics` idx 18 = sim-time stamp.
 
 ## Dependencies
 **Upstream:** `mas_common_frame` (ego odom), a `mas_bearing_loc` EKF or the target's
