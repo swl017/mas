@@ -60,6 +60,15 @@ def _setup(context, *args, **kwargs):
             'pixel_sigma_px': float(g('pixel_sigma_px')),
             'window_s': float(g('window_s')),
             'q_c': float(g('q_c')),
+            'peer_att_sigma_deg': float(g('peer_att_sigma_deg')),
+            'peer_pos_sigma_m': float(g('peer_pos_sigma_m')),
+            'backend': g('backend'),
+            'fl_reset_period_s': float(g('fl_reset_period_s')),
+            'target_class': g('target_class'),
+            'min_det_score': float(g('min_det_score')),
+            'use_robust_ego': g('use_robust_ego').lower() == 'true',
+            'vel_cov_inflation': float(g('vel_cov_inflation')),
+            'gate_enabled': g('gate_enabled').lower() == 'true',
             'use_robust': g('use_robust').lower() == 'true',
             'use_sim_time': ust,
         }])
@@ -78,9 +87,33 @@ def generate_launch_description():
         DeclareLaunchArgument('drop_p', default_value='0.0'),
         DeclareLaunchArgument('bearing_sigma_deg', default_value='0.5'),
         DeclareLaunchArgument('sigma_psi_deg', default_value='0.0'),       # Q10 Tier-1 (bias bound)
-        DeclareLaunchArgument('pixel_sigma_px', default_value='2.0'),
-        DeclareLaunchArgument('window_s', default_value='0.6'),
+        # RAL 024 S4 measurement-model fix (2026-07-19): pixel_sigma_px = the empirically
+        # characterized within-episode ego pixel scatter (~120 px/axis at this camera/zoom;
+        # was 2.0 = ~0.018 deg, overconfident ~60x -> the S2 divergence driver). window_s = 1.2
+        # halves velocity error vs 0.6. Acceptance on the v2 replay, engaged mask, 5 nominal
+        # reps: ANEES_p 0.75-1.37, coverage95 >= 94.7%, median pos err 0.67-0.77 m.
+        DeclareLaunchArgument('pixel_sigma_px', default_value='120.0'),
+        DeclareLaunchArgument('window_s', default_value='1.2'),
         DeclareLaunchArgument('q_c', default_value='4.0'),
+        # S4 Q9 characterized peer attitude/origin fallbacks (0 = off). Sim mock peer uses GT
+        # pose (no real pose error) -> keep 0 in sim; set from bench/EKF2 characterization on
+        # real vehicles until the transmitted-cov mas_msgs follow-on lands.
+        DeclareLaunchArgument('peer_att_sigma_deg', default_value='0.0'),
+        DeclareLaunchArgument('peer_pos_sigma_m', default_value='0.0'),
+        # RAL 024 S5 (2026-07-19): single-target association, output-safety gate (production
+        # output_gate.h; thresholds data-derived on the v2 replay), declared vel-cov inflation
+        # (S4 structural handoff: vel stays ~10-38x overconfident at any q_c; x20 lands the
+        # mean ANEES_v in band). Verified: published stream bounded <=4.1 m all-ticks on all 5
+        # nominal capture bags (raw spikes 16-50 m suppressed), no engaged-mask regression.
+        # RAL 024 S7: backend = batch | fixedlag (iSAM2 fixed-lag, joint-Marginals covariance
+        # path; offline A/B = batch-equivalent published quality at ~12x less compute).
+        DeclareLaunchArgument('backend', default_value='batch'),
+        DeclareLaunchArgument('fl_reset_period_s', default_value='0.0'),
+        DeclareLaunchArgument('target_class', default_value='drone'),
+        DeclareLaunchArgument('min_det_score', default_value='0.25'),
+        DeclareLaunchArgument('use_robust_ego', default_value='false'),  # inert at calibrated sigma
+        DeclareLaunchArgument('vel_cov_inflation', default_value='20.0'),
+        DeclareLaunchArgument('gate_enabled', default_value='true'),
         DeclareLaunchArgument('use_robust', default_value='false'),
         DeclareLaunchArgument('use_sim_time', default_value='true'),
         OpaqueFunction(function=_setup),

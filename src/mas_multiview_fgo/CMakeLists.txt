@@ -36,7 +36,7 @@ target_include_directories(coop_smoother_node SYSTEM BEFORE PRIVATE ${GTSAM_EIGE
 target_include_directories(coop_smoother_node PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/lib/coop_smoother/include)
 target_include_directories(coop_smoother_node SYSTEM PRIVATE ${GTSAM_INCLUDE_DIR})
-target_link_libraries(coop_smoother_node gtsam)
+target_link_libraries(coop_smoother_node gtsam gtsam_unstable)
 install(TARGETS coop_smoother_node DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY launch DESTINATION share/${PROJECT_NAME}/ OPTIONAL)
@@ -49,8 +49,18 @@ target_include_directories(test_coop_smoother PRIVATE
 target_include_directories(test_coop_smoother SYSTEM PRIVATE ${GTSAM_INCLUDE_DIR})
 target_link_libraries(test_coop_smoother gtsam)
 
+# ---- Ticket 024 S3 track B: offline replay tool (GTSAM, GPU-free) ----
+# Drives the PRODUCTION CoopSmoother on recorded factor inputs (from s3_replay_extract.py) so
+# the live divergence can be replayed + counterfactuals compared on identical inputs (rev1 §11.6).
+add_executable(replay_coop_smoother tools/replay_coop_smoother.cpp)
+target_include_directories(replay_coop_smoother SYSTEM BEFORE PRIVATE ${GTSAM_EIGEN_INCLUDE_DIR})
+target_include_directories(replay_coop_smoother PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/lib/coop_smoother/include)
+target_include_directories(replay_coop_smoother SYSTEM PRIVATE ${GTSAM_INCLUDE_DIR})
+target_link_libraries(replay_coop_smoother gtsam gtsam_unstable)
+
 install(DIRECTORY lib/coop_smoother/include/ DESTINATION include)
-install(TARGETS test_coop_smoother DESTINATION lib/${PROJECT_NAME})
+install(TARGETS test_coop_smoother replay_coop_smoother DESTINATION lib/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   # Run the S0 smoother test under `colcon test`.

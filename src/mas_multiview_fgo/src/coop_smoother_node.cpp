@@ -17,8 +17,10 @@
  *     {coop_prefix}/target_twist  geometry_msgs/TwistStamped
  */
 #include "coop_smoother.h"
+#include "coop_smoother_fl.h"
 #include "ego_camera.h"
 #include "meas_noise.h"
+#include "output_gate.h"
 #include "pose_interp.h"
 
 #include <rclcpp/rclcpp.hpp>
@@ -30,6 +32,7 @@
 #include <geometry_msgs/msg/twist_stamped.hpp>
 #include <geometry_msgs/msg/vector3.hpp>
 #include <std_msgs/msg/float64.hpp>
+#include <std_msgs/msg/float64_multi_array.hpp>
 
 #include <deque>
 #include <memory>
@@ -51,7 +54,7 @@ public:
         declare_parameter<std::string>("ego_gimbal_topic", "");
         declare_parameter<std::string>("ego_zoom_topic", "");
         declare_parameter<std::string>("gimbal_angle_order", "zyx");
-        declare_parameter<double>("pixel_sigma_px", 2.0);
+        declare_parameter<double>("pixel_sigma_px", 120.0);   // RAL 024 S4 characterized
         // Peer (transmitted bearing rays).
         declare_parameter<std::vector<std::string>>("peer_ray_topics", std::vector<std::string>{});
         // Output + smoother.
@@ -60,7 +63,33 @@ public:
         declare_parameter<double>("publish_rate", 50.0);
         declare_parameter<double>("bearing_sigma_deg", 0.5);
         declare_parameter<double>("sigma_psi_deg", 0.0);   // Q10 Tier-1 azimuthal inflation
-        declare_parameter<double>("window_s", 0.6);
+        // RAL 024 S4 Q9 fallback: characterized peer attitude/origin sigmas (constants) used
+        // until the transmitted EKF2 covariance lands on TargetRay (mas_msgs follow-on).
+        // 0 = term off. Real-deployment values come from bench/EKF2 characterization.
+        declare_parameter<double>("peer_att_sigma_deg", 0.0);
+        declare_parameter<double>("peer_pos_sigma_m", 0.0);
+        // RAL 024 S5 — association (single-target selection from the detection array),
+        // ego robust kernel, declared velocity-cov inflation, and the output-safety gate.
+        declare_parameter<std::string>("target_class", "");   // "" = any class
+        declare_parameter<double>("min_det_score", 0.0);
+        declare_parameter<bool>("use_robust_ego", false);
+        declare_parameter<double>("vel_cov_inflation", 20.0);  // RAL 024 S4/S5 declared
+        declare_parameter<bool>("gate_enabled", true);
+        // RAL 024 S6: warm-start the solve from the last GATE-ACCEPTED belief (CV-propagated),
+        // age-limited; acquisition/reacquisition falls back to the midpoint seed.
+        declare_parameter<bool>("use_warm_start", true);
+        declare_parameter<double>("warm_max_age_s", 2.0);
+        // RAL 024 S7: estimator backend — "batch" (full-window LM re-solve per tick) or
+        // "fixedlag" (persistent iSAM2 IncrementalFixedLagSmoother; joint-Marginals
+        // covariance path — verified batch-equivalent calibration at ~12x less compute).
+        declare_parameter<std::string>("backend", "batch");
+        declare_parameter<double>("fl_reset_period_s", 0.0);  // finite-memory guard (0 = off)
+        declare_parameter<int>("gate_min_peer", 1);
+        declare_parameter<double>("gate_max_pos_cov_tr", 100.0);
+        declare_parameter<double>("gate_v_max", 30.0);
+        declare_parameter<double>("gate_max_jump_m", 5.0);
+        declare_parameter<double>("gate_hold_s", 1.0);
+        declare_parameter<double>("window_s", 1.2);           // RAL 024 S4
         declare_parameter<double>("q_c", 4.0);
         declare_parameter<bool>("use_robust", false);
 
@@ -69,15 +98,41 @@ public:
         pixel_sigma_ = get_parameter("pixel_sigma_px").as_double();
         sigma_static_ = get_parameter("bearing_sigma_deg").as_double() * M_PI / 180.0;
         sigma_psi_ = get_parameter("sigma_psi_deg").as_double() * M_PI / 180.0;
+        peer_att_rad_ = get_parameter("peer_att_sigma_deg").as_double() * M_PI / 180.0;
+        peer_pos_m_ = get_parameter("peer_pos_sigma_m").as_double();
+        target_class_ = get_parameter("target_class").as_string();
+        min_det_score_ = get_parameter("min_det_score").as_double();
+        prm_.use_robust_ego = get_parameter("use_robust_ego").as_bool();
+        prm_.vel_cov_inflation = get_parameter("vel_cov_inflation").as_double();
+        gate_enabled_ = get_parameter("gate_enabled").as_bool();
+        use_warm_start_ = get_parameter("use_warm_start").as_bool();
+        warm_max_age_s_ = get_parameter("warm_max_age_s").as_double();
+        gp_.min_peer = static_cast<int>(get_parameter("gate_min_peer").as_int());
+        gp_.max_pos_cov_tr = get_parameter("gate_max_pos_cov_tr").as_double();
+        gp_.v_max = get_parameter("gate_v_max").as_double();
+        gp_.max_jump_m = get_parameter("gate_max_jump_m").as_double();
+        gp_.hold_s = get_parameter("gate_hold_s").as_double();
+        gp_.q_c = get_parameter("q_c").as_double();
         prm_.window_s = get_parameter("window_s").as_double();
         prm_.q_c = get_parameter("q_c").as_double();
         prm_.use_robust = get_parameter("use_robust").as_bool();
+        // Backend construction must come AFTER prm_ is fully populated.
+        if (get_parameter("backend").as_string() == "fixedlag") {
+            fl_ = std::make_unique<mas_fgo::CoopSmootherFL>(
+                prm_, get_parameter("fl_reset_period_s").as_double());
+        }
 
         const std::string prefix = get_parameter("coop_prefix").as_string();
         pub_pose_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
             prefix + "/target_pose", be_qos());
         pub_twist_ = create_publisher<geometry_msgs::msg::TwistStamped>(
             prefix + "/target_twist", be_qos());
+        // Ticket 024 S3 track B: per-tick solver diagnostics (rev1 §11.1), published
+        // every tick incl. failed solves so the capture records the cold-start /
+        // local-minimum / no-gate behaviour rev1 §§4-5 flags. Layout documented in
+        // publishDiag().
+        pub_diag_ = create_publisher<std_msgs::msg::Float64MultiArray>(
+            prefix + "/solver_diagnostics", be_qos());
 
         // --- ego (local raw) subscriptions ---
         const auto det_t = get_parameter("ego_detection_topic").as_string();
@@ -160,12 +215,50 @@ private:
         if (!ip.valid) return;
         const mas_fgo::EgoCamera cam =
             mas_fgo::assembleEgoCamera(ip.p, ip.q, gimbal_rad_, zoom_, K_raw_, gimbal_order_);
+        // RAL 024 S5 association: select ONE detection — class + score filter, prefer the
+        // last selected track id, else highest score (was: every detection became a factor).
+        const vision_msgs::msg::Detection2D* best = nullptr;
+        double best_score = -1.0;
+        bool best_is_track = false;
         for (const auto& det : m->detections) {
-            Meas mm; mm.t = t_det; mm.type = EGO_PIXEL;
-            mm.px = Eigen::Vector2d(det.bbox.center.position.x, det.bbox.center.position.y);
-            mm.K = cam.K; mm.R = cam.R; mm.cam_t = cam.t;
-            buf_.push_back(mm);
+            std::string cls; double score = 0.0;
+            for (const auto& res : det.results) {
+                if (res.hypothesis.score >= score) {
+                    score = res.hypothesis.score; cls = res.hypothesis.class_id;
+                }
+            }
+            if (!target_class_.empty() && cls != target_class_) continue;
+            if (score < min_det_score_) continue;
+            const bool is_track = !last_track_id_.empty() && det.id == last_track_id_;
+            if ((is_track && !best_is_track) ||
+                (is_track == best_is_track && score > best_score)) {
+                best = &det; best_score = score; best_is_track = is_track;
+            }
         }
+        if (!best) return;
+        last_track_id_ = best->id;
+        Meas mm; mm.t = t_det; mm.type = EGO_PIXEL;
+        mm.px = Eigen::Vector2d(best->bbox.center.position.x, best->bbox.center.position.y);
+        mm.K = cam.K; mm.R = cam.R; mm.cam_t = cam.t;
+        if (fl_) fl_->addEgoPixel(mm.t, mm.px, mm.K, mm.R, mm.cam_t, pixel_sigma_);
+        else buf_.push_back(mm);
+    }
+
+    Eigen::Matrix2d peerCov(const Eigen::Vector3d& o, const Eigen::Vector3d& d) const {
+        mas_fgo::PeerNoiseParams np;
+        np.sigma_static_rad = sigma_static_;
+        np.sigma_psi_rad = sigma_psi_;
+        np.include_attitude = peer_att_rad_ > 0.0;
+        np.include_origin = peer_pos_m_ > 0.0;
+        const Eigen::Matrix3d sig_att =
+            Eigen::Matrix3d::Identity() * (peer_att_rad_ * peer_att_rad_);
+        const Eigen::Matrix3d sig_pos =
+            Eigen::Matrix3d::Identity() * (peer_pos_m_ * peer_pos_m_);
+        const Eigen::Vector3d seed =
+            (std::abs(d.x()) < 0.9) ? Eigen::Vector3d::UnitX() : Eigen::Vector3d::UnitY();
+        const Eigen::Vector3d u1 = (seed - seed.dot(d) * d).normalized();
+        const Eigen::Vector3d u2 = d.cross(u1);
+        return mas_fgo::buildPeerBearingCov(np, u1, u2, o, d, o + 30.0 * d, sig_att, sig_pos);
     }
 
     void onPeerRays(const mas_msgs::msg::TargetRayArray::SharedPtr m) {
@@ -174,6 +267,11 @@ private:
         for (const auto& r : m->rays) {
             Eigen::Vector3d d(r.direction.x, r.direction.y, r.direction.z);
             if (d.norm() < 1e-9) continue;
+            if (fl_) {
+                const Eigen::Vector3d dn = d.normalized();
+                fl_->addPeerBearing(t, origin, dn, peerCov(origin, dn));
+                continue;
+            }
             Meas mm; mm.t = t; mm.type = PEER_BEARING; mm.o = origin; mm.d = d.normalized();
             buf_.push_back(mm);
         }
@@ -181,16 +279,57 @@ private:
 
     void onTimer() {
         const double now = this->now().seconds();
+        if (fl_) {  // S7 fixed-lag fast path: persistent update, shared gate + publish tail
+            const bool solved = fl_->update(now);
+            publishDiag(fl_->diagnostics(), solved, now);
+            const auto q = solved ? fl_->query(now) : mas_fgo::CoopSmoother::Query{};
+            Eigen::Vector3d bel_p = q.p, bel_v = q.v;
+            Eigen::Matrix<double, 6, 6> bel_cov = q.cov;
+            if (gate_enabled_) {
+                const Eigen::Vector3d ego =
+                    pose_buf_.empty() ? Eigen::Vector3d::Zero() : pose_buf_.back().p;
+                const mas_fgo::GateOutput out = mas_fgo::applyOutputGate(
+                    fl_->diagnostics(), solved, q, now, ego, !pose_buf_.empty(), gp_, gst_);
+                if (!out.publish) return;
+                bel_p = out.p; bel_v = out.v; bel_cov = out.cov;
+            } else if (!solved || !q.valid) {
+                return;
+            }
+            publishBelief(bel_p, bel_v, bel_cov);
+            return;
+        }
         const double t_cut = now - prm_.window_s - 0.2;
         while (!buf_.empty() && buf_.front().t < t_cut) buf_.pop_front();
-        if (buf_.size() < 2) return;
+        if (buf_.size() < 2) {
+            // S5: total measurement dropout — still serve the held fallback within gate_hold_s
+            // (diag cadence unchanged: no solve, no diag, matching the pre-S5 capture format).
+            if (gate_enabled_) {
+                const Eigen::Vector3d ego =
+                    pose_buf_.empty() ? Eigen::Vector3d::Zero() : pose_buf_.back().p;
+                const mas_fgo::GateOutput out = mas_fgo::applyOutputGate(
+                    mas_fgo::CoopSmoother::Diagnostics{}, false,
+                    mas_fgo::CoopSmoother::Query{}, now, ego, !pose_buf_.empty(), gp_, gst_);
+                if (out.publish) publishBelief(out.p, out.v, out.cov);
+            }
+            return;
+        }
 
         mas_fgo::CoopSmoother sm(prm_);
+        if (use_warm_start_ && gst_.have_last && now - gst_.t_last >= 0.0 &&
+            now - gst_.t_last <= warm_max_age_s_) {
+            sm.setInitHint(gst_.t_last, gst_.p_last, gst_.v_last);
+        }
         mas_fgo::PeerNoiseParams np;
         np.sigma_static_rad = sigma_static_;
         np.sigma_psi_rad = sigma_psi_;
-        np.include_attitude = false;   // Q9 transmitted pose-cov = mas_msgs follow-on
-        np.include_origin = false;
+        // RAL 024 S4: Q9 attitude/origin terms via characterized constants (params above);
+        // transmitted EKF2 covariance on TargetRay remains the mas_msgs follow-on.
+        np.include_attitude = peer_att_rad_ > 0.0;
+        np.include_origin = peer_pos_m_ > 0.0;
+        const Eigen::Matrix3d sig_att =
+            Eigen::Matrix3d::Identity() * (peer_att_rad_ * peer_att_rad_);
+        const Eigen::Matrix3d sig_pos =
+            Eigen::Matrix3d::Identity() * (peer_pos_m_ * peer_pos_m_);
 
         for (const auto& mm : buf_) {
             if (mm.type == EGO_PIXEL) {
@@ -200,38 +339,80 @@ private:
                     (std::abs(mm.d.x()) < 0.9) ? Eigen::Vector3d::UnitX() : Eigen::Vector3d::UnitY();
                 const Eigen::Vector3d u1 = (seed - seed.dot(mm.d) * mm.d).normalized();
                 const Eigen::Vector3d u2 = mm.d.cross(u1);
-                const Eigen::Matrix2d R =
-                    mas_fgo::buildPeerBearingCov(np, u1, u2, mm.o, mm.d, mm.o + 30.0 * mm.d);
+                const Eigen::Matrix2d R = mas_fgo::buildPeerBearingCov(
+                    np, u1, u2, mm.o, mm.d, mm.o + 30.0 * mm.d, sig_att, sig_pos);
                 sm.addPeerBearing(mm.t, mm.o, mm.d, R);
             }
         }
-        if (!sm.solve()) return;
-        const auto q = sm.query(now);
-        if (!q.valid) return;
+        const bool solved = sm.solve();
+        publishDiag(sm.diagnostics(), solved, now);
+        const auto q = solved ? sm.query(now) : mas_fgo::CoopSmoother::Query{};
 
+        // RAL 024 S5 output-safety gate (rev1 §5): vet the solve; on failure hold the last
+        // accepted belief (CV-predicted, cov grown) for gate_hold_s, then go silent.
+        Eigen::Vector3d bel_p = q.p, bel_v = q.v;
+        Eigen::Matrix<double, 6, 6> bel_cov = q.cov;
+        if (gate_enabled_) {
+            const Eigen::Vector3d ego =
+                pose_buf_.empty() ? Eigen::Vector3d::Zero() : pose_buf_.back().p;
+            const mas_fgo::GateOutput out = mas_fgo::applyOutputGate(
+                sm.diagnostics(), solved, q, now, ego, !pose_buf_.empty(), gp_, gst_);
+            if (!out.publish) return;
+            bel_p = out.p; bel_v = out.v; bel_cov = out.cov;
+        } else if (!solved || !q.valid) {
+            return;
+        }
+        publishBelief(bel_p, bel_v, bel_cov);
+    }
+
+    void publishBelief(const Eigen::Vector3d& p, const Eigen::Vector3d& v,
+                       const Eigen::Matrix<double, 6, 6>& cov) {
         const rclcpp::Time stamp = this->now();
         geometry_msgs::msg::PoseWithCovarianceStamped pose;
         pose.header.stamp = stamp; pose.header.frame_id = frame_id_;
-        pose.pose.pose.position.x = q.p.x();
-        pose.pose.pose.position.y = q.p.y();
-        pose.pose.pose.position.z = q.p.z();
+        pose.pose.pose.position.x = p.x();
+        pose.pose.pose.position.y = p.y();
+        pose.pose.pose.position.z = p.z();
         pose.pose.pose.orientation.w = 1.0;
         for (int r = 0; r < 3; ++r)
             for (int c = 0; c < 3; ++c)
-                pose.pose.covariance[r * 6 + c] = q.cov(r, c);
+                pose.pose.covariance[r * 6 + c] = cov(r, c);
         for (int i = 3; i < 6; ++i) pose.pose.covariance[i * 6 + i] = 1e3;
         pub_pose_->publish(pose);
 
         geometry_msgs::msg::TwistStamped tw;
         tw.header.stamp = stamp; tw.header.frame_id = frame_id_;
-        tw.twist.linear.x = q.v.x();
-        tw.twist.linear.y = q.v.y();
-        tw.twist.linear.z = q.v.z();
+        tw.twist.linear.x = v.x();
+        tw.twist.linear.y = v.y();
+        tw.twist.linear.z = v.z();
         pub_twist_->publish(tw);
     }
 
+    // Float64MultiArray layout (index): 0 solved 1 iterations 2 max_iterations
+    // 3 n_keyframes 4 n_ego 5 n_peer 6 error_before 7 error_after 8 max_factor_error
+    // 9 t_oldest 10 t_newest 11 window_span 12-14 seed_xyz 15 buf_size.
+    void publishDiag(const mas_fgo::CoopSmoother::Diagnostics& d, bool solved, double /*now*/) {
+        std_msgs::msg::Float64MultiArray msg;
+        msg.data = {solved ? 1.0 : 0.0,
+                    static_cast<double>(d.iterations), static_cast<double>(d.max_iterations),
+                    static_cast<double>(d.n_keyframes), static_cast<double>(d.n_ego),
+                    static_cast<double>(d.n_peer), d.error_before, d.error_after,
+                    d.max_factor_error, d.t_oldest, d.t_newest, d.t_newest - d.t_oldest,
+                    d.seed.x(), d.seed.y(), d.seed.z(), static_cast<double>(buf_.size())};
+        pub_diag_->publish(msg);
+    }
+
     std::string frame_id_, gimbal_order_;
-    double pixel_sigma_ = 2.0, sigma_static_ = 0.0, sigma_psi_ = 0.0, zoom_ = 1.0;
+    double pixel_sigma_ = 120.0, sigma_static_ = 0.0, sigma_psi_ = 0.0, zoom_ = 1.0;
+    double peer_att_rad_ = 0.0, peer_pos_m_ = 0.0;  // S4 Q9 characterized fallbacks
+    std::string target_class_, last_track_id_;      // S5 association
+    double min_det_score_ = 0.0;
+    bool gate_enabled_ = true;                      // S5 output gate
+    bool use_warm_start_ = true;                    // S6 warm-start
+    double warm_max_age_s_ = 2.0;
+    mas_fgo::GateParams gp_;
+    mas_fgo::GateState gst_;
+    std::unique_ptr<mas_fgo::CoopSmootherFL> fl_;   // S7 backend (null = batch)
     mas_fgo::CoopSmoother::Params prm_;
 
     Eigen::Matrix3d K_raw_ = Eigen::Matrix3d::Identity();
@@ -248,6 +429,7 @@ private:
     std::vector<rclcpp::Subscription<mas_msgs::msg::TargetRayArray>::SharedPtr> peer_subs_;
     rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pub_pose_;
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr pub_twist_;
+    rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pub_diag_;
     rclcpp::TimerBase::SharedPtr timer_;
 };
 

@@ -11,6 +11,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/TriangulatedPointArray.msg"
   "msg/TargetRay.msg"
   "msg/TargetRayArray.msg"
+  "msg/TargetRayArrayWithCov.msg"
   DEPENDENCIES
   std_msgs
   geometry_msgs

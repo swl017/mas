@@ -613,7 +613,15 @@ void TriangulationNode::timerCallback()
     for (const int& i : ready_cameras)
     {
         mas_msgs::msg::TargetRayArray ray_array_msg;
-        ray_array_msg.header.stamp = this->now();
+        // RAL ticket 024 rev3 (user correction, 2026-07-20): stamp transmitted rays with the
+        // DETECTION capture time, not publication now(). Downstream timestamped fusion
+        // (mas_multiview_fgo) places each bearing factor at header.stamp, so a formation/
+        // publication delay would otherwise read as a v*dt target bias (the ticket-020
+        // staleness class). The pose used to FORM the ray remains the cached camera state —
+        // full observer pose->t_det interpolation is the deferred observer-side Q8
+        // (RAL 024 AC2 amendment 2026-07-20; needed for maneuvering observers).
+        ray_array_msg.header.stamp = detections_[i]
+            ? rclcpp::Time(detections_[i]->header.stamp) : this->now();
         ray_array_msg.header.frame_id = frame_id_;
         ray_array_msg.origin.x = camera_world_positions_[i].x();
         ray_array_msg.origin.y = camera_world_positions_[i].y();

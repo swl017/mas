@@ -33,7 +33,7 @@ swappable backend.
 
 | Topic (param `peer_ray_topics`) | Type | Notes |
 |---|---|---|
-| e.g. `/px4_2/target_rays_w` | `mas_msgs/TargetRayArray` | each ray → a bearing factor at `header.stamp` (pose-synced at the observer) |
+| e.g. `/px4_2/target_rays_w` | `mas_msgs/TargetRayArray` | each ray → a bearing factor at `header.stamp`. Stamp = detection capture time (`triangulation_node`, RAL 024 rev3 fix). Observer-side pose *interpolation* to `t_det` is NOT yet implemented at the sources (RAL 024 AC2 amendment 2026-07-20: deferred maneuvering-observer prerequisite; port `pose_interp.h`) |
 
 The ego camera model `(K, R, t)` is assembled from `camera_pose × gimbal[zyx] × zoom × camera_info`
 (`ego_camera.h`, ported from `triangulation_node`), with the pose interpolated to `t_det`. Leave the
@@ -74,8 +74,12 @@ ego topics empty to run peer-only (bearing) — the S0 core supports both factor
   `mas_multiview`** ray-formation to transmit their bearings. (Leave the ego topics empty to run
   peer-only bearing — the ARCH-G smoother.)
 - **Q8 pose→`t_det` sync** (`pose_interp.h`) and **Q9 transmitted pose-covariance** are source-side
-  (the `target_rays_w` publisher + a `mas_msgs/TargetRay` pose-cov field) — landed before the
-  deployed run (S2); the node uses the isotropic `R_static` fallback until then.
+  concerns. STATUS (RAL 024 rev3, 2026-07-20): NOT landed at the sources — interceptor-side Q8 is
+  in-node; the transmitted-ray **stamp** now carries detection capture time; observer-side pose
+  *interpolation* is a deferred maneuvering-observer prerequisite; Q9 transmission has a defined
+  message (`mas_msgs/TargetRayArrayWithCov`) with the pipeline switchover deferred pending
+  bandwidth tests. The node uses characterized fallbacks (`R_static`, `peer_att_sigma_deg`,
+  `peer_pos_sigma_m`) meanwhile.
 - **Q10 Tier-1** frame-misalignment-bias bound (robust + azimuthal inflation + gate) is a bound, not
   a fix (quantified by ticket 025).
 

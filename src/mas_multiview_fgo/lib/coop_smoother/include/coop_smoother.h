@@ -34,7 +34,16 @@ public:
         double anchor_pos_sigma = 200.0;   // weak gauge prior on x0 [m]
         double anchor_vel_sigma = 50.0;    // weak gauge prior on v0 [m/s]
         bool use_robust = false;   // Q10 Tier-1 robust kernel on peer bearings
+        // RAL 024 S5: robust kernel on the EGO pixel factor — the ego carries the
+        // episode-varying bias (S4 audit), so the kernel belongs here; peer-only Huber
+        // was measured counterproductive twice (S3 v1 + v2).
+        bool use_robust_ego = false;
         double huber_k = 1.345;
+        // RAL 024 S4/S5: declared velocity-covariance inflation (structural handoff — the
+        // white-noise CV chain cannot represent the time-correlated ego error, leaving the
+        // velocity ~10-38x overconfident at any q_c; this scales the published vel block
+        // (and cross-block by sqrt) so downstream consumers see an honest vel cov). 1 = off.
+        double vel_cov_inflation = 1.0;
     };
 
     struct Query {
@@ -44,8 +53,38 @@ public:
         bool valid = false;
     };
 
+    // Ticket 024 S3 track B (rev1 §11.1): per-solve diagnostics so a live capture
+    // (and the offline replay) can SEE the cold-start / local-minimum / no-gate
+    // failures rev1 §§4-5 describe, instead of only the published pose/twist.
+    struct Diagnostics {
+        bool solved = false;
+        int iterations = 0;
+        int max_iterations = 0;
+        int n_keyframes = 0;
+        int n_ego = 0;
+        int n_peer = 0;
+        double error_before = 0.0;   // graph.error(init)
+        double error_after = 0.0;    // graph.error(result)
+        double max_factor_error = 0.0;   // max single-factor whitened error at the solution
+        double t_oldest = 0.0;
+        double t_newest = 0.0;
+        Eigen::Vector3d seed = Eigen::Vector3d::Zero();  // init seed (midpoint or warm hint)
+        bool warm_started = false;                       // S6: init came from the hint
+    };
+    const Diagnostics& diagnostics() const { return diag_; }
+
     CoopSmoother() {}
     explicit CoopSmoother(const Params& prm) : prm_(prm) {}
+
+    // RAL 024 S6 warm-start: seed the next solve from a prior belief (p,v at time t) —
+    // every keyframe initializes at the CV propagation p + v(t_i - t) instead of the
+    // static midpoint, avoiding the cold-start / zero-Jacobian local-minimum trap
+    // (rev1 §4). The caller supplies the hint (typically the last GATE-ACCEPTED belief,
+    // age-limited); without a hint the midpoint acquisition seed is used unchanged.
+    void setInitHint(double t, const Eigen::Vector3d& p, const Eigen::Vector3d& v)
+    {
+        hint_valid_ = true; hint_t_ = t; hint_p_ = p; hint_v_ = v;
+    }
 
     // --- measurement ingestion (each carries its own capture time) --------------------------
     void addEgoPixel(double t, const Eigen::Vector2d& px, const Eigen::Matrix3d& K,
@@ -67,6 +106,7 @@ public:
     // --- solve the windowed graph -----------------------------------------------------------
     bool solve()
     {
+        diag_ = Diagnostics{};
         if (meas_.size() < 2) return false;
 
         // Window prune.
@@ -87,16 +127,31 @@ public:
         std::map<double, int> kf;  // time -> keyframe index
         for (size_t i = 0; i < times.size(); ++i) kf[times[i]] = static_cast<int>(i);
         const int n = static_cast<int>(times.size());
+        diag_.n_keyframes = n;
+        diag_.t_oldest = times.front();
+        diag_.t_newest = times.back();
 
-        // Initial 3-D guess from the first ego+peer pair (midpoint of the two rays).
+        // Initialization: warm hint (CV-propagated prior belief) when supplied, else the
+        // midpoint acquisition seed (first ego+peer ray pair).
         Eigen::Vector3d p0_guess;
-        if (!initialGuess(win, p0_guess)) return false;
+        Eigen::Vector3d v0_guess = Eigen::Vector3d::Zero();
+        bool warm = hint_valid_;
+        if (warm) {
+            p0_guess = hint_p_ + hint_v_ * (times.front() - hint_t_);
+            v0_guess = hint_v_;
+        } else if (!initialGuess(win, p0_guess)) {
+            return false;
+        }
+        diag_.seed = p0_guess;
+        diag_.warm_started = warm;
 
         gtsam::NonlinearFactorGraph graph;
         gtsam::Values init;
         for (int i = 0; i < n; ++i) {
-            init.insert(pkey(i), gtsam::Point3(p0_guess));
-            init.insert(vkey(i), gtsam::Vector3(0, 0, 0));
+            const Eigen::Vector3d pi =
+                warm ? Eigen::Vector3d(hint_p_ + hint_v_ * (times[i] - hint_t_)) : p0_guess;
+            init.insert(pkey(i), gtsam::Point3(pi));
+            init.insert(vkey(i), gtsam::Vector3(v0_guess));
         }
 
         // CV motion chain.
@@ -106,18 +161,24 @@ public:
                                      cvNoise(dt)));
         }
 
-        // Weak anchor prior (gauge / conditioning) on the first state.
+        // Weak anchor prior (gauge / conditioning) on the first state (at the init values,
+        // warm or cold — the anchor is a conditioner, not an information source).
         graph.addPrior(pkey(0), gtsam::Point3(p0_guess),
                        gtsam::noiseModel::Isotropic::Sigma(3, prm_.anchor_pos_sigma));
-        graph.addPrior(vkey(0), gtsam::Vector3(0, 0, 0),
+        graph.addPrior(vkey(0), gtsam::Vector3(v0_guess),
                        gtsam::noiseModel::Isotropic::Sigma(3, prm_.anchor_vel_sigma));
 
         // Measurement factors at their keyframe.
         for (const auto& m : win) {
             const int i = kf[nearestTime(times, m.t)];
             if (m.type == EGO_PIXEL) {
-                graph.add(EgoPixelFactor(pkey(i), m.px, m.K, m.R, m.o,
-                          gtsam::noiseModel::Isotropic::Sigma(2, m.sigma)));
+                gtsam::SharedNoiseModel en = gtsam::noiseModel::Isotropic::Sigma(2, m.sigma);
+                if (prm_.use_robust_ego) {
+                    en = gtsam::noiseModel::Robust::Create(
+                        gtsam::noiseModel::mEstimator::Huber::Create(prm_.huber_k), en);
+                }
+                graph.add(EgoPixelFactor(pkey(i), m.px, m.K, m.R, m.o, en));
+                ++diag_.n_ego;
             } else {
                 gtsam::SharedNoiseModel bn = gtsam::noiseModel::Gaussian::Covariance(m.cov2);
                 if (prm_.use_robust) {
@@ -125,16 +186,25 @@ public:
                         gtsam::noiseModel::mEstimator::Huber::Create(prm_.huber_k), bn);
                 }
                 graph.add(PeerBearingFactor(pkey(i), m.o, m.dir, bn));
+                ++diag_.n_peer;
             }
         }
 
         gtsam::LevenbergMarquardtParams lm;
         lm.setMaxIterations(100);
+        diag_.max_iterations = 100;
+        diag_.error_before = graph.error(init);
         gtsam::LevenbergMarquardtOptimizer opt(graph, init, lm);
         result_ = opt.optimize();
+        diag_.iterations = static_cast<int>(opt.iterations());
+        diag_.error_after = graph.error(result_);
+        double mfe = 0.0;
+        for (const auto& f : graph) if (f) mfe = std::max(mfe, f->error(result_));
+        diag_.max_factor_error = mfe;
         graph_ = graph;
         times_ = times;
         solved_ = true;
+        diag_.solved = true;
         return true;
     }
 
@@ -162,6 +232,13 @@ public:
             if (dt > 0) q.cov += cvCov(dt);
         } catch (const std::exception&) {
             q.cov = Eigen::Matrix<double, 6, 6>::Identity() * 1e6;
+        }
+        if (prm_.vel_cov_inflation > 1.0) {
+            // cov' = S cov S with S = diag(I, sqrt(f) I): vel block x f, cross x sqrt(f) — PSD kept.
+            const double sf = std::sqrt(prm_.vel_cov_inflation);
+            q.cov.block<3, 3>(3, 3) *= prm_.vel_cov_inflation;
+            q.cov.block<3, 3>(0, 3) *= sf;
+            q.cov.block<3, 3>(3, 0) *= sf;
         }
         return q;
     }
@@ -192,18 +269,22 @@ private:
         return best;
     }
 
-    // 6x6 white-noise-acceleration process covariance over dt.
-    Eigen::Matrix<double, 6, 6> cvCov(double dt) const
+    // 6x6 white-noise-acceleration process covariance over dt (public static: the S5 output
+    // gate's fallback forward-prediction grows the held belief with the same process noise).
+public:
+    static Eigen::Matrix<double, 6, 6> wnoaCov(double q_c, double dt)
     {
         const Eigen::Matrix3d I = Eigen::Matrix3d::Identity();
         Eigen::Matrix<double, 6, 6> Q = Eigen::Matrix<double, 6, 6>::Zero();
         const double d = std::max(dt, 1e-4);
-        Q.block<3, 3>(0, 0) = prm_.q_c * (d * d * d / 3.0) * I;
-        Q.block<3, 3>(0, 3) = prm_.q_c * (d * d / 2.0) * I;
-        Q.block<3, 3>(3, 0) = prm_.q_c * (d * d / 2.0) * I;
-        Q.block<3, 3>(3, 3) = prm_.q_c * d * I;
+        Q.block<3, 3>(0, 0) = q_c * (d * d * d / 3.0) * I;
+        Q.block<3, 3>(0, 3) = q_c * (d * d / 2.0) * I;
+        Q.block<3, 3>(3, 0) = q_c * (d * d / 2.0) * I;
+        Q.block<3, 3>(3, 3) = q_c * d * I;
         return Q;
     }
+private:
+    Eigen::Matrix<double, 6, 6> cvCov(double dt) const { return wnoaCov(prm_.q_c, dt); }
 
     gtsam::SharedNoiseModel cvNoise(double dt) const
     {
@@ -258,6 +339,11 @@ private:
     gtsam::Values result_;
     std::vector<double> times_;
     bool solved_ = false;
+    Diagnostics diag_;
+    bool hint_valid_ = false;            // S6 warm-start hint
+    double hint_t_ = 0.0;
+    Eigen::Vector3d hint_p_ = Eigen::Vector3d::Zero();
+    Eigen::Vector3d hint_v_ = Eigen::Vector3d::Zero();
 };
 
 }  // namespace mas_fgo
