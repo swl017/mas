@@ -174,6 +174,15 @@ def capture_live_config(ses: dict) -> dict:
         cfg["cv_smoother_node"] = cs
         cfg["cv_smoother"] = {p: param_get(cs, p)
                               for p in ("latency_s", "latency_jitter_s", "drop_p", "drop_burst")}
+        # RAL ticket 019 rev1 A1: the smoother-arm AoI knob lives on the ray_delay nodes
+        # (matched/FGO sessions), NOT on the legacy cv_smoother — without this readback the
+        # per-boot provenance cannot prove the applied peer delay (all-NA cv_smoother rows).
+        for rd_key, rd in (("ray_delay_matched", f"/{interc}/ray_delay_matched"),
+                           ("ray_delay_fgo", f"/{interc}/ray_delay_fgo")):
+            vals = {p: param_get(rd, p) for p in ("latency_s", "latency_jitter_s")}
+            if any(v != "NA" for v in vals.values()):
+                cfg[f"{rd_key}_node"] = rd
+                cfg[rd_key] = vals
     return cfg
 
 

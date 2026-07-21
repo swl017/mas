@@ -1132,3 +1132,53 @@ Next:
   gained mode= field).
 - Open 042 follow-ups: conductor first-trial settle retry (seed-42 flake recurred once,
   isolated); analysis/plot_boundary_3arm.py ylim excludes vf<2 cells.
+
+[2026-07-17] Ticket 026 rev1 (F3 real-time + F2 robustness) — from RAL repo rev1.md audit.
+  C5: fim_mpc_online.py re-architected — vectorized batch CEM rollout (all M candidates in
+      one numpy pass; replan ~350ms worst-case vs 2-3.6s before) + optional background worker
+      thread (background=True in the node). step() is now non-blocking (~0.17ms); it applies a
+      TIMESTAMPED cached plan indexed by age with a staleness->pure-pursuit fallback, so the
+      50Hz publisher never waits on the planner (rev1.md §3). New topic pn/fim_diagnostics
+      (predicted Fk/CPA, feasible frac, plan age, solve time, deadline/ctrl-period miss,
+      fallback). pn_guidance_node.py: builds planner background=True, publishes fim diag,
+      control-period monitor, planner.shutdown() on destroy. 44/44 pytest green, pycache clean.
+  C6 (offline part): precompute_schedules.py — simulate_engagement gains belief_bias (guidance
+      steers off x_T+bias while TRUE dynamics/CPA stay unbiased = genuine estimator error);
+      _belief_robust_cpa replaces the scenario-jitter _robust_cpa as F2's primary robustness;
+      optimize_dev_pursuit no longer labels an empty-feasible fallback as validated
+      (robust_feasible flag; delta_star=None when none pass). Offline verdict: NO dev-pursuit
+      delta holds capture under +-2m belief error (belief-robust CPA 2.8-3.9m) in any cell.
+      Wrote faithful_laws_offline_rev1.json (originals preserved).
+  NEXT: C7 authorized sim sweep (colcon build humble + bring-up) to measure the >=49Hz F3 diag
+      gate and closed-loop belief-error F2; C3 Fisher repair run under Galactic rosbag env.
+
+2026-07-18 (ticket 026 D2/E1 — rev2 corrections + scenario robustness + egofix laws):
+  D2a scenario knob: experiment_conductor gains target_heading_deg (rotates capability-grid
+      course; the old seed only shuffles trial order); launch arg + run_sweep forward + trial-CSV
+      column. pn/diagnostics field 18 = node sim-time stamp (additive; 0-17 unchanged).
+      Provenance: capture_live_config += as_dev_gain, as_rge_*, as_fim_bs_* and
+      source fingerprint {mas_git, installed_pn_sha}.
+  D2 sweep: 39 boots x 5 headings (DEV ladder + washout ablation + vf5) + 7 rerun boots.
+      HEADLINES: DEV-20 1/5 across headings (4/4 at nominal only); oracle 5/5 everywhere;
+      floor misses all rotated headings; washout ablation causal (OFF misses where default
+      hits; single-peaked in R_wash). Belief-error timeline: DEV-20's belief NEVER better
+      than floor => geometry-not-info mechanism.
+  NEES audit (118 bags): BO-EKF CONSISTENT (median NEES 0.1-0.3, z_R RMS 0.5-0.7) — the
+      covariance is honest/underconfident => Law B viable; F3-CE failed while its own filter
+      correctly reported large sigma_R.
+  Egofix laws (ticket 026 i_design_egofix_drafts.md): active_sensing class `rge`
+      (recoverability-governed excitation: ZEM-reserve soft governor, emergent two-phase)
+      + class `fim_mpc_bs` (OnlineFimMpc belief_space mode: scalar sigma_R rollout with
+      dual-effect info credit, risk-adjusted RMS-miss lexicographic objective, NO binary
+      feasibility cliff; CE path byte-identical). Node params as_rge_*, as_fim_bs_*;
+      planner rebuilt on class change. 82/82 pytest green.
+  E1 sweep DONE (33 trials, data_026_e1): RGE b0.7 = best fixed-param BO law of the ticket
+      (3/6 vf3 across headings, 0.23-0.33m captures incl rotated; loses to floor at psi=+10;
+      0/5 vf5). FIMBS 0/12 at ~33m both cells — P2 falsified by RECEDING-HORIZON
+      PROCRASTINATION (no-cliff planner re-issues excitation every replan; the modeled PN
+      handback never executes; believed cpa_pred~0.01 vs true 33m). LESSON: excite->commit
+      must be an EXECUTION-level commitment (washout/margin governor), not a rollout
+      prediction. KNOWN BUG: pn/fim_diagnostics fkappa field reports the lexicographic score
+      in belief mode (display-only). OPS: after a rebuild, RESTART pn_guidance before setting
+      a class the running process predates (param setter rejects unknown classes).
+      Ticket 026 CLOSED 2026-07-18.
