@@ -137,6 +137,39 @@ int main(int argc, char** argv) {
     const int backend = argc > 19 ? std::stoi(argv[19]) : 0;
     // S7 finite-memory decay for the FL prior (0 = off).
     const double fl_reset_s = argc > 20 ? std::stod(argv[20]) : 0.0;
+    // RAL ticket 028 (ego-only backend-matched control):
+    //   gate_min_peer : output-gate min_peer (1 = 024 behavior; 0 = ego-only mode)
+    //   init_range_m  : acquisition fallback range along the first ray (BO-EKF prior parity)
+    //   tick_mode     : 0 = tick at X records (024 default); 1 = tick at C-record stamps —
+    //                   ego bags have no live smoother (no X records); their C stream is the
+    //                   recorded ego-EKF belief, so both backends are queried at identical
+    //                   instants (pairing by construction)
+    //   ray_policy    : 0 = all rays (default); 1 = endpoint-K; 2 = decimate keep-every-j,
+    //                   newest kept (S2b ablation; ego factors only; batch backend only)
+    //   ray_param     : K for endpoint-K, j for decimate
+    const int gate_min_peer = argc > 21 ? std::stoi(argv[21]) : 1;
+    const double init_range_m = argc > 22 ? std::stod(argv[22]) : 30.0;
+    const int tick_mode = argc > 23 ? std::stoi(argv[23]) : 0;
+    const int ray_policy = argc > 24 ? std::stoi(argv[24]) : 0;
+    const int ray_param = argc > 25 ? std::stoi(argv[25]) : 0;
+    if (ray_policy != 0 && backend == 1) {
+        std::cerr << "ray_policy requires the batch backend (backend=0)\n";
+        return 1;
+    }
+    // RAL ticket 028 S2c remedy probe (batch backend only):
+    //   use_bias         : shared 2-DOF pixel-bias state per solve (EgoPixelBiasFactor)
+    //   bias_sigma_px    : zero-mean prior sigma on the bias state
+    //   range_mem_sigma_m: >0 arms the A4 depth-memory range prior on the newest state,
+    //                      centered at the last RAW SOLVED belief's CV-propagated range
+    //                      (rev1 B6: adaptation from the i_design_s2c gate-accepted
+    //                      source — that stream is empty on ego bags; exploratory)
+    const bool use_bias = argc > 26 ? std::stoi(argv[26]) != 0 : false;
+    const double bias_sigma_px = argc > 27 ? std::stod(argv[27]) : 200.0;
+    const double range_mem_sigma = argc > 28 ? std::stod(argv[28]) : 0.0;
+    if ((use_bias || range_mem_sigma > 0.0) && backend == 1) {
+        std::cerr << "S2c arms (use_bias / range_mem) require the batch backend (backend=0)\n";
+        return 1;
+    }
 
     // ---- parse the v2 stream (file order = arrival order) ----
     std::ifstream f(in);
@@ -163,6 +196,10 @@ int main(int argc, char** argv) {
                >> c.c[0] >> c.c[1] >> c.c[2] >> c.c[3] >> c.c[4] >> c.c[5];
             c.p = {px, py, pz}; c.v = {vx, vy, vz};
             Cs.push_back(c);
+            if (tick_mode == 1) {  // RAL ticket 028: query tick at the recorded belief stamp
+                Ev e2; e2.tag = 'Q'; e2.ta = c.ta; e2.num.push_back(c.t);
+                evs.push_back(std::move(e2));
+            }
         } else {
             Ev e; e.tag = tag[0]; ss >> e.ta;
             double v;
@@ -194,7 +231,11 @@ int main(int argc, char** argv) {
     mas_fgo::CoopSmoother::Params prm;
     prm.window_s = window_s; prm.q_c = q_c; prm.use_robust = use_robust;
     prm.use_robust_ego = robust_ego; prm.vel_cov_inflation = vel_infl;
+    prm.init_range_m = init_range_m;                        // RAL ticket 028
+    prm.use_bias_state = use_bias;                          // RAL ticket 028 S2c
+    prm.bias_sigma_px = bias_sigma_px;
     mas_fgo::GateParams gp; gp.q_c = q_c;
+    gp.min_peer = gate_min_peer;                            // RAL ticket 028
     mas_fgo::GateState gst;
     std::string last_track_id;
     std::vector<Ev> pend;  // detections of the current array (consecutive D records)
@@ -216,6 +257,102 @@ int main(int argc, char** argv) {
         mas_fgo::GateOutput go;                   // S5 gated published stream
     };
     std::vector<Tick> ticks;
+
+    // RAL 028 S2c (A4): rolling last-raw-solve memory for the depth prior.
+    bool rmem_have = false; double rmem_t = 0.0;
+    Eigen::Vector3d rmem_p = Eigen::Vector3d::Zero(), rmem_v = Eigen::Vector3d::Zero();
+
+    // RAL ticket 028: shared tick body — fired at X records (tick_mode=0, the 024 path,
+    // live diagnostics attached) or at C-record stamps (tick_mode=1, Q events, no live).
+    auto run_tick = [&](double now, const std::vector<double>& live) {
+        Tick tk; tk.now = now; tk.live = live;
+        if (fl) {  // S7 fixed-lag: persistent update, no rebuild
+            tk.r_solved = fl->update(tk.now);
+            tk.rd = fl->diagnostics();
+            if (tk.r_solved) tk.q = fl->query(tk.now);
+            if (gate_on) {
+                const Eigen::Vector3d ego =
+                    pose_buf.empty() ? Eigen::Vector3d::Zero() : pose_buf.back().p;
+                tk.go = mas_fgo::applyOutputGate(tk.rd, tk.r_solved, tk.q, tk.now, ego,
+                                                 !pose_buf.empty(), gp, gst);
+            }
+            ticks.push_back(std::move(tk));
+            return;
+        }
+        const double t_cut = tk.now - window_s - 0.2;
+        while (!buf.empty() && buf.front().t < t_cut) buf.pop_front();
+        tk.r_buf = (int)buf.size();
+        if (buf.size() >= 2) {
+            mas_fgo::CoopSmoother sm(prm);
+            if (warm_on && gst.have_last && tk.now - gst.t_last >= 0.0 &&
+                tk.now - gst.t_last <= warm_max_age) {
+                sm.setInitHint(gst.t_last, gst.p_last, gst.v_last);
+            }
+            // RAL 028 S2c (A4): depth-memory prior from the last RAW solved belief —
+            // deliberate self-feedback (i_design_s2c E4); the gate-accepted stream is
+            // empty on ego bags, so gst cannot be the source.
+            if (range_mem_sigma > 0.0 && rmem_have && !pose_buf.empty()) {
+                const double dt_m = tk.now - rmem_t;
+                if (dt_m >= 0.0 && dt_m <= warm_max_age) {
+                    const Eigen::Vector3d pm = rmem_p + rmem_v * dt_m;
+                    sm.setRangeMemory(pose_buf.back().p,
+                                      (pm - pose_buf.back().p).norm(), range_mem_sigma);
+                }
+            }
+            auto add_meas = [&](const Meas& m) {
+                if (m.type == EGO_PIXEL) {
+                    sm.addEgoPixel(m.t, m.px, m.K, m.R, m.cam_t, pixel_sigma);
+                } else {
+                    const Eigen::Vector3d seed =
+                        (std::abs(m.d.x()) < 0.9) ? Eigen::Vector3d::UnitX()
+                                                  : Eigen::Vector3d::UnitY();
+                    const Eigen::Vector3d u1 = (seed - seed.dot(m.d) * m.d).normalized();
+                    const Eigen::Vector3d u2 = m.d.cross(u1);
+                    const Eigen::Matrix2d R = mas_fgo::buildPeerBearingCov(
+                        np, u1, u2, m.o, m.d, m.o + 30.0 * m.d, Sig_att, Sig_pos);
+                    sm.addPeerBearing(m.t, m.o, m.d, R);
+                }
+            };
+            int n_fed = 0;
+            if (ray_policy == 0) {
+                for (const auto& m : buf) { add_meas(m); ++n_fed; }
+            } else {
+                // S2b ray-usage policy: subsample EGO factors only (peers always fed).
+                std::vector<const Meas*> egos;
+                for (const auto& m : buf) {
+                    if (m.type == EGO_PIXEL) egos.push_back(&m);
+                    else { add_meas(m); ++n_fed; }
+                }
+                const int ne = (int)egos.size();
+                for (int i = 0; i < ne; ++i) {
+                    bool keep = true;
+                    if (ray_policy == 1 && ray_param > 0 && ne > ray_param) {
+                        const int h = ray_param / 2;   // endpoint-K: oldest h + newest K-h
+                        keep = i < h || i >= ne - (ray_param - h);
+                    } else if (ray_policy == 2 && ray_param > 1) {
+                        keep = ((ne - 1 - i) % ray_param) == 0;   // newest always kept
+                    }
+                    if (keep) { add_meas(*egos[i]); ++n_fed; }
+                }
+            }
+            if (n_fed >= 2) {
+                tk.r_solved = sm.solve();
+                tk.rd = sm.diagnostics();
+                if (tk.r_solved) {
+                    tk.q = sm.query(tk.now);
+                    rmem_have = true; rmem_t = tk.now;   // S2c A4 memory source
+                    rmem_p = tk.q.p; rmem_v = tk.q.v;
+                }
+            }
+        }
+        if (gate_on) {
+            const Eigen::Vector3d ego =
+                pose_buf.empty() ? Eigen::Vector3d::Zero() : pose_buf.back().p;
+            tk.go = mas_fgo::applyOutputGate(tk.rd, tk.r_solved, tk.q, tk.now, ego,
+                                             !pose_buf.empty(), gp, gst);
+        }
+        ticks.push_back(std::move(tk));
+    };
 
     for (const auto& e : evs) {
         switch (e.tag) {
@@ -301,56 +438,16 @@ int main(int argc, char** argv) {
             }
             break;
         }
-        case 'X': {  // onTimer at the recorded live tick
+        case 'X': {  // onTimer at the recorded live tick (tick_mode=0)
             if (out == "-") break;  // audit-only mode: no solves
-            Tick tk; tk.now = e.ta; tk.live = e.num;
-            if (fl) {  // S7 fixed-lag: persistent update, no rebuild
-                tk.r_solved = fl->update(tk.now);
-                tk.rd = fl->diagnostics();
-                if (tk.r_solved) tk.q = fl->query(tk.now);
-                if (gate_on) {
-                    const Eigen::Vector3d ego =
-                        pose_buf.empty() ? Eigen::Vector3d::Zero() : pose_buf.back().p;
-                    tk.go = mas_fgo::applyOutputGate(tk.rd, tk.r_solved, tk.q, tk.now, ego,
-                                                     !pose_buf.empty(), gp, gst);
-                }
-                ticks.push_back(std::move(tk));
-                break;
-            }
-            const double t_cut = tk.now - window_s - 0.2;
-            while (!buf.empty() && buf.front().t < t_cut) buf.pop_front();
-            tk.r_buf = (int)buf.size();
-            if (buf.size() >= 2) {
-                mas_fgo::CoopSmoother sm(prm);
-                if (warm_on && gst.have_last && tk.now - gst.t_last >= 0.0 &&
-                    tk.now - gst.t_last <= warm_max_age) {
-                    sm.setInitHint(gst.t_last, gst.p_last, gst.v_last);
-                }
-                for (const auto& m : buf) {
-                    if (m.type == EGO_PIXEL) {
-                        sm.addEgoPixel(m.t, m.px, m.K, m.R, m.cam_t, pixel_sigma);
-                    } else {
-                        const Eigen::Vector3d seed =
-                            (std::abs(m.d.x()) < 0.9) ? Eigen::Vector3d::UnitX()
-                                                      : Eigen::Vector3d::UnitY();
-                        const Eigen::Vector3d u1 = (seed - seed.dot(m.d) * m.d).normalized();
-                        const Eigen::Vector3d u2 = m.d.cross(u1);
-                        const Eigen::Matrix2d R = mas_fgo::buildPeerBearingCov(
-                            np, u1, u2, m.o, m.d, m.o + 30.0 * m.d, Sig_att, Sig_pos);
-                        sm.addPeerBearing(m.t, m.o, m.d, R);
-                    }
-                }
-                tk.r_solved = sm.solve();
-                tk.rd = sm.diagnostics();
-                if (tk.r_solved) tk.q = sm.query(tk.now);
-            }
-            if (gate_on) {
-                const Eigen::Vector3d ego =
-                    pose_buf.empty() ? Eigen::Vector3d::Zero() : pose_buf.back().p;
-                tk.go = mas_fgo::applyOutputGate(tk.rd, tk.r_solved, tk.q, tk.now, ego,
-                                                 !pose_buf.empty(), gp, gst);
-            }
-            ticks.push_back(std::move(tk));
+            if (tick_mode != 0) break;   // RAL ticket 028: C-stamp ticks selected instead
+            run_tick(e.ta, e.num);
+            break;
+        }
+        case 'Q': {  // RAL ticket 028: tick at the recorded belief stamp (tick_mode=1)
+            if (out == "-") break;
+            if (tick_mode != 1) break;
+            run_tick(e.num[0], {});
             break;
         }
         default:
@@ -373,7 +470,8 @@ int main(int argc, char** argv) {
          "rec_x,rec_y,rec_z,rec_vx,rec_vy,rec_vz,rec_c00,rec_c01,rec_c02,rec_c11,rec_c12,rec_c22,"
          "gt_x,gt_y,gt_z,gt_vx,gt_vy,gt_vz,"
          "r_perr,r_verr,rec_perr,rec_verr,r_vs_rec,nees_p,nees_v,rec_nees_p,"
-         "pub_valid,gate_reason,pub_x,pub_y,pub_z,pub_perr,pub_verr,pub_nees_p\n";
+         "pub_valid,gate_reason,pub_x,pub_y,pub_z,pub_vx,pub_vy,pub_vz,"
+         "pub_perr,pub_verr,pub_nees_p\n";
 
     int n_solved = 0, n_diag_match = 0, n_have_c = 0;
     for (const auto& tk : ticks) {
@@ -443,9 +541,10 @@ int main(int argc, char** argv) {
             const double pnp = nees3(tk.go.p - gt_p,
                                      Eigen::Matrix3d(tk.go.cov.block<3, 3>(0, 0)));
             v3(tk.go.p);
+            v3(tk.go.v);   // RAL ticket 028: published velocity (e_ZEM on fallback ticks)
             o << "," << pperr << "," << pverr << "," << pnp << "\n";
         } else {
-            o << ",nan,nan,nan,nan,nan,nan\n";
+            o << ",nan,nan,nan,nan,nan,nan,nan,nan,nan\n";
         }
     }
 
@@ -458,6 +557,9 @@ int main(int argc, char** argv) {
               << " | det drops: gate=" << drop_gate << " interp=" << drop_interp << "\n";
     std::cerr << "params: pixel_sigma=" << pixel_sigma << " bearing_deg=" << bearing_deg
               << " sigma_psi_deg=" << sigma_psi_deg << " use_robust=" << use_robust
-              << " window_s=" << window_s << " q_c=" << q_c << " order=" << order << "\n";
+              << " window_s=" << window_s << " q_c=" << q_c << " order=" << order
+              << " | t028: gate_min_peer=" << gate_min_peer << " init_range_m=" << init_range_m
+              << " tick_mode=" << tick_mode << " ray_policy=" << ray_policy
+              << " ray_param=" << ray_param << "\n";
     return 0;
 }

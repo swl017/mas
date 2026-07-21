@@ -46,6 +46,11 @@ TOPICS=(
   "/${INT_NS}/simple_loc/target_twist"
   "/${INT_NS}/direct_loc/target_pose"
   "/${INT_NS}/direct_loc/target_twist"
+  # RAL ticket 028: ego-only FGO arm belief (ego_smoother.launch.py). Harmless when the
+  # node is absent (zero-message topics), same pattern as the OBS_NS block below.
+  "/${INT_NS}/ego_fgo_loc/target_pose"
+  "/${INT_NS}/ego_fgo_loc/target_twist"
+  "/${INT_NS}/ego_fgo_loc/solver_diagnostics"
 )
 
 # Cooperative run: add the observer truth odom (parallax geometry) + the fused

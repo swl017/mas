@@ -44,6 +44,16 @@ public:
         // velocity ~10-38x overconfident at any q_c; this scales the published vel block
         // (and cross-block by sqrt) so downstream consumers see an honest vel cov). 1 = off.
         double vel_cov_inflation = 1.0;
+        // RAL ticket 028: acquisition fallback range [m] along the first ray when the
+        // two-ray midpoint seed is unavailable (ego-only windows always take this path).
+        // 30.0 preserves the 024 behavior; the ego-only mode sets the deployed BO-EKF
+        // init_range_guess for prior parity.
+        double init_range_m = 30.0;
+        // RAL ticket 028 S2c: model the episode-varying DC pixel offset as a shared
+        // 2-DOF bias state (one key per solve, zero-mean prior sigma bias_sigma_px)
+        // instead of pretending per-ray noise is white. Off = 024 behavior.
+        bool use_bias_state = false;
+        double bias_sigma_px = 200.0;
     };
 
     struct Query {
@@ -70,6 +80,7 @@ public:
         double t_newest = 0.0;
         Eigen::Vector3d seed = Eigen::Vector3d::Zero();  // init seed (midpoint or warm hint)
         bool warm_started = false;                       // S6: init came from the hint
+        Eigen::Vector2d bias_est = Eigen::Vector2d::Zero();  // S2c: solved pixel bias
     };
     const Diagnostics& diagnostics() const { return diag_; }
 
@@ -84,6 +95,14 @@ public:
     void setInitHint(double t, const Eigen::Vector3d& p, const Eigen::Vector3d& v)
     {
         hint_valid_ = true; hint_t_ = t; hint_p_ = p; hint_v_ = v;
+    }
+
+    // RAL ticket 028 S2c (A4, IDP-inspired ADAPTED): 1-DOF depth-memory prior on the
+    // newest state — |X - o_ego| ~ N(r_mem, sigma_r^2). One-shot: consumed by the next
+    // solve(); the caller re-arms per tick. Self-confirming-feedback risk by design.
+    void setRangeMemory(const Eigen::Vector3d& o_ego, double r_mem, double sigma_r)
+    {
+        rmem_valid_ = true; rmem_o_ = o_ego; rmem_r_ = r_mem; rmem_sigma_ = sigma_r;
     }
 
     // --- measurement ingestion (each carries its own capture time) --------------------------
@@ -153,6 +172,12 @@ public:
             init.insert(pkey(i), gtsam::Point3(pi));
             init.insert(vkey(i), gtsam::Vector3(v0_guess));
         }
+        // RAL 028 S2c: shared pixel-bias state (one per solve) with a zero-mean prior.
+        if (prm_.use_bias_state) {
+            init.insert(bkey(), gtsam::Vector2(0.0, 0.0));
+            graph.addPrior(bkey(), gtsam::Vector2(0.0, 0.0),
+                           gtsam::noiseModel::Isotropic::Sigma(2, prm_.bias_sigma_px));
+        }
 
         // CV motion chain.
         for (int i = 0; i + 1 < n; ++i) {
@@ -177,7 +202,11 @@ public:
                     en = gtsam::noiseModel::Robust::Create(
                         gtsam::noiseModel::mEstimator::Huber::Create(prm_.huber_k), en);
                 }
-                graph.add(EgoPixelFactor(pkey(i), m.px, m.K, m.R, m.o, en));
+                if (prm_.use_bias_state) {  // RAL 028 S2c
+                    graph.add(EgoPixelBiasFactor(pkey(i), bkey(), m.px, m.K, m.R, m.o, en));
+                } else {
+                    graph.add(EgoPixelFactor(pkey(i), m.px, m.K, m.R, m.o, en));
+                }
                 ++diag_.n_ego;
             } else {
                 gtsam::SharedNoiseModel bn = gtsam::noiseModel::Gaussian::Covariance(m.cov2);
@@ -190,6 +219,13 @@ public:
             }
         }
 
+        // RAL 028 S2c (A4): one-shot depth-memory range prior on the newest state.
+        if (rmem_valid_) {
+            graph.add(RangePriorFactor(pkey(n - 1), rmem_o_, rmem_r_,
+                                       gtsam::noiseModel::Isotropic::Sigma(1, rmem_sigma_)));
+            rmem_valid_ = false;
+        }
+
         gtsam::LevenbergMarquardtParams lm;
         lm.setMaxIterations(100);
         diag_.max_iterations = 100;
@@ -198,6 +234,7 @@ public:
         result_ = opt.optimize();
         diag_.iterations = static_cast<int>(opt.iterations());
         diag_.error_after = graph.error(result_);
+        if (prm_.use_bias_state) diag_.bias_est = result_.at<gtsam::Vector2>(bkey());
         double mfe = 0.0;
         for (const auto& f : graph) if (f) mfe = std::max(mfe, f->error(result_));
         diag_.max_factor_error = mfe;
@@ -261,6 +298,7 @@ private:
 
     static gtsam::Key pkey(int i) { return gtsam::Symbol('x', i).key(); }
     static gtsam::Key vkey(int i) { return gtsam::Symbol('v', i).key(); }
+    static gtsam::Key bkey()      { return gtsam::Symbol('b', 0).key(); }  // S2c bias
 
     static double nearestTime(const std::vector<double>& times, double t)
     {
@@ -327,9 +365,10 @@ private:
             Eigen::Vector3d o1, d1; egoRay(*ego, o1, d1);
             if (midpoint(o1, d1, peer->o, peer->dir, out)) return true;
         }
-        // Fallback: nominal range along the first available ray.
-        if (peer) { out = peer->o + 30.0 * peer->dir; return true; }
-        if (ego)  { Eigen::Vector3d o1, d1; egoRay(*ego, o1, d1); out = o1 + 30.0 * d1; return true; }
+        // Fallback: nominal range along the first available ray (RAL ticket 028: prm_.init_range_m).
+        if (peer) { out = peer->o + prm_.init_range_m * peer->dir; return true; }
+        if (ego)  { Eigen::Vector3d o1, d1; egoRay(*ego, o1, d1);
+                    out = o1 + prm_.init_range_m * d1; return true; }
         return false;
     }
 
@@ -344,6 +383,9 @@ private:
     double hint_t_ = 0.0;
     Eigen::Vector3d hint_p_ = Eigen::Vector3d::Zero();
     Eigen::Vector3d hint_v_ = Eigen::Vector3d::Zero();
+    bool rmem_valid_ = false;            // S2c A4 depth-memory prior (one-shot)
+    Eigen::Vector3d rmem_o_ = Eigen::Vector3d::Zero();
+    double rmem_r_ = 0.0, rmem_sigma_ = 30.0;
 };
 
 }  // namespace mas_fgo

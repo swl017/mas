@@ -92,6 +92,10 @@ public:
         declare_parameter<double>("window_s", 1.2);           // RAL 024 S4
         declare_parameter<double>("q_c", 4.0);
         declare_parameter<bool>("use_robust", false);
+        // RAL ticket 028: acquisition fallback range along the first ray (ego-only windows
+        // always take this path); the ego-only mode sets the deployed BO-EKF init_range_guess
+        // for prior parity. 30.0 = the 024 behavior.
+        declare_parameter<double>("init_range_m", 30.0);
 
         frame_id_ = get_parameter("frame_id").as_string();
         gimbal_order_ = get_parameter("gimbal_angle_order").as_string();
@@ -116,6 +120,7 @@ public:
         prm_.window_s = get_parameter("window_s").as_double();
         prm_.q_c = get_parameter("q_c").as_double();
         prm_.use_robust = get_parameter("use_robust").as_bool();
+        prm_.init_range_m = get_parameter("init_range_m").as_double();  // RAL ticket 028
         // Backend construction must come AFTER prm_ is fully populated.
         if (get_parameter("backend").as_string() == "fixedlag") {
             fl_ = std::make_unique<mas_fgo::CoopSmootherFL>(

@@ -166,6 +166,87 @@ private:
     static constexpr double kRhoFloor_ = 1e-3;
 };
 
+// ---------------------------------------------------------------------------------------------
+// RAL ticket 028 S2c — ego pixel factor with a shared 2-DOF pixel-bias state b:
+//   r = observed - (proj(X) + b)
+// Models the episode-varying DC detection/transduction offset (024 S4) explicitly instead of
+// pretending the per-ray noise is white. One bias key is shared by all ego factors of a solve.
+// ---------------------------------------------------------------------------------------------
+class EgoPixelBiasFactor : public gtsam::NoiseModelFactor2<gtsam::Point3, gtsam::Vector2>
+{
+public:
+    EgoPixelBiasFactor(gtsam::Key x, gtsam::Key b, const Eigen::Vector2d& observed,
+                       const Eigen::Matrix3d& K, const Eigen::Matrix3d& R_cam,
+                       const Eigen::Vector3d& t_cam, const gtsam::SharedNoiseModel& noise,
+                       const Eigen::Matrix3d& world_to_camera =
+                           (Eigen::Matrix3d() << 0, -1, 0, 0, 0, -1, 1, 0, 0).finished())
+        : gtsam::NoiseModelFactor2<gtsam::Point3, gtsam::Vector2>(noise, x, b),
+          observed_(observed), t_cam_(t_cam),
+          fx_(K(0, 0)), fy_(K(1, 1)), cx_(K(0, 2)), cy_(K(1, 2)),
+          M_(world_to_camera * R_cam.transpose()) {}
+
+    gtsam::Vector evaluateError(
+        const gtsam::Point3& X, const gtsam::Vector2& b,
+        boost::optional<gtsam::Matrix&> HX = boost::none,
+        boost::optional<gtsam::Matrix&> Hb = boost::none) const override
+    {
+        const Eigen::Vector3d Xc = M_ * (X - t_cam_);
+        const double Z = Xc.z();
+        if (Z <= kZFloor_) {
+            if (HX) *HX = Eigen::Matrix<double, 2, 3>::Zero();
+            if (Hb) *Hb = Eigen::Matrix<double, 2, 2>::Zero();
+            return (gtsam::Vector2() << 1e3, 1e3).finished();
+        }
+        const double u = fx_ * Xc.x() / Z + cx_;
+        const double v = fy_ * Xc.y() / Z + cy_;
+        if (HX) {
+            Eigen::Matrix<double, 2, 3> dpix_dXc;
+            dpix_dXc << fx_ / Z, 0.0, -fx_ * Xc.x() / (Z * Z),
+                        0.0, fy_ / Z, -fy_ * Xc.y() / (Z * Z);
+            *HX = -dpix_dXc * M_;
+        }
+        if (Hb) *Hb = -Eigen::Matrix2d::Identity();
+        return (gtsam::Vector2() << observed_.x() - (u + b.x()),
+                                    observed_.y() - (v + b.y())).finished();
+    }
+
+private:
+    Eigen::Vector2d observed_;
+    Eigen::Vector3d t_cam_;
+    double fx_, fy_, cx_, cy_;
+    Eigen::Matrix3d M_;
+    static constexpr double kZFloor_ = 1e-3;
+};
+
+// ---------------------------------------------------------------------------------------------
+// RAL ticket 028 S2c — depth-memory range prior (IDP-inspired, ADAPTED — not a full
+// inverse-depth parameterization): 1-DOF prior on the range from a fixed ego position,
+//   r = |X - o| - r_mem
+// Carries filter-like depth memory across windows along the only weakly-observed direction.
+// Self-confirming-feedback risk is a DESIGN property (i_design_s2c E4) — probe use only.
+// ---------------------------------------------------------------------------------------------
+class RangePriorFactor : public gtsam::NoiseModelFactor1<gtsam::Point3>
+{
+public:
+    RangePriorFactor(gtsam::Key x, const Eigen::Vector3d& o_ego, double r_mem,
+                     const gtsam::SharedNoiseModel& noise)
+        : gtsam::NoiseModelFactor1<gtsam::Point3>(noise, x), o_(o_ego), r_(r_mem) {}
+
+    gtsam::Vector evaluateError(
+        const gtsam::Point3& X,
+        boost::optional<gtsam::Matrix&> H = boost::none) const override
+    {
+        const Eigen::Vector3d v = X - o_;
+        const double n = std::max(v.norm(), 1e-6);
+        if (H) *H = (v / n).transpose();
+        return (gtsam::Vector1() << n - r_).finished();
+    }
+
+private:
+    Eigen::Vector3d o_;
+    double r_;
+};
+
 }  // namespace mas_fgo
 
 #endif  // MAS_MULTIVIEW_FGO_FACTORS_H

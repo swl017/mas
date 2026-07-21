@@ -45,7 +45,8 @@ GUIDANCE_MODES = ("pn", "bearing_pn", "raw_ibvs")
 
 PREFIX = {"simple_ekf": "simple_loc", "direct_projection": "direct_loc",
           "dc_ekf": "bearing_loc",   # legacy 18-D DC-EKF (in-state feature); ticket 011
-          "cooperative": "coop_loc"}  # ticket 019: mock-cooperative fusion (mas_coop_mock)
+          "cooperative": "coop_loc",  # ticket 019: mock-cooperative fusion (mas_coop_mock)
+          "ego_fgo": "ego_fgo_loc"}   # RAL ticket 028 S3': ego-only FGO arm (ego_smoother)
 
 
 def _be(depth=10):

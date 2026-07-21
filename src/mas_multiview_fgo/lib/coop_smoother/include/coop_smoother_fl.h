@@ -241,12 +241,13 @@ private:
             if (!m.ego && !peer) peer = &m;
         }
         Eigen::Vector3d seed;
+        const double r0 = prm_.init_range_m;   // RAL ticket 028: parity-configurable fallback range
         if (ego && peer) {
             Eigen::Vector3d o1, d1; egoRay(*ego, o1, d1);
             if (!midpoint(o1, d1, peer->o, peer->dir, seed))
-                seed = peer->o + 30.0 * peer->dir;
-        } else if (peer) { seed = peer->o + 30.0 * peer->dir; }
-        else if (ego)    { Eigen::Vector3d o1, d1; egoRay(*ego, o1, d1); seed = o1 + 30.0 * d1; }
+                seed = peer->o + r0 * peer->dir;
+        } else if (peer) { seed = peer->o + r0 * peer->dir; }
+        else if (ego)    { Eigen::Vector3d o1, d1; egoRay(*ego, o1, d1); seed = o1 + r0 * d1; }
         else return false;
         if (raw_.size() < 2) return false;
         diag_.seed = seed;
