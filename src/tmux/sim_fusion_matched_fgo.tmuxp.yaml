@@ -14,6 +14,7 @@ environment:
   ROS2_WORKSPACE: /home/usrg/mas
   USE_SIM_TIME: 'true'
   TAU_S: '0.0'
+  FGO_BACKEND: 'fixedlag'   # RAL 024 S7 deployment candidate (batch = fallback)
 
 options:
   default-command: /bin/bash
@@ -34,6 +35,9 @@ windows:
   shell_command_before:
     - source ${ROS2_INSTALL_PATH}/setup.bash && source ${ROS2_WORKSPACE}/install/setup.bash
   panes:
+    # RAL 024 S7 config: S4 measurement model (pixel_sigma 120, window 1.2) + S5 gates/assoc +
+    # S6 warm-start are the node DEFAULTS; stated explicitly here so the capture provenance is
+    # self-documenting. FGO_BACKEND: batch | fixedlag (S7 A/B'd; fixedlag = deployment candidate).
     - >-
       ros2 run mas_multiview_fgo coop_smoother_node --ros-args -r __ns:=/px4_1
       -p ego_detection_topic:=/px4_1/yolo_result_vision
@@ -44,3 +48,7 @@ windows:
       -p gimbal_angle_order:=zxy
       -p "peer_ray_topics:=['/px4_2/target_rays_w']"
       -p coop_prefix:=coop_loc -p use_sim_time:=${USE_SIM_TIME}
+      -p pixel_sigma_px:=120.0 -p window_s:=1.2 -p q_c:=4.0
+      -p vel_cov_inflation:=20.0 -p gate_enabled:=true -p use_warm_start:=true
+      -p target_class:=drone -p min_det_score:=0.25
+      -p backend:=${FGO_BACKEND}
